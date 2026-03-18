@@ -1,0 +1,1 @@
+"""Resources models submodule."""

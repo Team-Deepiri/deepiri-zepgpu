@@ -1,0 +1,110 @@
+version: '3.8'
+
+services:
+  zepgpu:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: zepgpu:latest
+    container_name: zepgpu
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - CUDA_VISIBLE_DEVICES=0,1
+      - ZEPGPU_REDIS_URL=redis://redis:6379
+      - ZEPGPU_POSTGRES_URL=postgresql://zepgpu:zepgpu@zepgpu-db:5432/zepgpu
+      - ZEPGPU_API_PORT=8000
+      - ZEPGPU_WS_PORT=8765
+    ports:
+      - "8000:8000"
+      - "8765:8765"
+    volumes:
+      - zepgpu-data:/root/.zepgpu
+      - zepgpu-models:/root/.cache/zepgpu/models
+    depends_on:
+      - redis
+      - zepgpu-db
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 2
+              capabilities: [gpu]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  zepgpu-ui:
+    build:
+      context: ./zepgpu-ui
+      dockerfile: Dockerfile
+    image: zepgpu-ui:latest
+    container_name: zepgpu-ui
+    ports:
+      - "3000:80"
+    depends_on:
+      - zepgpu
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+
+  zepgpu-db:
+    image: postgres:15-alpine
+    container_name: zepgpu-db
+    environment:
+      - POSTGRES_USER=zepgpu
+      - POSTGRES_PASSWORD=zepgpu
+      - POSTGRES_DB=zepgpu
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./docker/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+volumes:
+  zepgpu-data:
+  zepgpu-models:
+  redis-data:
+  postgres-data:
+  prometheus-data:
+  grafana-data:

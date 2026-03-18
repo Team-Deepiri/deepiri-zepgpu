@@ -1,0 +1,322 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zepgpu-api
+  namespace: zepgpu
+  labels:
+    app: zepgpu-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: zepgpu-api
+  template:
+    metadata:
+      labels:
+        app: zepgpu-api
+    spec:
+      containers:
+      - name: api
+        image: zepgpu:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000
+          name: http
+        - containerPort: 8765
+          name: websocket
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: zepgpu-secrets
+              key: database-url
+        - name: REDIS_URL
+          value: "redis://redis:6379"
+        - name: S3_ENDPOINT_URL
+          value: "http://minio:9000"
+        - name: JWT_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: zepgpu-secrets
+              key: jwt-secret
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      nodeSelector:
+        gpu: "true"
+      tolerations:
+      - key: "nvidia.com/gpu"
+        operator: "Exists"
+        effect: "NoSchedule"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zepgpu-ui
+  namespace: zepgpu
+  labels:
+    app: zepgpu-ui
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: zepgpu-ui
+  template:
+    metadata:
+      labels:
+        app: zepgpu-ui
+    spec:
+      containers:
+      - name: ui
+        image: zepgpu-ui:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 80
+          name: http
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zepgpu-worker
+  namespace: zepgpu
+  labels:
+    app: zepgpu-worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: zepgpu-worker
+  template:
+    metadata:
+      labels:
+        app: zepgpu-worker
+    spec:
+      containers:
+      - name: worker
+        image: zepgpu:latest
+        imagePullPolicy: Always
+        command: ["python", "-m", "celery", "-A", "deepiri_zepgpu.queue.celery_app", "worker"]
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: zepgpu-secrets
+              key: database-url
+        - name: REDIS_URL
+          value: "redis://redis:6379"
+        - name: CELERY_BROKER_URL
+          value: "redis://redis:6379/1"
+        - name: CELERY_RESULT_BACKEND
+          value: "redis://redis:6379/2"
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+            nvidia.com/gpu: 1
+          limits:
+            memory: "4Gi"
+            cpu: "2000m"
+            nvidia.com/gpu: 1
+        volumeMounts:
+        - name: nvidia-driver
+          mountPath: /usr/local/nvidia
+      volumes:
+      - name: nvidia-driver
+        hostPath:
+          path: /usr/local/nvidia
+      nodeSelector:
+        gpu: "true"
+      tolerations:
+      - key: "nvidia.com/gpu"
+        operator: "Exists"
+        effect: "NoSchedule"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zepgpu-api
+  namespace: zepgpu
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8000
+    targetPort: 8000
+    name: http
+  - port: 8765
+    targetPort: 8765
+    name: websocket
+  selector:
+    app: zepgpu-api
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zepgpu-ui
+  namespace: zepgpu
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 80
+    name: http
+  selector:
+    app: zepgpu-ui
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: zepgpu
+spec:
+  type: ClusterIP
+  ports:
+  - port: 6379
+    targetPort: 6379
+  selector:
+    app: redis
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: zepgpu
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        ports:
+        - containerPort: 6379
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zepgpu-db
+  namespace: zepgpu
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zepgpu-db
+  template:
+    metadata:
+      labels:
+        app: zepgpu-db
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:15
+        env:
+        - name: POSTGRES_DB
+          value: zepgpu
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: zepgpu-secrets
+              key: postgres-user
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: zepgpu-secrets
+              key: postgres-password
+        volumeMounts:
+        - name: postgres-data
+          mountPath: /var/lib/postgresql/data
+      volumes:
+      - name: postgres-data
+        persistentVolumeClaim:
+          claimName: zepgpu-db-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zepgpu-db
+  namespace: zepgpu
+spec:
+  type: ClusterIP
+  ports:
+  - port: 5432
+    targetPort: 5432
+  selector:
+    app: zepgpu-db
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: zepgpu-db-pvc
+  namespace: zepgpu
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: zepgpu-secrets
+  namespace: zepgpu
+type: Opaque
+stringData:
+  database-url: "postgresql+asyncpg://zepgpu:zepgpu@zepgpu-db:5432/zepgpu"
+  postgres-user: "zepgpu"
+  postgres-password: "zepgpu"
+  jwt-secret: "your-super-secret-jwt-key-change-in-production"
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: zepgpu-api-hpa
+  namespace: zepgpu
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: zepgpu-api
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
