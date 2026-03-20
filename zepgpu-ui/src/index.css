@@ -3,10 +3,10 @@
 @tailwind utilities;
 
 :root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   line-height: 1.5;
   font-weight: 400;
-  color-scheme: light dark;
+  color-scheme: dark;
   color: rgba(255, 255, 255, 0.87);
   background-color: #0f172a;
   font-synthesis: none;
@@ -24,4 +24,75 @@ body {
 
 #root {
   width: 100%;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #334155 #1e293b;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: #1e293b;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 3px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
+@layer utilities {
+  .glow-cyan {
+    box-shadow: 0 0 5px #00ffff, 0 0 20px #00ffff40, 0 0 40px #00ffff20;
+  }
+  .glow-purple {
+    box-shadow: 0 0 5px #bf00ff, 0 0 20px #bf00ff40, 0 0 40px #bf00ff20;
+  }
+  .glow-pink {
+    box-shadow: 0 0 5px #ff10f0, 0 0 20px #ff10f040, 0 0 40px #ff10f020;
+  }
+  .glow-green {
+    box-shadow: 0 0 5px #39ff14, 0 0 20px #39ff1440, 0 0 40px #39ff1420;
+  }
+
+  .grid-bg {
+    background-image:
+      linear-gradient(rgba(30, 41, 59, 0.5) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(30, 41, 59, 0.5) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+
+  .noise {
+    position: relative;
+  }
+  .noise::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+    pointer-events: none;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded-lg font-medium transition-all shadow-lg shadow-blue-500/20;
+  }
+  .btn-danger {
+    @apply px-4 py-2 bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 text-white rounded-lg font-medium transition-all shadow-lg shadow-red-500/20;
+  }
+  .card {
+    @apply bg-slate-800/80 rounded-2xl border border-slate-700/50 backdrop-blur-sm;
+  }
+  .card-hover {
+    @apply hover:border-slate-600 hover:shadow-xl transition-all cursor-pointer;
+  }
 }
