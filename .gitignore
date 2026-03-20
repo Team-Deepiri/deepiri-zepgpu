@@ -84,3 +84,5 @@ site/
 # Test outputs
 test-results/
 playwright-report/
+
+node_modules
