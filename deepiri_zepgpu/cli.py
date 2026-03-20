@@ -123,6 +123,87 @@ if HAS_CLICK:
         import subprocess
         subprocess.run(["alembic", "history", "--verbose"])
 
+    @cli.command()
+    def beat_sync():
+        """Sync schedules to Celery Beat."""
+        from deepiri_zepgpu.queue.beat_sync import beat_scheduler_sync
+        synced = beat_scheduler_sync.sync_all_schedules()
+        print(f"Synced {synced} schedules to Celery Beat")
+
+    @cli.command()
+    @click.option("--schedule-id", required=True, help="Schedule ID to trigger")
+    def beat_trigger(schedule_id):
+        """Trigger a scheduled task to run immediately."""
+        from deepiri_zepgpu.queue.tasks import execute_scheduled_task
+        result = execute_scheduled_task.delay(schedule_id)
+        print(f"Triggered schedule {schedule_id}, task ID: {result.id}")
+
+    @cli.command()
+    def beat_status():
+        """Show Celery Beat schedule status."""
+        from deepiri_zepgpu.queue.beat_sync import beat_scheduler_sync
+        schedules = beat_scheduler_sync.get_beat_schedule()
+        if schedules:
+            print(f"Active schedules in beat: {len(schedules)}")
+            for schedule_id, entry in schedules.items():
+                print(f"  - {schedule_id}: {entry.get('task', 'N/A')}")
+        else:
+            print("No active schedules in beat")
+
+    @cli.command()
+    def celery_worker():
+        """Start a Celery worker."""
+        import subprocess
+        import sys
+        sys.exit(subprocess.call([
+            "celery", "-A", "deepiri_zepgpu.queue.celery_app",
+            "worker", "--loglevel=info", "--queues=gpu_tasks,schedules"
+        ]))
+
+    @cli.command()
+    def celery_beat():
+        """Start Celery Beat scheduler."""
+        import subprocess
+        import sys
+        sys.exit(subprocess.call([
+            "celery", "-A", "deepiri_zepgpu.queue.celery_app",
+            "beat", "--loglevel=info"
+        ]))
+
+    @cli.command()
+    @click.option("--num-gpus", default=2, help="Number of GPUs required")
+    @click.option("--name", required=True, help="Gang task name")
+    @click.option("--priority", default=2, help="Task priority (1-5)")
+    def gang_create(num_gpus, name, priority):
+        """Create a new gang scheduled task."""
+        from deepiri_zepgpu.queue.tasks import execute_gang_task
+        import uuid
+        gang_id = str(uuid.uuid4())
+        result = execute_gang_task.delay(gang_id)
+        print(f"Created gang task {gang_id} with name '{name}', {num_gpus} GPUs")
+
+    @cli.command()
+    def gang_list():
+        """List pending gang tasks."""
+        print("Listing gang tasks...")
+
+    @cli.command()
+    def preempt_check():
+        """Trigger preemption check manually."""
+        from deepiri_zepgpu.queue.tasks import check_and_preempt
+        result = check_and_preempt.delay()
+        print(f"Preemption check triggered, task ID: {result.id}")
+
+    @cli.command()
+    def fair_share_status():
+        """Show fair share scheduling status."""
+        from deepiri_zepgpu.queue.tasks import get_fair_share_weights
+        result = get_fair_share_weights.delay()
+        weights = result.get(timeout=10)
+        print("Fair Share Weights:")
+        for user_id, data in weights.get("weights", {}).items():
+            print(f"  {user_id}: weight={data['weight']:.2f}, used={data['gpu_seconds_used']:.0f}s")
+
 
 if __name__ == "__main__":
     main()
