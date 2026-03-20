@@ -60,6 +60,87 @@ services:
     command: redis-server --appendonly yes
     restart: unless-stopped
 
+  celery-beat:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: zepgpu:latest
+    container_name: celery-beat
+    command: celery -A deepiri_zepgpu.queue.celery_app beat --loglevel=info
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - CELERY_BEAT_SCHEDULE_DB=redis://redis:6379/3
+      - ZEPGPU_REDIS_URL=redis://redis:6379
+      - ZEPGPU_POSTGRES_URL=postgresql://zepgpu:zepgpu@zepgpu-db:5432/zepgpu
+    depends_on:
+      - redis
+      - zepgpu-db
+    restart: unless-stopped
+
+  celery-worker-schedules:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: zepgpu:latest
+    container_name: celery-worker-schedules
+    command: celery -A deepiri_zepgpu.queue.celery_app worker --loglevel=info --queues=schedules
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - CELERY_BEAT_SCHEDULE_DB=redis://redis:6379/3
+      - ZEPGPU_REDIS_URL=redis://redis:6379
+      - ZEPGPU_POSTGRES_URL=postgresql://zepgpu:zepgpu@zepgpu-db:5432/zepgpu
+    depends_on:
+      - redis
+      - zepgpu-db
+    restart: unless-stopped
+
+  celery-worker-gang:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: zepgpu:latest
+    container_name: celery-worker-gang
+    runtime: nvidia
+    command: celery -A deepiri_zepgpu.queue.celery_app worker --loglevel=info --queues=gang
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - CELERY_BEAT_SCHEDULE_DB=redis://redis:6379/3
+      - ZEPGPU_REDIS_URL=redis://redis:6379
+      - ZEPGPU_POSTGRES_URL=postgresql://zepgpu:zepgpu@zepgpu-db:5432/zepgpu
+      - CUDA_VISIBLE_DEVICES=0,1
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 2
+              capabilities: [gpu]
+    depends_on:
+      - redis
+      - zepgpu-db
+    restart: unless-stopped
+
+  celery-worker-preemption:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: zepgpu:latest
+    container_name: celery-worker-preemption
+    command: celery -A deepiri_zepgpu.queue.celery_app worker --loglevel=info --queues=preemption
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - CELERY_BEAT_SCHEDULE_DB=redis://redis:6379/3
+      - ZEPGPU_REDIS_URL=redis://redis:6379
+      - ZEPGPU_POSTGRES_URL=postgresql://zepgpu:zepgpu@zepgpu-db:5432/zepgpu
+    depends_on:
+      - redis
+      - zepgpu-db
+    restart: unless-stopped
+
   zepgpu-db:
     image: postgres:15-alpine
     container_name: zepgpu-db
