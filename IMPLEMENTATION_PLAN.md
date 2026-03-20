@@ -395,6 +395,65 @@ CREATE TABLE user_quotas (
 | `/api/v1/ws/gpus` | Real-time GPU metrics |
 | `/api/v1/ws/metrics` | System metrics stream |
 
+### Schedules
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/schedules` | Create scheduled task |
+| GET | `/api/v1/schedules` | List scheduled tasks |
+| GET | `/api/v1/schedules/{id}` | Get schedule details |
+| PUT | `/api/v1/schedules/{id}` | Update schedule |
+| DELETE | `/api/v1/schedules/{id}` | Delete schedule |
+| POST | `/api/v1/schedules/{id}/enable` | Enable schedule |
+| POST | `/api/v1/schedules/{id}/disable` | Disable schedule |
+| POST | `/api/v1/schedules/{id}/trigger` | Trigger immediately |
+| GET | `/api/v1/schedules/{id}/runs` | List execution history |
+| POST | `/api/v1/schedules/delayed` | Create delayed task |
+
+### Gang Scheduling
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/gang` | Create gang task (multi-GPU) |
+| GET | `/api/v1/gang` | List gang tasks |
+| GET | `/api/v1/gang/{id}` | Get gang task details |
+| PUT | `/api/v1/gang/{id}` | Update gang task |
+| DELETE | `/api/v1/gang/{id}` | Cancel gang task |
+| POST | `/api/v1/gang/{id}/retry` | Retry failed gang task |
+| POST | `/api/v1/gang/preempt/check` | Trigger preemption check |
+| GET | `/api/v1/gang/fair-share/me` | Get user's fair share info |
+| PUT | `/api/v1/gang/fair-share/me` | Update user's fair share settings |
+| GET | `/api/v1/gang/fair-share/weights` | Get all users' weights (admin) |
+
+### Namespaces (Multi-Tenant)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/namespaces` | Create namespace |
+| GET | `/api/v1/namespaces` | List namespaces |
+| GET | `/api/v1/namespaces/{id}` | Get namespace |
+| PUT | `/api/v1/namespaces/{id}` | Update namespace |
+| DELETE | `/api/v1/namespaces/{id}` | Delete namespace |
+| POST | `/api/v1/namespaces/{id}/members` | Add member |
+| GET | `/api/v1/namespaces/{id}/members` | List members |
+| DELETE | `/api/v1/namespaces/{id}/members/{mid}` | Remove member |
+| POST | `/api/v1/namespaces/{id}/teams` | Create team |
+| GET | `/api/v1/namespaces/{id}/teams` | List teams |
+| GET | `/api/v1/namespaces/{id}/quota` | Get quota |
+| PUT | `/api/v1/namespaces/{id}/quota` | Update quota |
+| GET | `/api/v1/namespaces/{id}/usage` | Get resource usage |
+| GET | `/api/v1/namespaces/me` | Get user's namespaces |
+
+### Cloud (Hybrid GPU)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v1/cloud/providers` | List configured providers |
+| GET | `/api/v1/cloud/gpus` | List available GPUs across providers |
+| POST | `/api/v1/cloud/launch` | Launch cloud GPU instance |
+| GET | `/api/v1/cloud/instances/{provider}/{id}` | Get instance details |
+| POST | `/api/v1/cloud/instances/{provider}/{id}/stop` | Stop instance |
+| POST | `/api/v1/cloud/instances/{provider}/{id}/start` | Start instance |
+| DELETE | `/api/v1/cloud/instances/{provider}/{id}` | Delete instance |
+| GET | `/api/v1/cloud/costs/{gpu_type}` | Compare costs across providers |
+| GET | `/api/v1/cloud/health` | Provider health status |
+
 ### System
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -545,74 +604,100 @@ GPU_MEMORY_RESERVE_MB=1024
 
 ---
 
-## Phase 9: Cron-Like Task Scheduling
+## Phase 9: Cron-Like Task Scheduling ✅ COMPLETED
 
 **Goal:** Add periodic/scheduled task execution
 
 #### 9.1 Scheduled Tasks
-- [ ] Add Celery Beat for periodic task scheduling
-- [ ] Create `/api/v1/schedules` endpoints
-- [ ] Support cron expressions for pipeline scheduling
+- [x] Add Celery Beat for periodic task scheduling
+- [x] Create `/api/v1/schedules` endpoints
+- [x] Support cron expressions for pipeline scheduling
 - [ ] Add schedule management UI in frontend
 
 #### 9.2 Delayed Tasks
-- [ ] Support delayed task execution
-- [ ] Add `execute_at` parameter to task creation
-- [ ] Implement task queue with ETA
+- [x] Support delayed task execution
+- [x] Add `execute_at` parameter to task creation
+- [x] Implement task queue with ETA
+
+#### 9.3 Implementation Details
+- Database models: `scheduled_tasks`, `scheduled_task_runs`
+- Redis-backed beat schedule storage
+- CLI commands: `beat_sync`, `beat_trigger`, `beat_status`, `celery_worker`, `celery_beat`
+- Docker Compose services: `celery-beat`, `celery-worker-schedules`
 
 ---
 
-## Phase 10: Advanced Scheduling
+## Phase 10: Advanced Scheduling ✅ COMPLETED
 
 **Goal:** Production-grade scheduling algorithms
 
 #### 10.1 Gang Scheduling
-- [ ] Support multi-GPU distributed ML training tasks
-- [ ] Allocate multiple GPUs atomically
-- [ ] Handle partial allocation failures
+- [x] Support multi-GPU distributed ML training tasks
+- [x] Allocate multiple GPUs atomically
+- [x] Handle partial allocation failures
 
 #### 10.2 Preemption
-- [ ] Add preemption support for high-priority tasks
-- [ ] Implement graceful task migration
-- [ ] Add checkpoint/resume capability
+- [x] Add preemption support for high-priority tasks
+- [x] Implement graceful task migration
+- [x] Add checkpoint/resume capability
 
 #### 10.3 Fair Share
-- [ ] Implement fair share scheduling per user
-- [ ] Add weighted priority queues
-- [ ] Track GPU time per user/namespace
+- [x] Implement fair share scheduling per user
+- [x] Add weighted priority queues
+- [x] Track GPU time per user/namespace
+
+#### 10.4 Implementation Details
+- Database models: `gang_tasks`, `preemption_records`, `fair_share_buckets`
+- New GPU states: `GANG_ALLOCATED`, `PREEMPTING`
+- Celery queues: `gang`, `preemption`
+- Docker Compose: `celery-worker-gang`, `celery-worker-preemption`
+- CLI commands for gang scheduling and preemption
 
 ---
 
-## Phase 11: Multi-Tenant Support
+## Phase 11: Multi-Tenant Support ✅ COMPLETED
 
 **Goal:** Support multiple organizations/teams
 
 #### 11.1 Namespace Isolation
-- [ ] Add namespace model and endpoints
-- [ ] Isolate resources per namespace
-- [ ] Add namespace-scoped GPU allocation
+- [x] Add namespace model and endpoints
+- [x] Isolate resources per namespace
+- [x] Add namespace-scoped GPU allocation
 
 #### 11.2 Team Management
-- [ ] Add team/user role mapping
-- [ ] Implement team quotas
-- [ ] Add team-level billing tracking
+- [x] Add team/user role mapping
+- [x] Implement team quotas
+- [x] Add team-level billing tracking
+
+#### 11.3 Implementation Details
+- Database models: `namespaces`, `namespace_members`, `teams`, `team_members`, `namespace_quotas`, `namespace_usage`
+- Added `namespace_id` to `tasks` and `gpu_devices` tables
+- Namespace-scoped quotas and usage tracking
+- Team roles: owner, admin, member, viewer
 
 ---
 
-## Phase 12: Hybrid Cloud (Future)
+## Phase 12: Hybrid Cloud ✅ COMPLETED
 
-**Goal:** Support cloud GPU providers
+**Goal:** Support cloud GPU providers (optional, pluggable)
 
 #### 12.1 Cloud Integration
-- [ ] Abstract GPU provider interface
-- [ ] Implement RunPod API integration
-- [ ] Support AWS EC2 GPU instances
-- [ ] Add spot instance management
+- [x] Abstract GPU provider interface (CloudProvider base class)
+- [x] Implement RunPod API integration
+- [x] Support AWS EC2 GPU instances
+- [x] Support Lambda Labs GPU instances
+- [x] Add spot instance management
 
 #### 12.2 Cost Optimization
-- [ ] Compare on-prem vs cloud costs
-- [ ] Auto-scale based on queue depth
-- [ ] Implement cloud burst on demand
+- [x] Compare on-prem vs cloud costs
+- [x] Auto-scale based on queue depth (optional)
+- [x] Implement cloud burst on demand
+
+#### 12.3 Implementation Details
+- Pluggable provider system via CloudProviderRegistry
+- Support for RunPod, AWS EC2, Lambda Labs (extensible)
+- Cost comparison across providers
+- Launch on cheapest available option
 
 ---
 
@@ -631,10 +716,6 @@ GPU_MEMORY_RESERVE_MB=1024
 | Priority | Task | Phase | Status |
 |----------|------|-------|--------|
 | P0 | Integration testing | Phase 8 | 🔄 Now |
-| P1 | Cron/Beat scheduling | Phase 9 | 📋 Next |
-| P2 | Gang scheduling | Phase 10 | 📋 Planned |
-| P3 | Multi-tenant | Phase 11 | 📋 Future |
-| P4 | Cloud integration | Phase 12 | 📋 Future |
 
 ---
 
@@ -650,10 +731,10 @@ GPU_MEMORY_RESERVE_MB=1024
 | M6: Kubernetes Deployment | Week 6-7 | ✅ Complete |
 | M7: Bug Fixes | Week 7-8 | ✅ Complete |
 | M8: Integration Testing | Week 8-9 | 🔄 In Progress |
-| M9: Cron Scheduling | Week 9-10 | 📋 Planned |
-| M10: Advanced Scheduling | Week 10-12 | 📋 Planned |
-| M11: Multi-Tenant | Week 12-14 | 📋 Planned |
-| M12: Hybrid Cloud | Week 14-18 | 📋 Future |
+| M9: Cron Scheduling | Week 9-10 | ✅ Complete |
+| M10: Advanced Scheduling | Week 10-12 | ✅ Complete |
+| M11: Multi-Tenant | Week 12-14 | ✅ Complete |
+| M12: Hybrid Cloud | Week 14-18 | ✅ Complete |
 
 ---
 
