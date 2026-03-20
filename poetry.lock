@@ -984,6 +984,21 @@ files = [
 toml = ["tomli ; python_full_version <= \"3.11.0a6\""]
 
 [[package]]
+name = "croniter"
+version = "6.2.2"
+description = "croniter provides iteration for datetime object with cron like format"
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+files = [
+    {file = "croniter-6.2.2-py3-none-any.whl", hash = "sha256:a5d17b1060974d36251ea4faf388233eca8acf0d09cbd92d35f4c4ac8f279960"},
+    {file = "croniter-6.2.2.tar.gz", hash = "sha256:ba60832a5ec8e12e51b8691c3309a113d1cf6526bdf1a48150ce8ec7a532d0ab"},
+]
+
+[package.dependencies]
+python-dateutil = "*"
+
+[[package]]
 name = "cryptography"
 version = "46.0.5"
 description = "cryptography is a package which provides cryptographic recipes and primitives to Python developers."
@@ -5829,4 +5844,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "f65e2697e01fd892d1344582069a49cd639366120fb50d59c3a3aa3c7cd56efa"
+content-hash = "91aceb3b2b08905546c8df4a6a4c6c18dd990f78eeb2f87852ad75b43b775a15"
