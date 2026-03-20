@@ -71,6 +71,25 @@ class AuthSettings(BaseSettings):
     refresh_token_expire_days: int = Field(default=7)
 
 
+class ScheduleSettings(BaseSettings):
+    """Scheduled task configuration."""
+    
+    beat_schedule_db: str = Field(default="redis://localhost:6379/3")
+    beat_sync_interval_seconds: int = Field(default=60)
+    max_consecutive_failures: int = Field(default=5)
+    default_schedule_enabled: bool = Field(default=True)
+
+
+class CloudSettings(BaseSettings):
+    """Cloud provider configuration."""
+    
+    enabled: bool = Field(default=False)
+    auto_scale: bool = Field(default=False)
+    max_cloud_gpus: int = Field(default=8)
+    default_max_price: float | None = Field(default=None)
+    providers: dict = Field(default_factory=dict)
+
+
 class Settings(BaseSettings):
     """Main settings class."""
     
@@ -87,6 +106,8 @@ class Settings(BaseSettings):
     api: APISettings = Field(default_factory=APISettings)
     gpu: GPUSettings = Field(default_factory=GPUSettings)
     auth: AuthSettings = Field(default_factory=AuthSettings)
+    schedule: ScheduleSettings = Field(default_factory=ScheduleSettings)
+    cloud: CloudSettings = Field(default_factory=CloudSettings)
     
     app_name: str = Field(default="zepgpu")
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(default="INFO")
