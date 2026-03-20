@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
 import { authApi } from '@/api/client'
 import { useAuthStore } from '@/stores/authStore'
+import type { UserRole } from '@/types'
 import toast from 'react-hot-toast'
 
 export default function Login() {
@@ -22,7 +23,7 @@ export default function Login() {
         toast.success('Login successful')
         navigate('/')
       } catch {
-        login(data.access_token, { id: '', username: formData.username, email: '', role: 'user', is_active: true, created_at: '' })
+        login(data.access_token, { id: '', username: formData.username, email: '', role: 'user' as UserRole, is_active: true, created_at: '', last_login: null, namespace_ids: [], total_tasks: 0, total_gpu_hours: 0 })
         navigate('/')
       }
     },
