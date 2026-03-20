@@ -49,6 +49,13 @@ class Task(UUIDMixin, TimestampMixin, Base):
         index=True,
     )
     
+    namespace_id: Mapped[str | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("namespaces.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    
     name: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     
     status: Mapped[TaskStatus] = mapped_column(
@@ -99,6 +106,7 @@ class Task(UUIDMixin, TimestampMixin, Base):
     
     __table_args__ = (
         Index("idx_tasks_user_status", "user_id", "status"),
+        Index("idx_tasks_namespace", "namespace_id"),
         Index("idx_tasks_created_at", "created_at"),
         Index("idx_tasks_status_created", "status", "created_at"),
     )

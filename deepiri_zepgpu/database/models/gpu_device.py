@@ -19,9 +19,11 @@ class GPUState(str, enum.Enum):
     """GPU availability state."""
     IDLE = "idle"
     ALLOCATED = "allocated"
+    GANG_ALLOCATED = "gang_allocated"
     RESERVED = "reserved"
     ERROR = "error"
     UNAVAILABLE = "unavailable"
+    PREEMPTING = "preempting"
 
 
 class GPUType(str, enum.Enum):
@@ -86,6 +88,13 @@ class GPUDevice(Base):
     
     pci_bus_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
     pci_device_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    
+    namespace_id: Mapped[str | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("namespaces.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     
     is_available: Mapped[bool] = mapped_column(default=True, nullable=False)
     is_monitored: Mapped[bool] = mapped_column(default=True, nullable=False)

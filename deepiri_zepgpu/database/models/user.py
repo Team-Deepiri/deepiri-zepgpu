@@ -17,6 +17,8 @@ if TYPE_CHECKING:
     from deepiri_zepgpu.database.models.pipeline import Pipeline
     from deepiri_zepgpu.database.models.audit_log import AuditLog
     from deepiri_zepgpu.database.models.user_quota import UserQuota
+    from deepiri_zepgpu.database.models.scheduled_task import ScheduledTask
+    from deepiri_zepgpu.database.models.gang_scheduling import GangTask
 
 
 class UserRole(str, enum.Enum):
@@ -54,6 +56,8 @@ class User(UUIDMixin, TimestampMixin, Base):
     pipelines: Mapped[list["Pipeline"]] = relationship("Pipeline", back_populates="user", lazy="dynamic")
     audit_logs: Mapped[list["AuditLog"]] = relationship("AuditLog", back_populates="user", lazy="dynamic")
     quota: Mapped["UserQuota"] = relationship("UserQuota", back_populates="user", uselist=False)
+    scheduled_tasks: Mapped[list["ScheduledTask"]] = relationship("ScheduledTask", back_populates="user", lazy="dynamic")
+    gang_tasks: Mapped[list["GangTask"]] = relationship("GangTask", back_populates="user", lazy="dynamic")
 
     @property
     def full_name(self) -> str:
