@@ -1,12 +1,11 @@
 # Git Hooks Directory
 
-This directory contains Git hooks that protect the `main`, `master`, and branches containing `team-dev`.
+This directory contains Git hooks that protect the `main` and `master` branches
 
 ## Protected Branches
 
 - **main** - Production branch (exact match)
 - **master** - Legacy production branch (exact match, protected for compatibility)
-- **Any branch containing `team-dev`** - Blocks any branch name that contains the substring `team-dev` (including the dash)
 
 ## Automatic Setup
 
