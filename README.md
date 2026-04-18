@@ -1,5 +1,7 @@
 # ZepGPU - Serverless GPU Framework
 
+_Made by Deepiri_
+
 <div align="center">
 
 ![ZepGPU](https://img.shields.io/badge/ZepGPU-v0.1.0-blue)
