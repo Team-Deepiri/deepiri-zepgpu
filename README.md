@@ -1,5 +1,7 @@
 # ZepGPU - Serverless GPU Framework
 
+_Made by Deepiri_
+
 <div align="center">
 
 ![ZepGPU](https://img.shields.io/badge/ZepGPU-v0.1.0-blue)
@@ -24,7 +26,7 @@
 - **PostgreSQL Persistence** - Full task history, user management, and audit logging
 - **Redis Queue** - Distributed task queue with Celery workers
 - **S3/MinIO Storage** - Tiered result storage for large outputs
-- **React Web UI** - Modern dashboard for task management
+- **Web UI** - Modern dashboard for task management
 - **Kubernetes Ready** - Production deployment manifests included
 
 ---
