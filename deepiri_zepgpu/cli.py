@@ -17,7 +17,6 @@ def main():
     if HAS_CLICK:
         cli()
     else:
-        print("Click not installed. Running basic CLI...")
         basic_cli()
 
 
@@ -32,6 +31,7 @@ def basic_cli():
         print("  status    Show task status")
         print("  cancel    Cancel a task")
         print("  gpu       Show GPU info")
+        print("  vpn       VPN network management")
         sys.exit(1)
 
     command = sys.argv[1]
@@ -45,6 +45,23 @@ def basic_cli():
         import json
         info = get_gpu_info()
         print(json.dumps(info, indent=2))
+    elif command == "vpn":
+        from deepiri_zepgpu.vpn import cli as vpn_cli
+        if len(sys.argv) < 3:
+            print("Usage: deepiri-gpu vpn <subcommand>")
+            print("  join     Join a VPN network")
+            print("  leave    Leave VPN network")
+            print("  status   Show VPN status")
+            print("  advertise  Advertise GPUs")
+            print("  list-gpus  List network GPUs")
+            sys.exit(1)
+        subcommand = sys.argv[2]
+        if subcommand == "status":
+            from deepiri_zepgpu.vpn.cli import vpn as vpn_group
+            vpn_group()
+        else:
+            print(f"Unknown vpn subcommand: {subcommand}")
+            sys.exit(1)
     else:
         print(f"Unknown command: {command}")
         sys.exit(1)
@@ -203,6 +220,121 @@ if HAS_CLICK:
         print("Fair Share Weights:")
         for user_id, data in weights.get("weights", {}).items():
             print(f"  {user_id}: weight={data['weight']:.2f}, used={data['gpu_seconds_used']:.0f}s")
+
+    from deepiri_zepgpu.vpn import cli as vpn_cli_module
+    from deepiri_zepgpu.vpn.cli import check_wireguard_installed, install_wireguard, apply_wireguard_config, get_vpn_ip, remove_wireguard_config, get_config_dir, vpn_settings
+
+    @cli.group()
+    def vpn():
+        """ZepGPU VPN - GPU sharing network management."""
+        pass
+
+    @vpn.command()
+    @click.option("--config", type=click.Path(exists=True), help="Path to WireGuard .conf file")
+    @click.option("--relay-url", default=vpn_settings.relay_api_url, help="Relay server URL")
+    @click.option("--interface", default="wg0", help="WireGuard interface name")
+    def vpn_join(config, relay_url, interface):
+        """Join a VPN network."""
+        from deepiri_zepgpu.vpn.cli import check_wireguard_installed, install_wireguard
+        if not check_wireguard_installed():
+            print("WireGuard is not installed.")
+            install_wireguard()
+            return
+        if not config:
+            click.echo("Please provide a WireGuard config file with --config")
+            return
+        config_text = Path(config).read_text()
+        if apply_wireguard_config(config_text, interface):
+            vpn_ip = get_vpn_ip()
+            click.echo(f"Connected to VPN! Your IP: {vpn_ip}")
+        else:
+            click.echo("Failed to apply WireGuard config", err=True)
+
+    @vpn.command()
+    @click.option("--interface", default="wg0", help="WireGuard interface name")
+    def vpn_leave(interface):
+        """Leave the current VPN network."""
+        if remove_wireguard_config(interface):
+            click.echo(f"Disconnected from VPN ({interface})")
+        else:
+            click.echo("Failed to disconnect from VPN", err=True)
+
+    @vpn.command()
+    @click.option("--interface", default="wg0", help="WireGuard interface name")
+    def vpn_status(interface):
+        """Show VPN connection status."""
+        import subprocess
+        result = subprocess.run(["wg", "show", interface], capture_output=True, text=True)
+        if result.returncode == 0 and result.stdout.strip():
+            click.echo(f"WireGuard interface [{interface}]:")
+            click.echo(result.stdout)
+            vpn_ip = get_vpn_ip()
+            if vpn_ip:
+                click.echo(f"VPN IP: {vpn_ip}")
+        else:
+            click.echo(f"Not connected to VPN ({interface} is down or not configured)")
+        click.echo(f"\nConfig directory: {get_config_dir()}")
+
+    @vpn.command()
+    @click.option("--relay-url", default=vpn_settings.relay_api_url, help="Relay server URL")
+    def gpu_pool(relay_url):
+        """List GPUs available in the network pool."""
+        import httpx
+        try:
+            response = httpx.get(f"{relay_url}/api/vpn/gpu-pool", timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            click.echo(f"GPU Pool:")
+            click.echo(f"  Total GPUs: {data['total_gpus']}")
+            click.echo(f"  Total Memory: {data['total_memory_mb'] // 1024}GB")
+            click.echo(f"  Available Memory: {data['available_memory_mb'] // 1024}GB")
+            click.echo(f"  Online Peers: {data['online_peers']}")
+            for gpu in data.get("gpu_breakdown", []):
+                click.echo(f"  [{gpu['username']}] {gpu['name']} - {gpu['total_memory_mb'] // 1024}GB - {gpu['state']}")
+        except Exception as e:
+            click.echo(f"Failed to fetch GPU pool: {e}", err=True)
+
+    @vpn.command()
+    @click.option("--relay-url", default=vpn_settings.relay_api_url, help="Relay server URL")
+    @click.option("--interface", default="wg0", help="WireGuard interface name")
+    def advertise(relay_url, interface):
+        """Advertise local GPUs to the relay server."""
+        from deepiri_zepgpu.vpn.cli import check_wireguard_installed, install_wireguard, get_vpn_ip
+        if not check_wireguard_installed():
+            click.echo("WireGuard is not installed.")
+            install_wireguard()
+            return
+        vpn_ip = get_vpn_ip()
+        if not vpn_ip:
+            click.echo("Not connected to VPN. Run 'deepiri-gpu vpn vpn-join' first.", err=True)
+            return
+        click.echo(f"Advertising GPUs to {relay_url}... (Ctrl+C to stop)")
+
+        async def advertise_loop():
+            from deepiri_zepgpu.vpn.peer_node import discover_local_gpus
+            import httpx
+            while True:
+                gpus = discover_local_gpus()
+                if gpus:
+                    for g in gpus:
+                        click.echo(f"  {g.name} - {g.total_memory_mb // 1024}GB")
+                try:
+                    async with httpx.AsyncClient(timeout=10) as client:
+                        await client.post(
+                            f"{relay_url}/api/vpn/peers/heartbeat",
+                            json={"peer_id": "local", "gpu_status": [g.model_dump() for g in gpus], "is_online": True},
+                        )
+                        click.echo("  GPU status advertised")
+                except Exception as e:
+                    click.echo(f"  Failed: {e}")
+                await asyncio.sleep(vpn_settings.heartbeat_interval_seconds)
+
+        try:
+            asyncio.run(advertise_loop())
+        except KeyboardInterrupt:
+            click.echo("\nStopped.")
+
+    from pathlib import Path
 
 
 if __name__ == "__main__":
