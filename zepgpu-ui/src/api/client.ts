@@ -412,9 +412,15 @@ export const vpnApi = {
     const { data } = await api.get<VpnConfigResponse>(`/vpn/networks/${networkId}/config`)
     return data
   },
-  createInvite: async (invite: { vpn_network_id: string; max_uses?: number; expires_in_days?: number }): Promise<VpnInvite> => {
-    const { data } = await api.post<VpnInvite>(`/vpn/networks/${invite.vpn_network_id}/invite`, invite)
+  createInvite: async (
+    networkId: string,
+    invite: { max_uses?: number; expires_in_days?: number },
+  ): Promise<VpnInvite> => {
+    const { data } = await api.post<VpnInvite>(`/vpn/networks/${networkId}/invite`, invite)
     return data
+  },
+  leaveNetwork: async (networkId: string): Promise<void> => {
+    await api.post(`/vpn/networks/${networkId}/leave`)
   },
   listInvites: async (): Promise<VpnInvite[]> => {
     const { data } = await api.get<VpnInvite[]>('/vpn/invites')
@@ -423,7 +429,11 @@ export const vpnApi = {
   revokeInvite: async (inviteId: string): Promise<void> => {
     await api.delete(`/vpn/invites/${inviteId}`)
   },
-  joinNetwork: async (data: { invite_code: string; wireguard_public_key: string; is_gpu_host?: boolean }): Promise<VpnConfigResponse> => {
+  joinNetwork: async (data: {
+    invite_code: string
+    wireguard_public_key?: string
+    is_gpu_host?: boolean
+  }): Promise<VpnConfigResponse> => {
     const { data: response } = await api.post<VpnConfigResponse>('/vpn/join', data)
     return response
   },

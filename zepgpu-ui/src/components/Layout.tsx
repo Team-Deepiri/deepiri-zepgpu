@@ -3,8 +3,8 @@ import { Link, useLocation } from 'react-router-dom'
 import { useAuthStore } from '@/stores/authStore'
 import {
   LayoutDashboard, ListTodo, GitBranch, Cpu, LogOut, Menu, X,
-  BarChart3, Calendar, Globe, Users, Shield, Zap, Bell,
-  Activity
+  BarChart3, Calendar,   Globe, Users, Shield, Zap, Bell,
+  Activity, Network
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -23,6 +23,7 @@ const navItems = [
   { href: '/alerts', label: 'Alerts', icon: Bell, color: 'text-yellow-400' },
   { href: '/namespaces', label: 'Namespaces', icon: Shield, color: 'text-teal-400' },
   { href: '/cloud', label: 'Cloud', icon: Globe, color: 'text-sky-400' },
+  { href: '/vpn', label: 'VPN Pool', icon: Network, color: 'text-emerald-400' },
   { href: '/users', label: 'Users', icon: Users, color: 'text-violet-400' },
 ]
 
