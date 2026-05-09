@@ -175,7 +175,7 @@ async def advertise_gpus_to_relay():
         try:
             async with httpx.AsyncClient(timeout=10) as client:
                 await client.post(
-                    f"{_relay_url}/api/vpn/peers/heartbeat",
+                    f"{_relay_url.rstrip('/')}/api/v1/vpn/peers/heartbeat",
                     json={
                         "peer_id": _peer_id,
                         "gpu_status": [g.model_dump() for g in _local_gpus],

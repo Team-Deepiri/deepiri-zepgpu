@@ -23,10 +23,43 @@ from deepiri_zepgpu.vpn.wg_config import generate_peer_config, generate_relay_co
 from deepiri_zepgpu.vpn.crypto import encrypt_value, decrypt_value
 
 
+def vpn_api_url(relay_url: str, path: str) -> str:
+    p = path if path.startswith("/") else f"/{path}"
+    return f"{relay_url.rstrip('/')}/api/v1/vpn{p}"
+
+
 def get_config_dir() -> Path:
     path = vpn_settings.get_config_dir()
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def peer_state_path() -> Path:
+    return get_config_dir() / "peer_state.json"
+
+
+def save_peer_registration(peer_id: str, relay_url: str) -> None:
+    import json
+
+    path = peer_state_path()
+    path.write_text(json.dumps({"peer_id": peer_id, "relay_url": relay_url}, indent=2))
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+
+
+def load_peer_id() -> Optional[str]:
+    import json
+
+    p = peer_state_path()
+    if not p.exists():
+        return None
+    try:
+        data = json.loads(p.read_text())
+        return data.get("peer_id")
+    except Exception:
+        return None
 
 
 def get_wg_interface() -> str:
@@ -154,7 +187,14 @@ if HAS_CLICK:
     @click.option("--code", help="Join code from relay server")
     @click.option("--relay-url", default=vpn_settings.relay_api_url, help="Relay server URL")
     @click.option("--interface", default="wg0", help="WireGuard interface name")
-    def join(config, code, relay_url, interface):
+    @click.option(
+        "--api-token",
+        envvar="ZEPGPU_API_TOKEN",
+        default=None,
+        help="Bearer token for relay API (required for --code)",
+    )
+    @click.option("--gpu-host", is_flag=True, help="Register as GPU host when using --code")
+    def join(config, code, relay_url, interface, api_token, gpu_host):
         """Join a VPN network."""
         if not check_wireguard_installed():
             print("WireGuard is not installed.")
@@ -163,13 +203,41 @@ if HAS_CLICK:
 
         if code:
             import httpx
+
+            if not api_token:
+                print("join --code requires --api-token or ZEPGPU_API_TOKEN", file=sys.stderr)
+                sys.exit(1)
             try:
-                response = httpx.get(f"{relay_url}/api/vpn/networks")
-                response.raise_for_status()
-                print("Join via code not yet implemented - use config file for now")
+                r = httpx.post(
+                    vpn_api_url(relay_url, "/join"),
+                    json={"invite_code": code, "is_gpu_host": gpu_host},
+                    headers={"Authorization": f"Bearer {api_token}"},
+                    timeout=60,
+                )
+                r.raise_for_status()
+                body = r.json()
+                conf_text = body["config_text"]
+                peer_id = body.get("peer_id")
+                vpn_ip = body.get("vpn_ip")
+                if apply_wireguard_config(conf_text, interface):
+                    if peer_id:
+                        save_peer_registration(peer_id, relay_url)
+                    print(f"Connected to VPN! Your IP: {vpn_ip or get_vpn_ip()}")
+                else:
+                    print("Failed to apply WireGuard config", file=sys.stderr)
+                    sys.exit(1)
+            except httpx.HTTPStatusError as e:
+                detail = ""
+                try:
+                    detail = e.response.json().get("detail", str(e))
+                except Exception:
+                    detail = str(e)
+                print(f"Join failed: {detail}", file=sys.stderr)
+                sys.exit(1)
             except Exception as e:
                 print(f"Failed to connect to relay: {e}", file=sys.stderr)
                 sys.exit(1)
+            return
 
         if not config:
             print("Please provide a WireGuard config file with --config", file=sys.stderr)
@@ -223,7 +291,13 @@ if HAS_CLICK:
     @vpn.command()
     @click.option("--relay-url", default=vpn_settings.relay_api_url, help="Relay server URL")
     @click.option("--interface", default="wg0", help="WireGuard interface name")
-    def advertise(relay_url, interface):
+    @click.option(
+        "--peer-id",
+        envvar="ZEPGPU_PEER_ID",
+        default=None,
+        help="Peer UUID from join response (or saved in peer_state.json)",
+    )
+    def advertise(relay_url, interface, peer_id):
         """Advertise local GPUs to the relay server."""
         if not check_wireguard_installed():
             print("WireGuard is not installed.")
@@ -233,6 +307,14 @@ if HAS_CLICK:
         vpn_ip = get_vpn_ip()
         if not vpn_ip:
             print("Not connected to VPN. Run 'deepiri-gpu vpn join' first.", file=sys.stderr)
+            sys.exit(1)
+
+        resolved_peer = peer_id or load_peer_id()
+        if not resolved_peer:
+            print(
+                "Missing peer id: pass --peer-id or ZEPGPU_PEER_ID, or join with --code to save it.",
+                file=sys.stderr,
+            )
             sys.exit(1)
 
         print(f"Advertising GPUs to {relay_url}...")
@@ -251,9 +333,9 @@ if HAS_CLICK:
                 try:
                     async with httpx.AsyncClient(timeout=10) as client:
                         await client.post(
-                            f"{relay_url}/api/vpn/peers/heartbeat",
+                            vpn_api_url(relay_url, "/peers/heartbeat"),
                             json={
-                                "peer_id": "local",
+                                "peer_id": resolved_peer,
                                 "gpu_status": [g.model_dump() for g in gpus],
                                 "is_online": True,
                             },
@@ -276,11 +358,25 @@ if HAS_CLICK:
 
     @vpn.command()
     @click.option("--relay-url", default=vpn_settings.relay_api_url, help="Relay server URL")
-    def list_gpus(relay_url):
+    @click.option(
+        "--api-token",
+        envvar="ZEPGPU_API_TOKEN",
+        default=None,
+        help="Bearer token (required to read gpu-pool from relay)",
+    )
+    def list_gpus(relay_url, api_token):
         """List GPUs available in the network pool."""
         import httpx
+
+        if not api_token:
+            print("list-gpus requires --api-token or ZEPGPU_API_TOKEN", file=sys.stderr)
+            sys.exit(1)
         try:
-            response = httpx.get(f"{relay_url}/api/vpn/gpu-pool", timeout=10)
+            response = httpx.get(
+                vpn_api_url(relay_url, "/gpu-pool"),
+                headers={"Authorization": f"Bearer {api_token}"},
+                timeout=10,
+            )
             response.raise_for_status()
             data = response.json()
             print(f"GPU Pool Summary:")
