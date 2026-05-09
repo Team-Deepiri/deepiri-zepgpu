@@ -457,3 +457,85 @@ export interface DAGData {
   nodes: DAGNode[]
   edges: DAGEdge[]
 }
+
+export interface VpnNetwork {
+  id: string
+  name: string
+  cidr: string
+  listen_port: number
+  relay_endpoint: string | null
+  is_active: boolean
+  peer_count: number
+  created_at: string
+}
+
+export interface Peer {
+  id: string
+  user_id: string
+  username: string
+  vpn_ip: string
+  online_status: string
+  is_gpu_host: boolean
+  is_online: boolean
+  last_seen: string
+  gpu_count: number
+}
+
+export interface GpuShare {
+  id: string
+  peer_id: string
+  username: string
+  device_index: number
+  name: string | null
+  total_memory_mb: number
+  available_memory_mb: number
+  compute_capability: string | null
+  gpu_type: string
+  state: string
+  utilization_percent: number | null
+  is_active: boolean
+  last_updated: string
+}
+
+export interface GpuPoolSummary {
+  total_gpus: number
+  total_memory_mb: number
+  available_memory_mb: number
+  online_peers: number
+  online_gpu_hosts: number
+  gpu_breakdown: GpuShare[]
+}
+
+export interface VpnInvite {
+  id: string
+  code: string
+  vpn_network_id: string
+  vpn_network_name: string
+  max_uses: number
+  used_count: number
+  expires_at: string | null
+  is_revoked: boolean
+  created_at: string
+}
+
+export interface Friend {
+  id: string
+  user_id: string
+  username: string
+  email: string
+  status: string
+  created_at: string
+  accepted_at: string | null
+}
+
+export interface FriendList {
+  friends: Friend[]
+  pending: Friend[]
+  sent_requests: Friend[]
+}
+
+export interface VpnConfigResponse {
+  config_text: string
+  vpn_ip: string
+  peer_id: string
+}
