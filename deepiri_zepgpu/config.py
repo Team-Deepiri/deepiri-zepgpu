@@ -90,6 +90,26 @@ class CloudSettings(BaseSettings):
     providers: dict = Field(default_factory=dict)
 
 
+class VPNSettings(BaseSettings):
+    """VPN/Peer GPU sharing configuration."""
+
+    relay_host: str = Field(default="localhost")
+    relay_port: int = Field(default=51820)
+    relay_public_port: int = Field(default=51820)
+    vpn_cidr: str = Field(default="10.8.0.0/24")
+    vpn_name: str = Field(default="zepgpu-vpn")
+    heartbeat_interval_seconds: int = Field(default=30)
+    heartbeat_timeout_seconds: int = Field(default=90)
+    default_max_gpu_hours_per_day: float = Field(default=4.0)
+    default_max_concurrent_tasks: int = Field(default=1)
+    peer_server_port: int = Field(default=9092)
+    gpu_advertise_port: int = Field(default=9091)
+    wg_config_dir: str = Field(default="~/.zepgpu/wireguard")
+    invite_code_length: int = Field(default=8)
+    invite_expiry_days: int = Field(default=7)
+    invite_max_uses: int = Field(default=10)
+
+
 class Settings(BaseSettings):
     """Main settings class."""
     
@@ -108,6 +128,7 @@ class Settings(BaseSettings):
     auth: AuthSettings = Field(default_factory=AuthSettings)
     schedule: ScheduleSettings = Field(default_factory=ScheduleSettings)
     cloud: CloudSettings = Field(default_factory=CloudSettings)
+    vpn: VPNSettings = Field(default_factory=VPNSettings)
     
     app_name: str = Field(default="zepgpu")
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(default="INFO")
