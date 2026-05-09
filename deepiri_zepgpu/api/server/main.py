@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from contextlib import asynccontextmanager
 
@@ -16,8 +17,12 @@ from deepiri_zepgpu.api.server.routes import websocket
 from deepiri_zepgpu.api.server.websocket_manager import manager
 from deepiri_zepgpu.config import settings
 from deepiri_zepgpu.database import init_db, close_db
+from deepiri_zepgpu.database.session import get_db_context
 from deepiri_zepgpu.queue.redis_queue import queue
 from deepiri_zepgpu.storage.result_store import result_store
+from deepiri_zepgpu.vpn.config import vpn_settings
+from deepiri_zepgpu.vpn.peer_manager import mark_stale_peers_offline
+from deepiri_zepgpu.vpn.pool_sync import get_registered_gpu_pool, refresh_gpu_pool_from_db
 
 
 REQUEST_COUNT = Counter(
@@ -55,13 +60,40 @@ QUEUE_LENGTH = Gauge(
 )
 
 
+async def _vpn_registry_maintenance_loop(stop: asyncio.Event):
+    """Mark stale VPN peers and refresh in-process GPU pool from DB."""
+    interval = max(15, vpn_settings.heartbeat_interval_seconds)
+    while not stop.is_set():
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=interval)
+            break
+        except asyncio.TimeoutError:
+            pass
+        try:
+            async with get_db_context() as db:
+                await mark_stale_peers_offline(db)
+                pool = get_registered_gpu_pool()
+                if pool is not None:
+                    await refresh_gpu_pool_from_db(db, pool)
+        except Exception:
+            continue
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan events."""
     await init_db()
     await queue.connect()
     result_store.initialize()
+    vpn_stop = asyncio.Event()
+    vpn_task = asyncio.create_task(_vpn_registry_maintenance_loop(vpn_stop))
     yield
+    vpn_stop.set()
+    vpn_task.cancel()
+    try:
+        await vpn_task
+    except asyncio.CancelledError:
+        pass
     await close_db()
     await queue.disconnect()
 
