@@ -10,6 +10,9 @@ from deepiri_zepgpu.core.task import Task, TaskResources, TaskPriority, TaskStat
 from deepiri_zepgpu.core.scheduler import TaskScheduler
 from deepiri_zepgpu.core.gpu_manager import GPUManager
 from deepiri_zepgpu.core.executor import TaskExecutor
+from deepiri_zepgpu.vpn.gpu_pool import GpuPoolAggregator
+from deepiri_zepgpu.vpn.pool_sync import register_gpu_pool
+from deepiri_zepgpu.vpn.remote_gpu_lock import RemoteGpuLock
 
 
 class TaskSubmitter:
@@ -23,8 +26,12 @@ class TaskSubmitter:
         auto_start: bool = True,
     ):
         self._gpu_manager = gpu_manager or GPUManager()
+        self._gpu_pool = GpuPoolAggregator(self._gpu_manager, remote_lock=RemoteGpuLock())
         self._executor = executor or TaskExecutor(self._gpu_manager)
-        self._scheduler = scheduler or TaskScheduler(self._gpu_manager)
+        self._scheduler = scheduler or TaskScheduler(
+            self._gpu_manager,
+            gpu_pool=self._gpu_pool,
+        )
         self._auto_start = auto_start
         self._started = False
 
@@ -32,6 +39,7 @@ class TaskSubmitter:
         """Start the task submitter."""
         if self._started:
             return
+        register_gpu_pool(self._gpu_pool)
         await self._scheduler.start()
         self._started = True
 

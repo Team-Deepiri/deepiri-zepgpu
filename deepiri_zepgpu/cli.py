@@ -277,11 +277,21 @@ if HAS_CLICK:
 
     @vpn.command()
     @click.option("--relay-url", default=vpn_settings.relay_api_url, help="Relay server URL")
-    def gpu_pool(relay_url):
+    @click.option("--api-token", envvar="ZEPGPU_API_TOKEN", default=None, help="Bearer token for relay")
+    def gpu_pool(relay_url, api_token):
         """List GPUs available in the network pool."""
         import httpx
+        from deepiri_zepgpu.vpn.cli import vpn_api_url
+
+        if not api_token:
+            click.echo("gpu-pool requires --api-token or ZEPGPU_API_TOKEN", err=True)
+            return
         try:
-            response = httpx.get(f"{relay_url}/api/vpn/gpu-pool", timeout=10)
+            response = httpx.get(
+                vpn_api_url(relay_url, "/gpu-pool"),
+                headers={"Authorization": f"Bearer {api_token}"},
+                timeout=10,
+            )
             response.raise_for_status()
             data = response.json()
             click.echo(f"GPU Pool:")
@@ -297,9 +307,16 @@ if HAS_CLICK:
     @vpn.command()
     @click.option("--relay-url", default=vpn_settings.relay_api_url, help="Relay server URL")
     @click.option("--interface", default="wg0", help="WireGuard interface name")
-    def advertise(relay_url, interface):
+    @click.option("--peer-id", envvar="ZEPGPU_PEER_ID", default=None, help="Peer UUID from join")
+    def advertise(relay_url, interface, peer_id):
         """Advertise local GPUs to the relay server."""
-        from deepiri_zepgpu.vpn.cli import check_wireguard_installed, install_wireguard, get_vpn_ip
+        from deepiri_zepgpu.vpn.cli import (
+            check_wireguard_installed,
+            install_wireguard,
+            get_vpn_ip,
+            vpn_api_url,
+            load_peer_id,
+        )
         if not check_wireguard_installed():
             click.echo("WireGuard is not installed.")
             install_wireguard()
@@ -307,6 +324,10 @@ if HAS_CLICK:
         vpn_ip = get_vpn_ip()
         if not vpn_ip:
             click.echo("Not connected to VPN. Run 'deepiri-gpu vpn vpn-join' first.", err=True)
+            return
+        resolved = peer_id or load_peer_id()
+        if not resolved:
+            click.echo("Set --peer-id or ZEPGPU_PEER_ID, or join with --code to save peer id.", err=True)
             return
         click.echo(f"Advertising GPUs to {relay_url}... (Ctrl+C to stop)")
 
@@ -321,8 +342,12 @@ if HAS_CLICK:
                 try:
                     async with httpx.AsyncClient(timeout=10) as client:
                         await client.post(
-                            f"{relay_url}/api/vpn/peers/heartbeat",
-                            json={"peer_id": "local", "gpu_status": [g.model_dump() for g in gpus], "is_online": True},
+                            vpn_api_url(relay_url, "/peers/heartbeat"),
+                            json={
+                                "peer_id": resolved,
+                                "gpu_status": [g.model_dump() for g in gpus],
+                                "is_online": True,
+                            },
                         )
                         click.echo("  GPU status advertised")
                 except Exception as e:

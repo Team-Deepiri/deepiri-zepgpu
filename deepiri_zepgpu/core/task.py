@@ -61,6 +61,8 @@ class Task:
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     gpu_device_id: Optional[int] = None
+    remote_peer_vpn_ip: Optional[str] = None
+    remote_gpu_share_id: Optional[str] = None
     container_id: Optional[str] = None
     callback_url: Optional[str] = None
     tags: list[str] = field(default_factory=list)

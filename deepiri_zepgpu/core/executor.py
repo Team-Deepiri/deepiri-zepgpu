@@ -13,8 +13,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Callable, Optional
 
-from deepiri_zepgpu.core.task import Task, TaskResult, TaskStatus
+import base64
+import pickle
+
+from deepiri_zepgpu.core.task import Task, TaskStatus
 from deepiri_zepgpu.core.gpu_manager import GPUManager, GPUDevice
+from deepiri_zepgpu.vpn.task_router import TaskRouter
 
 
 @dataclass
@@ -57,6 +61,9 @@ class TaskExecutor:
         task.status = TaskStatus.RUNNING
         task.started_at = datetime.utcnow()
 
+        if task.remote_peer_vpn_ip:
+            return await self._execute_on_remote_peer(task, start_time)
+
         gpu_device = self._gpu_manager.get_device(task.gpu_device_id or 0)
 
         try:
@@ -95,6 +102,57 @@ class TaskExecutor:
                 execution_time=execution_time,
             )
 
+        finally:
+            task.completed_at = datetime.utcnow()
+
+    async def _execute_on_remote_peer(self, task: Task, start_time: float) -> ExecutionResult:
+        """Run task function on a VPN peer via HTTP (WireGuard tunnel)."""
+        router = TaskRouter()
+        try:
+            raw = await router.execute_on_peer(
+                peer_vpn_ip=task.remote_peer_vpn_ip or "",
+                task_id=task.task_id,
+                func=task.func,
+                args=task.args,
+                kwargs=task.kwargs,
+                gpu_device_id=task.gpu_device_id or 0,
+                gpu_memory_mb=task.resources.gpu_memory_mb,
+                timeout_seconds=task.resources.timeout_seconds,
+            )
+            execution_time = time.time() - start_time
+            if raw.get("success"):
+                result_obj = None
+                if raw.get("result_encoded"):
+                    result_obj = pickle.loads(base64.b64decode(raw["result_encoded"]))
+                task.status = TaskStatus.COMPLETED
+                task.result = result_obj
+                return ExecutionResult(
+                    success=True,
+                    result=result_obj,
+                    execution_time=execution_time,
+                    gpu_memory_used_mb=float(task.resources.gpu_memory_mb),
+                )
+            task.status = TaskStatus.FAILED
+            task.error = raw.get("error", "Remote execution failed")
+            task.traceback = raw.get("traceback")
+            return ExecutionResult(
+                success=False,
+                error=task.error,
+                traceback=task.traceback,
+                execution_time=execution_time,
+            )
+        except Exception as e:
+            import traceback as tb
+            execution_time = time.time() - start_time
+            task.status = TaskStatus.FAILED
+            task.error = str(e)
+            task.traceback = tb.format_exc()
+            return ExecutionResult(
+                success=False,
+                error=str(e),
+                traceback=task.traceback,
+                execution_time=execution_time,
+            )
         finally:
             task.completed_at = datetime.utcnow()
 
