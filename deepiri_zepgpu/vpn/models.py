@@ -107,8 +107,9 @@ class VpnConfigResponse(BaseModel):
     peer_id: str
 
 
-class InviteCreate(BaseModel):
-    vpn_network_id: str
+class NetworkInviteRequest(BaseModel):
+    """Body for POST /vpn/networks/{id}/invite (network id is in the path)."""
+
     max_uses: int = 1
     expires_in_days: int = 7
 
@@ -130,7 +131,7 @@ class InviteResponse(BaseModel):
 
 class JoinNetworkRequest(BaseModel):
     invite_code: str
-    wireguard_public_key: str
+    wireguard_public_key: Optional[str] = None
     is_gpu_host: bool = False
 
 

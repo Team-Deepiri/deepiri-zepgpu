@@ -6,7 +6,7 @@ import enum
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import BigInteger, Boolean, Column, DateTime, Enum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import BigInteger, Boolean, Column, DateTime, Enum, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -75,7 +75,7 @@ class Peer(UUIDMixin, TimestampMixin, Base):
 
     auth_token_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    user: Mapped["User"] = relationship("User", lazy="joined")
+    user: Mapped["User"] = relationship("User", back_populates="vpn_peers", lazy="joined")
     vpn_network: Mapped["VpnNetwork"] = relationship("VpnNetwork", back_populates="peers")
     gpu_shares: Mapped[list["GpuShare"]] = relationship("GpuShare", back_populates="peer", lazy="dynamic")
     quota: Mapped["GpuShareQuota"] = relationship("GpuShareQuota", back_populates="peer", uselist=False)
@@ -125,8 +125,12 @@ class Friendship(UUIDMixin, TimestampMixin, Base):
     )
     accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    user: Mapped["User"] = relationship("User", foreign_keys=[user_id], lazy="joined")
-    friend: Mapped["User"] = relationship("User", foreign_keys=[friend_id], lazy="joined")
+    user: Mapped["User"] = relationship(
+        "User", foreign_keys=[user_id], back_populates="friendships_initiated", lazy="joined"
+    )
+    friend: Mapped["User"] = relationship(
+        "User", foreign_keys=[friend_id], back_populates="friendships_received", lazy="joined"
+    )
 
     __table_args__ = (
         UniqueConstraint("user_id", "friend_id", name="uq_friendship_pair"),
@@ -149,7 +153,7 @@ class VpnInvite(UUIDMixin, TimestampMixin, Base):
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     is_revoked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
-    creator: Mapped["User"] = relationship("User", lazy="joined")
+    creator: Mapped["User"] = relationship("User", back_populates="vpn_invites_created", lazy="joined")
     vpn_network: Mapped["VpnNetwork"] = relationship("VpnNetwork", back_populates="invites")
 
 
@@ -166,6 +170,3 @@ class GpuShareQuota(UUIDMixin, TimestampMixin, Base):
     current_usage_hours: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
 
     peer: Mapped["Peer"] = relationship("Peer", back_populates="quota")
-
-
-from sqlalchemy import UniqueConstraint

@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from deepiri_zepgpu.database.models.user_quota import UserQuota
     from deepiri_zepgpu.database.models.scheduled_task import ScheduledTask
     from deepiri_zepgpu.database.models.gang_scheduling import GangTask
+    from deepiri_zepgpu.database.models.vpn_models import Peer, Friendship, VpnInvite
 
 
 class UserRole(str, enum.Enum):
@@ -58,6 +59,25 @@ class User(UUIDMixin, TimestampMixin, Base):
     quota: Mapped["UserQuota"] = relationship("UserQuota", back_populates="user", uselist=False)
     scheduled_tasks: Mapped[list["ScheduledTask"]] = relationship("ScheduledTask", back_populates="user", lazy="dynamic")
     gang_tasks: Mapped[list["GangTask"]] = relationship("GangTask", back_populates="user", lazy="dynamic")
+
+    vpn_peers: Mapped[list["Peer"]] = relationship("Peer", back_populates="user", lazy="dynamic")
+    friendships_initiated: Mapped[list["Friendship"]] = relationship(
+        "Friendship",
+        foreign_keys="Friendship.user_id",
+        back_populates="user",
+        lazy="dynamic",
+    )
+    friendships_received: Mapped[list["Friendship"]] = relationship(
+        "Friendship",
+        foreign_keys="Friendship.friend_id",
+        back_populates="friend",
+        lazy="dynamic",
+    )
+    vpn_invites_created: Mapped[list["VpnInvite"]] = relationship(
+        "VpnInvite",
+        back_populates="creator",
+        lazy="dynamic",
+    )
 
     @property
     def full_name(self) -> str:

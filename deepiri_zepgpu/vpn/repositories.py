@@ -150,6 +150,7 @@ class PeerRepository:
         peer_id: str,
         is_online: bool = True,
         endpoint: Optional[str] = None,
+        mark_gpu_host: Optional[bool] = None,
     ) -> Optional[Peer]:
         result = await self.db.execute(select(Peer).where(Peer.id == peer_id))
         peer = result.scalar_one_or_none()
@@ -160,6 +161,8 @@ class PeerRepository:
             )
             if endpoint:
                 peer.endpoint = endpoint
+            if mark_gpu_host is not None:
+                peer.is_gpu_host = mark_gpu_host
             await self.db.commit()
             await self.db.refresh(peer)
         return peer
@@ -438,6 +441,15 @@ class VpnInviteRepository:
         result = await self.db.execute(
             select(VpnInvite).where(VpnInvite.id == invite_id)
         )
+        invite = result.scalar_one_or_none()
+        if invite:
+            invite.is_revoked = True
+            await self.db.commit()
+            return True
+        return False
+
+    async def revoke_by_code(self, code: str) -> bool:
+        result = await self.db.execute(select(VpnInvite).where(VpnInvite.code == code))
         invite = result.scalar_one_or_none()
         if invite:
             invite.is_revoked = True
