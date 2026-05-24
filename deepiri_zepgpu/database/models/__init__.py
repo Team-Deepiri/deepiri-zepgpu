@@ -20,6 +20,17 @@ from deepiri_zepgpu.database.models.namespace import (
     NamespaceQuota,
     NamespaceUsage,
 )
+from deepiri_zepgpu.database.models.vpn_models import (
+    VpnNetwork,
+    Peer,
+    GpuShare,
+    Friendship,
+    FriendshipStatus,
+    VpnInvite,
+    GpuShareQuota,
+    PeerOnlineStatus,
+    GpuShareState,
+)
 
 __all__ = [
     "Base",
@@ -48,4 +59,13 @@ __all__ = [
     "TeamMember",
     "NamespaceQuota",
     "NamespaceUsage",
+    "VpnNetwork",
+    "Peer",
+    "GpuShare",
+    "Friendship",
+    "FriendshipStatus",
+    "VpnInvite",
+    "GpuShareQuota",
+    "PeerOnlineStatus",
+    "GpuShareState",
 ]

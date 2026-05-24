@@ -16,6 +16,12 @@ from typing import Any, Callable, Optional
 from deepiri_zepgpu.core.task import Task, TaskPriority, TaskResources, TaskStatus
 from deepiri_zepgpu.core.gpu_manager import GPUManager, GPUDevice
 
+try:
+    from deepiri_zepgpu.vpn.gpu_pool import GpuPoolAggregator, RemoteGPUDevice
+except ImportError:  # pragma: no cover
+    GpuPoolAggregator = None  # type: ignore[misc, assignment]
+    RemoteGPUDevice = None  # type: ignore[misc, assignment]
+
 
 class SchedulingPolicy(Enum):
     """Task scheduling policies."""
@@ -57,8 +63,10 @@ class TaskScheduler:
         policy: SchedulingPolicy = SchedulingPolicy.PRIORITY,
         max_concurrent_tasks: int = 10,
         enable_preemption: bool = False,
+        gpu_pool: Optional["GpuPoolAggregator"] = None,
     ):
         self._gpu_manager = gpu_manager
+        self._gpu_pool = gpu_pool
         self._policy = policy
         self._max_concurrent_tasks = max_concurrent_tasks
         self._enable_preemption = enable_preemption
@@ -236,10 +244,16 @@ class TaskScheduler:
                 item = heapq.heappop(self._pending_queue)
                 task = item.task
 
-                device = self._gpu_manager.get_available_device(
-                    required_memory_mb=task.resources.gpu_memory_mb,
-                    gpu_type=task.resources.gpu_type,
-                )
+                if self._gpu_pool is not None:
+                    device = self._gpu_pool.get_available_device(
+                        required_memory_mb=task.resources.gpu_memory_mb,
+                        gpu_type=task.resources.gpu_type,
+                    )
+                else:
+                    device = self._gpu_manager.get_available_device(
+                        required_memory_mb=task.resources.gpu_memory_mb,
+                        gpu_type=task.resources.gpu_type,
+                    )
 
                 if device is None and task.resources.allow_fallback_cpu:
                     device = self._gpu_manager.get_available_device(
@@ -248,9 +262,26 @@ class TaskScheduler:
                     )
 
                 if device:
+                    if RemoteGPUDevice is not None and isinstance(device, RemoteGPUDevice):
+                        if self._gpu_pool is not None:
+                            ok = self._gpu_pool.allocate_device(
+                                device.device_id,
+                                task.task_id,
+                                is_remote=True,
+                                share_id=device.share_id,
+                            )
+                            if not ok:
+                                heapq.heappush(self._pending_queue, item)
+                                break
+                        task.gpu_device_id = device.device_id
+                        task.remote_peer_vpn_ip = device.vpn_ip
+                        task.remote_gpu_share_id = device.share_id
+                    else:
+                        task.gpu_device_id = device.device_id
+                        task.remote_peer_vpn_ip = None
+                        task.remote_gpu_share_id = None
+                        self._gpu_manager.allocate_device(device.device_id, task.task_id)
                     task.status = TaskStatus.SCHEDULED
-                    task.gpu_device_id = device.device_id
-                    self._gpu_manager.allocate_device(device.device_id, task.task_id)
                     self._running_tasks[task.task_id] = task
                     self._stats.pending_tasks -= 1
                     self._stats.running_tasks += 1
@@ -308,6 +339,17 @@ class TaskScheduler:
 
     def _release_gpu_for_task(self, task: Task) -> None:
         """Release GPU resources allocated to task."""
+        if task.remote_gpu_share_id and self._gpu_pool is not None:
+            self._gpu_pool.release_device(
+                task.gpu_device_id or 0,
+                is_remote=True,
+                share_id=task.remote_gpu_share_id,
+                task_id=task.task_id,
+            )
+            task.remote_gpu_share_id = None
+            task.remote_peer_vpn_ip = None
+            task.gpu_device_id = None
+            return
         if task.gpu_device_id is not None:
             self._gpu_manager.release_device(task.gpu_device_id)
             task.gpu_device_id = None

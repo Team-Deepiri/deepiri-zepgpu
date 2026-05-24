@@ -1,0 +1,18 @@
+# Exclude generated/build/runtime artifact paths.
+paths-ignore:
+  - '**/node_modules/**'
+  - '**/dist/**'
+  - '**/build/**'
+  - '**/coverage/**'
+  - '**/logs/**'
+  - '**/*.min.js'
+  - 'zepgpu-ui/node_modules/**'
+  - 'zepgpu-ui/dist/**'
+  - 'zepgpu-ui/build/**'
+  - 'zepgpu-ui/coverage/**'
+  - 'zepgpu-ui/*.min.js'
+  - 'deepiri_zepgpu/resources/datasets/**'
+  - 'deepiri_zepgpu/resources/models/**'
+  - 'deepiri_zepgpu/resources/kernel_cache/**'
+  - 'deepiri_zepgpu/storage/result_store.py'
+  - 'deepiri_zepgpu/storage/s3_client.py'

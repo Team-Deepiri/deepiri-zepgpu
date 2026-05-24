@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from deepiri_zepgpu.api.server.routes import tasks, users, pipelines, gpu, health, websocket, schedules, gang_scheduling, namespaces, cloud
+from deepiri_zepgpu.api.server.routes import tasks, users, pipelines, gpu, health, websocket, schedules, gang_scheduling, namespaces, cloud, vpn
 
 api_router = APIRouter()
 
@@ -17,5 +17,6 @@ api_router.include_router(users.router, prefix="/users", tags=["Users"])
 api_router.include_router(users.router, prefix="/auth", tags=["Auth"])
 api_router.include_router(gpu.router, prefix="/gpu", tags=["GPU"])
 api_router.include_router(websocket.router, prefix="/ws", tags=["WebSocket"])
+api_router.include_router(vpn.router, tags=["VPN"])
 
 __all__ = ["api_router"]
