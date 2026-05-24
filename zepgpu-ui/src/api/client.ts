@@ -5,7 +5,7 @@ import type {
   Namespace, NamespaceMember, Team, NamespaceQuota, NamespaceUsage,
   CloudProvider, CloudRegion, CloudGPUInstance, CloudLaunchRequest, CloudCostEstimate,
   AuditLog, Alert, GPUMetrics, ServiceMetrics, TaskMetrics, LeaderboardEntry, Achievement,
-  DAGData,
+  DAGData, VpnNetwork, Peer, GpuPoolSummary, VpnInvite, FriendList, VpnConfigResponse,
 } from '@/types'
 
 const api = axios.create({
@@ -387,6 +387,75 @@ export const alertsApi = {
   },
   resolve: async (alertId: string): Promise<Alert> => {
     const { data } = await api.post<Alert>(`/alerts/${alertId}/resolve`)
+    return data
+  },
+}
+
+export const vpnApi = {
+  listNetworks: async (): Promise<VpnNetwork[]> => {
+    const { data } = await api.get<VpnNetwork[]>('/vpn/networks')
+    return data
+  },
+  createNetwork: async (network: { name: string; cidr?: string; listen_port?: number; relay_endpoint?: string }): Promise<VpnNetwork> => {
+    const { data } = await api.post<VpnNetwork>('/vpn/networks', network)
+    return data
+  },
+  getNetwork: async (networkId: string): Promise<VpnNetwork> => {
+    const { data } = await api.get<VpnNetwork>(`/vpn/networks/${networkId}`)
+    return data
+  },
+  listPeers: async (networkId: string): Promise<Peer[]> => {
+    const { data } = await api.get<Peer[]>(`/vpn/networks/${networkId}/peers`)
+    return data
+  },
+  getConfig: async (networkId: string): Promise<VpnConfigResponse> => {
+    const { data } = await api.get<VpnConfigResponse>(`/vpn/networks/${networkId}/config`)
+    return data
+  },
+  createInvite: async (
+    networkId: string,
+    invite: { max_uses?: number; expires_in_days?: number },
+  ): Promise<VpnInvite> => {
+    const { data } = await api.post<VpnInvite>(`/vpn/networks/${networkId}/invite`, invite)
+    return data
+  },
+  leaveNetwork: async (networkId: string): Promise<void> => {
+    await api.post(`/vpn/networks/${networkId}/leave`)
+  },
+  listInvites: async (): Promise<VpnInvite[]> => {
+    const { data } = await api.get<VpnInvite[]>('/vpn/invites')
+    return data
+  },
+  revokeInvite: async (inviteId: string): Promise<void> => {
+    await api.delete(`/vpn/invites/${inviteId}`)
+  },
+  joinNetwork: async (data: {
+    invite_code: string
+    wireguard_public_key?: string
+    is_gpu_host?: boolean
+  }): Promise<VpnConfigResponse> => {
+    const { data: response } = await api.post<VpnConfigResponse>('/vpn/join', data)
+    return response
+  },
+  getGpuPool: async (networkId?: string): Promise<GpuPoolSummary> => {
+    const { data } = await api.get<GpuPoolSummary>('/vpn/gpu-pool', { params: networkId ? { network_id: networkId } : {} })
+    return data
+  },
+  listFriends: async (): Promise<FriendList> => {
+    const { data } = await api.get<FriendList>('/vpn/friends')
+    return data
+  },
+  sendFriendRequest: async (friendId: string): Promise<void> => {
+    await api.post('/vpn/friends/request', { friend_id: friendId })
+  },
+  acceptFriend: async (friendshipId: string): Promise<void> => {
+    await api.post(`/vpn/friends/${friendshipId}/accept`)
+  },
+  blockFriend: async (friendshipId: string): Promise<void> => {
+    await api.post(`/vpn/friends/${friendshipId}/block`)
+  },
+  listUsers: async (): Promise<User[]> => {
+    const { data } = await api.get<User[]>('/users')
     return data
   },
 }
