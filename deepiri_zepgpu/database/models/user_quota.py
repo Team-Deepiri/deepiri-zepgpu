@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from sqlalchemy import BigInteger, Column, DateTime, Float, ForeignKey, Integer
-from sqlalchemy.dialects.postgresql import NUMERIC
+from sqlalchemy.dialects.postgresql import NUMERIC, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from deepiri_zepgpu.database.models.base import Base
@@ -19,8 +19,9 @@ class UserQuota(Base):
     __tablename__ = "user_quotas"
     
     user_id: Mapped[str] = mapped_column(
-        primary_key=True,
+        UUID(as_uuid=False),
         ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
     )
     
     max_tasks: Mapped[int] = mapped_column(Integer, default=100, nullable=False)

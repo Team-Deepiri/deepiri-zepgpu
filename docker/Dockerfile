@@ -2,37 +2,43 @@ FROM nvidia/cuda:12.2.0-devel-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
-ENV CUDA_HOME=/usr/local/cuda
+ENV POETRY_VIRTUALENVS_CREATE=false
 
 RUN apt-get update && apt-get install -y \
     python3.11 \
     python3.11-dev \
+    python3.11-distutils \
     python3-pip \
     git \
     wget \
     curl \
+    build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-RUN curl -sSL https://install.python-poetry.org | python3 - && \
-    ln -s /root/.local/bin/poetry /usr/local/bin/poetry
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 && \
+    update-alternatives --set python3 /usr/bin/python3.11 && \
+    python3 --version
+
+RUN python3 -m pip install --upgrade pip && \
+    python3 -m pip install poetry psycopg2-binary
 
 WORKDIR /app
 
 COPY pyproject.toml poetry.lock* ./
 
 RUN poetry config virtualenvs.create false && \
-    poetry install --no-interaction --all-extras
+    poetry install --no-root --no-interaction --all-extras
 
-COPY deepiri_zepgpu/ ./deepiri_zepgpu/
-COPY examples/ ./examples/
+COPY . .
 
-RUN pip install -e . && \
-    mkdir -p /root/.zepgpu && \
-    mkdir -p /root/.cache/zepgpu
+RUN groupadd -r zepgpu && \
+    useradd -r -g zepgpu -d /app -s /bin/bash zepgpu && \
+    mkdir -p /app/data /app/models && \
+    chown -R zepgpu:zepgpu /app
 
-ENV PYTHONPATH=/app:$PYTHONPATH
-ENV ZEPGPU_HOME=/root/.zepgpu
+USER zepgpu
 
-EXPOSE 8000 8765
+EXPOSE 8000
+EXPOSE 8765
 
-CMD ["python", "-m", "deepiri_zepgpu.cli", "serve"]
+CMD ["uvicorn", "deepiri_zepgpu.api.server.main:app", "--host", "0.0.0.0", "--port", "8000"]

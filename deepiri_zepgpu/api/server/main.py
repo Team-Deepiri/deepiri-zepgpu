@@ -84,7 +84,7 @@ async def lifespan(app: FastAPI):
     """Application lifespan events."""
     await init_db()
     await queue.connect()
-    result_store.initialize()
+    await result_store.initialize()
     vpn_stop = asyncio.Event()
     vpn_task = asyncio.create_task(_vpn_registry_maintenance_loop(vpn_stop))
     yield
