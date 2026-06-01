@@ -1,50 +1,37 @@
-# ZepGPU Petals + Blockchain Research Roadmap
+# ZepGPU Petals-Inspired Distributed GPU Room Network Roadmap
 
 ## Overview
 
-The recommendation is:
 
-> ZepGPU should continue as a serverless GPU task framework, but its next major direction should be a Petals-inspired distributed GPU network where independent nodes can join, advertise GPU capacity, receive workloads, execute tasks, and report results. Blockchain should not be used for running GPU execution itself. It should be considered later for identity, accounting, reputation, usage receipts, and marketplace/payment settlement.
 
-This document is a **research roadmap**, not a final implementation replacement. It is meant to guide the next planning discussion before more execution work continues.
+The updated direction is:
 
----
+> ZepGPU should evolve into a Petals-inspired distributed GPU room/network system. A host should be able to create a room, generate a virtualized network, invite GPU clients through built-in VPN credentials, view connected participants and their GPU metrics, and dispatch workloads across those connected machines.
 
-## Summary
+## Final Review Direction
 
-ZepGPU currently has a strong foundation as a serverless GPU task execution platform:
+The latest review clarified the product direction:
 
-- Users can submit GPU tasks.
-- Tasks are queued through Redis/Celery.
-- Task metadata is persisted in PostgreSQL.
-- Results can be stored through S3/MinIO.
-- Pipelines, WebSockets, callback webhooks, authentication, Docker, and Kubernetes support already exist or are in progress.
+- **No blockchain at this moment.**
+- Do a deeper dive into the **Petals** repository and architecture.
+- Understand architectural approaches Petals uses so ZepGPU can integrate similar ideas.
+- Refactor the phases roadmap / implementation plan to be inspired by Petals.
+- Focus on the user flow where a host creates a room/network, clients connect through VPN/config credentials, and connected GPU clients become visible and usable from the UI.
 
-However, the current architecture is strongest as a **centralized or cluster-local GPU execution framework**. Petals suggests a larger direction: a distributed peer GPU network where machines can contribute compute resources and workloads can be routed across them.
-
-Blockchain may be useful later, but only after the distributed compute network works off-chain. Blockchain should be treated as an optional trust, accounting, reputation, receipt, and settlement layer.
-
-Recommended next direction:
-
-1. Finish the Phase 8 stabilization work that directly supports future distributed execution.
-2. Add a Petals-inspired GPU node layer.
-3. Add distributed scheduling and remote task execution.
-4. Add usage accounting, receipts, provider reputation, and audit trails.
-5. Research blockchain as an optional settlement/receipt layer.
-6. Only prototype blockchain after the off-chain distributed compute layer is proven.
+Blockchain is therefore **deferred**. It is not part of the active implementation plan. The near-term roadmap should focus on rooms, built-in VPN networking, node discovery, GPU capability reporting, metrics, distributed scheduling, and remote execution.
 
 ---
 
 ## Current ZepGPU Baseline
 
-ZepGPU is currently positioned as a serverless GPU framework for kernel-as-a-service computing. The current system includes:
+ZepGPU is currently a serverless GPU framework for kernel-as-a-service computing. The current system already includes or has been actively validating:
 
 - FastAPI backend
 - React/TypeScript frontend
 - PostgreSQL persistence
-- Redis/Celery distributed task queue
+- Redis/Celery task queue
 - S3/MinIO result storage
-- Docker and Kubernetes deployment support
+- Docker and Kubernetes support
 - JWT authentication
 - Task submission and execution
 - Multi-stage pipelines
@@ -52,152 +39,199 @@ ZepGPU is currently positioned as a serverless GPU framework for kernel-as-a-ser
 - Callback webhooks
 - GPU tracking
 - Prometheus/Grafana monitoring
+- VPN-related backend/frontend work already present in the repo
 
-The current implementation plan describes ZepGPU as a production-grade serverless GPU framework where users submit GPU tasks to a shared pool and the system handles scheduling, isolation, execution, and result delivery.
-
-The main architectural gap is that ZepGPU is currently designed around a local or centrally coordinated execution stack. To become more Petals-like, ZepGPU needs a distributed node layer where GPU providers can join the network, advertise capacity, receive work, execute tasks, and report results.
-
----
-
-## Petals Research Summary
-
-Petals is an open-source BigScience project for running very large language models collaboratively. Its core idea is to let users load part of a model and join a network where other peers serve the remaining parts. Petals describes this as running LLMs “BitTorrent-style.”
-
-Key Petals ideas:
-
-- A machine can act as a **server**, **client**, or both.
-- Servers host pieces of a model, usually layers or blocks.
-- Clients discover available peers and route requests through multiple servers.
-- The system allows collaborative inference/fine-tuning by joining resources from multiple parties.
-- Petals is designed to make large model usage possible without every user owning all required GPU resources.
-- The design depends heavily on peer discovery, routing, health, fault tolerance, and distributed execution.
-
-## What ZepGPU Should Copy From Petals
-
-ZepGPU should not copy Petals exactly. Petals is focused on distributed LLM inference/fine-tuning, while ZepGPU is a broader GPU task execution framework.
-
-ZepGPU should copy the design principles:
-
-1. **Peer-based GPU nodes**
-   - Machines should be able to join the network as GPU providers.
-   - A provider node should advertise GPU type, memory, health, load, latency, and availability.
-
-2. **Resource discovery**
-   - ZepGPU needs a node discovery layer so the scheduler can find available GPUs across machines.
-
-3. **Distributed routing**
-   - Workloads should be routed to the best available node, not just to a local worker.
-
-4. **Health and heartbeat tracking**
-   - Nodes should send heartbeat updates.
-   - Dead or unhealthy nodes should be removed from scheduling.
-
-5. **Fault tolerance**
-   - If a node disappears or fails, ZepGPU should retry or reroute the workload.
-
-6. **Partial workload distribution**
-   - Future ZepGPU could support splitting certain jobs across multiple nodes, especially LLM/model workloads, batch workloads, and multi-stage pipelines.
-
-7. **Client/provider separation**
-   - ZepGPU should define clear roles:
-     - Requester/client: submits tasks.
-     - Provider/node: contributes GPU resources.
-     - Coordinator/scheduler: matches tasks to resources.
-     - Auditor/monitor: tracks status, usage, and reliability.
+The existing foundation is useful, but it is currently strongest as a centralized or cluster-local execution platform. The next major direction should turn ZepGPU into a **host-created distributed GPU room network**.
 
 ---
 
-## Blockchain Research Summary
+## Target User Experience
 
-Blockchain is potentially useful for ZepGPU, but not for running GPU computation directly.
+The desired user experience should look like this:
 
-GPU execution should stay **off-chain** because blockchain is too slow and expensive for direct compute workloads. The better model is:
+1. A user becomes a **host master**.
+2. The host creates a **room**.
+3. Creating the room creates or configures a **virtualized private network**.
+4. ZepGPU generates connection credentials/configuration for other clients.
+5. Other users/machines connect to the room through the built-in VPN.
+6. Connected clients appear in the host UI.
+7. The host can see:
+   - who is connected
+   - what GPUs they have
+   - current GPU utilization
+   - VRAM usage
+   - node health
+   - latency/connection status
+   - task availability
+8. The host can dispatch workloads to connected GPU clients.
+9. ZepGPU schedules and combines utilization through async queues, distributed task routing, and eventually more advanced workload partitioning inspired by Petals.
+10. The system can later be cloud-hosted or simulated locally for development.
 
-> Off-chain GPU execution + optional on-chain accounting, reputation, receipts, and settlement.
-
-This is similar to decentralized compute projects such as Akash and Golem. These projects use decentralized networks/marketplaces for compute resources, while actual computation happens off-chain on provider machines.
-
-## Blockchain Areas That May Fit ZepGPU
-
-Blockchain could be useful for:
-
-1. **Provider identity**
-   - Nodes could register with wallet-based identities.
-   - This can help distinguish providers and track reliability.
-
-2. **Usage receipts**
-   - ZepGPU can generate signed receipts showing:
-     - task ID
-     - requester ID
-     - provider ID
-     - GPU type
-     - runtime
-     - cost estimate
-     - completion status
-     - result hash
-
-3. **Reputation**
-   - Providers can build reputation based on successful task completion, uptime, latency, and failure rate.
-
-4. **Payment settlement**
-   - If ZepGPU becomes a marketplace, blockchain can handle payments between requesters and GPU providers.
-
-5. **Audit trail**
-   - Critical task events can be recorded as hashes or receipts.
-   - Full logs should stay off-chain; only hashes/receipts should be considered for on-chain anchoring.
-
-6. **Slashing or penalties**
-   - If providers stake tokens/collateral, unreliable or malicious behavior could be penalized later.
-
-7. **Marketplace incentives**
-   - Providers may be rewarded for making GPUs available.
-   - Requesters can pay for GPU execution without centralized billing.
-
-## Blockchain Areas That Should Not Be Done First
-
-Avoid these early:
-
-- Running task execution on-chain
-- Storing large task data on-chain
-- Storing model artifacts on-chain
-- Making blockchain required for basic ZepGPU operation
-- Adding tokens before the distributed compute layer works
-- Overbuilding smart contracts before the network design is proven
+This creates the bridge between the current ZepGPU task framework and the Petals-inspired distributed GPU network.
 
 ---
 
-# Recommended Restructure of the Implementation Plan
+## Petals Architecture Deep Dive
 
-The remaining execution work should pause long enough for the team to review whether ZepGPU should move toward a distributed GPU node network.
+Petals is an open-source BigScience project for collaborative inference and fine-tuning of large language models. Petals lets users run large models by connecting to a distributed network where peers host different parts of the model. The project describes this as running LLMs "BitTorrent-style."
 
-The recommended restructure is:
+### Key Architecture Concepts From Petals
 
-| Priority | Phase | Focus | Recommendation |
-|---|---|---|---|
-| 1 | Phase A | Stabilize current ZepGPU foundation | Do immediately |
-| 2 | Phase B | Petals-style GPU node layer | Do next |
-| 3 | Phase C | Distributed scheduler and remote execution | Do after node layer |
-| 4 | Phase D | Petals-inspired workload partitioning research | Research in parallel |
-| 5 | Phase E | Trust, accounting, and reputation | Needed before marketplace |
-| 6 | Phase F | Blockchain feasibility/prototype | Optional, after off-chain accounting |
+ZepGPU should study and adapt these Petals concepts:
 
+## 1. Peer Roles
+
+Petals supports machines acting as:
+
+- **Client**: sends requests into the network.
+- **Server/peer**: hosts model blocks and serves compute.
+- **Hybrid node**: can both use the network and contribute compute.
+
+### ZepGPU Equivalent
+
+ZepGPU should define:
+
+- **Host master**: creates and manages a room.
+- **Provider node**: joins the room and contributes GPU compute.
+- **Requester/client**: submits workloads.
+- **Coordinator/scheduler**: assigns work to available nodes.
+- **Monitor/auditor**: tracks metrics, health, usage, and task events.
 
 ---
 
-# Roadmap Checklist
+## 2. Peer Discovery
 
-This checklist mirrors the style of the existing ZepGPU implementation plan so the team can track the research roadmap as actionable work instead of only reading it as notes.
+Petals uses a distributed network approach where clients can discover peers that host the model blocks they need.
+
+### ZepGPU Equivalent
+
+ZepGPU needs a room-scoped discovery layer:
+
+- When a room is created, it should have a registry of connected nodes.
+- Nodes should register when they connect through VPN.
+- Nodes should advertise GPU capabilities.
+- Scheduler should discover which nodes are available for work.
+
+---
+
+## 3. Resource Advertisement
+
+Petals peers advertise what model blocks they can serve and their availability.
+
+### ZepGPU Equivalent
+
+ZepGPU nodes should advertise:
+
+- GPU count
+- GPU model/name
+- VRAM total and available
+- CUDA version
+- driver version
+- current utilization
+- current memory usage
+- supported runtimes
+- active task count
+- network latency
+- health status
+- heartbeat timestamp
+
+---
+
+## 4. Routing
+
+Petals routes inference through peers that host different model blocks.
+
+### ZepGPU Equivalent
+
+ZepGPU should route work to the best available GPU node based on:
+
+- GPU memory requirement
+- GPU type
+- node health
+- node queue depth
+- room membership
+- latency
+- provider availability
+- task priority
+- namespace/user quotas
+- expected runtime
+
+The first version should route whole tasks or pipeline stages. Later versions can research partitioning workloads across multiple nodes.
+
+---
+
+## 5. Fault Tolerance
+
+Petals must handle unreliable peers because devices can leave or fail.
+
+### ZepGPU Equivalent
+
+ZepGPU must handle:
+
+- provider disconnects
+- missed heartbeats
+- node crashes
+- task timeout
+- task retry
+- rerouting work to another node
+- marking nodes unhealthy
+- preserving audit logs for failures
+
+---
+
+## 6. Workload Partitioning
+
+Petals partitions LLMs into blocks/layers across peers.
+
+### ZepGPU Equivalent
+
+ZepGPU should not immediately split arbitrary Python functions across machines. That is too complex for the first version.
+
+Instead:
+
+1. Start with whole-task remote dispatch.
+2. Then support pipeline-stage distribution.
+3. Then research model-specific partitioning.
+4. Only later consider Petals-style model sharding for LLM workloads.
+
+---
+
+## 7. Network Coordination
+
+Petals relies on network coordination so clients can locate and use available peer compute.
+
+### ZepGPU Equivalent
+
+ZepGPU should coordinate rooms using:
+
+- a host/coordinator service
+- built-in VPN connectivity
+- node registration
+- node heartbeat
+- capability reporting
+- task assignment APIs
+- WebSocket streams for real-time UI updates
+
+---
+
+# Updated Implementation Roadmap
 
 ## Phase Status Legend
 
 - `[ ]` Not started
 - `[~]` In progress / partially complete
 - `[x]` Completed
-- `[?]` Needs decision or research approval
+- `[?]` Needs design decision
 
-## Phase A: Stabilize Current ZepGPU Foundation — IN PROGRESS
+---
 
-Goal: finish validating the existing ZepGPU MVP before expanding into distributed GPU networking.
+# Phase A: Stabilize Current ZepGPU Foundation — IN PROGRESS
+
+## Goal
+
+Finish stabilizing the current ZepGPU foundation so the distributed room/network architecture has a reliable base.
+
+## Checklist
 
 - [~] Complete Phase 8 integration validation
 - [x] Verify Docker Compose local stack starts
@@ -212,178 +246,6 @@ Goal: finish validating the existing ZepGPU MVP before expanding into distribute
 - [ ] Update README quick start guide
 - [ ] Add API examples
 - [ ] Add deployment troubleshooting guide
-
-Acceptance checkpoint: ZepGPU can be started locally, authenticated users can submit tasks and pipelines, workers can execute them, callbacks and WebSockets work, and failures are documented clearly.
-
-## Phase B: Petals-Inspired GPU Node Layer — PLANNED
-
-Goal: allow independent GPU machines to join ZepGPU as provider nodes.
-
-- [ ] Add `gpu_nodes` database model
-- [ ] Add `gpu_node_devices` database model
-- [ ] Add Alembic migration for node tables
-- [ ] Add node registration endpoint
-- [ ] Add node heartbeat endpoint
-- [ ] Add node list/detail endpoints
-- [ ] Add node drain endpoint
-- [ ] Add GPU capability reporting
-- [ ] Add node health states: `online`, `offline`, `busy`, `draining`, `unhealthy`, `unknown`
-- [ ] Build first `zepgpu-node-agent` prototype
-- [ ] Add node status visibility in API and/or UI
-
-Acceptance checkpoint: a separate node process can register with the coordinator, report GPU resources, heartbeat regularly, and appear in the scheduler's available resource inventory.
-
-## Phase C: Distributed Scheduler and Remote Execution — PLANNED
-
-Goal: route work to local or remote GPU nodes based on availability, requirements, and health.
-
-- [ ] Add `node_task_assignments` database model
-- [ ] Add `node_task_events` database model
-- [ ] Add node-aware scheduling policy
-- [ ] Add remote task assignment flow
-- [ ] Add remote task accept/reject flow
-- [ ] Add remote execution lifecycle states
-- [ ] Add remote result return path
-- [ ] Add node failure detection
-- [ ] Add retry/reroute logic for failed nodes
-- [ ] Support distributed pipeline stage routing
-- [ ] Add tests for node assignment and rerouting
-
-Acceptance checkpoint: a task can be assigned to a provider node, executed remotely, reported back to the coordinator, and retried or rerouted if the node fails before completion.
-
-## Phase D: Petals-Inspired Workload Partitioning Research — RESEARCH
-
-Goal: decide whether ZepGPU should eventually support partitioned model workloads like Petals, or focus on distributed task/pipeline routing only.
-
-- [ ] Classify supported workload types
-- [ ] Identify which workloads are single-node only
-- [ ] Identify which workloads can be distributed by pipeline stage
-- [ ] Research model layer/block partitioning
-- [ ] Research tensor parallelism and pipeline parallelism
-- [ ] Research latency impact and node churn risks
-- [ ] Research model artifact distribution strategy
-- [ ] Decide whether Petals-style model sharding belongs in ZepGPU
-
-Acceptance checkpoint: the team has a written decision on whether ZepGPU should support model partitioning, pipeline-only distribution, or both.
-
-## Phase E: Trust, Accounting, and Reputation Layer — PLANNED
-
-Goal: track who provided compute, who used it, how much was used, and how reliable each provider is.
-
-- [ ] Add `usage_ledger` database model
-- [ ] Add `execution_receipts` database model
-- [ ] Add `provider_reputation` database model
-- [ ] Generate signed off-chain receipts after task completion
-- [ ] Track GPU seconds by requester and provider
-- [ ] Track provider success/failure/timeout rates
-- [ ] Add provider reputation scoring
-- [ ] Add audit events for node/task lifecycle
-- [ ] Add provider usage/reputation endpoints
-- [ ] Add provider dashboard or admin view
-
-Acceptance checkpoint: ZepGPU can produce trustworthy off-chain records of GPU usage and provider reliability without requiring blockchain.
-
-## Phase F: Blockchain Feasibility Layer — OPTIONAL / RESEARCH
-
-Goal: evaluate blockchain only after off-chain distributed execution and accounting are proven.
-
-- [?] Decide whether wallet identity is required or optional
-- [ ] Add optional `wallet_identities` model
-- [ ] Design off-chain receipt format
-- [ ] Research on-chain receipt anchoring
-- [ ] Research payment settlement options
-- [ ] Research escrow/payment channel options
-- [ ] Research provider staking/slashing risks
-- [ ] Add optional on-chain receipt anchor prototype if approved
-- [?] Decide whether blockchain should be implemented, deferred, or rejected
-
-Acceptance checkpoint: the team has a clear go/no-go decision on blockchain, supported by an off-chain receipt/accounting prototype and risk analysis.
-
-## Recommended Execution Order
-
-1. Review this roadmap with the team.
-2. Finish Phase A items that support distributed execution.
-3. Start Phase B node registration and heartbeat work.
-4. Build a minimal provider node agent.
-5. Add Phase C remote task assignment.
-6. Add Phase E off-chain usage receipts and reputation.
-7. Continue Phase D workload partitioning research in parallel.
-8. Only start Phase F blockchain work after the off-chain system is stable.
-
----
-
-# MVP vs Later Scope
-
-## MVP Scope for the Petals-Inspired Direction
-
-The MVP should prove that ZepGPU can operate as a distributed GPU node network without blockchain.
-
-MVP should include:
-
-- Node registration
-- Node heartbeat
-- GPU capability reporting
-- Node health state tracking
-- Task assignment to a remote node
-- Remote node task acceptance
-- Remote task execution
-- Result/status return to coordinator
-- Basic retry if node fails before task starts
-- Basic provider usage accounting
-- Admin/API visibility into nodes and node tasks
-
-MVP should not include:
-
-- Token launch
-- On-chain smart contracts
-- Slashing
-- Marketplace bidding
-- Arbitrary multi-node model sharding
-- Payment settlement
-- Complex proof-of-compute
-- Full decentralized consensus
-
-## Later Scope
-
-Later phases can include:
-
-- Blockchain wallet identity
-- Signed execution receipts
-- On-chain receipt anchoring
-- Provider reputation scoring
-- Marketplace pricing
-- Payment settlement
-- Staking/slashing
-- Distributed model partitioning
-- Multi-node LLM inference
-- Proof/attestation research
-
----
-
-# Phase A: Stabilize Current ZepGPU Foundation
-
-## Goal
-
-Finish validating and hardening the current ZepGPU MVP before expanding into distributed GPU networking.
-
-## Why This Matters
-
-Petals-style distributed compute requires a stable base first. If local task execution, auth, Redis/Celery, callbacks, and WebSockets are unstable, distributed execution will be much harder to debug.
-
-## Work Items
-
-- Complete Phase 8 validation.
-- Keep Docker Compose startup reliable.
-- Keep backend/frontend local development reliable.
-- Confirm JWT authentication works.
-- Confirm task creation, retrieval, result retrieval, and execution work.
-- Confirm pipeline creation and execution work.
-- Confirm callback webhooks work.
-- Confirm WebSocket streams work.
-- Add Redis retry logic.
-- Review GPU allocation race conditions.
-- Add validation for task `func_name` so invalid values fail early.
-- Update README and troubleshooting docs.
 
 ## Proposed File/Module Changes
 
@@ -409,47 +271,236 @@ Petals-style distributed compute requires a stable base first. If local task exe
 
 ## Acceptance Criteria
 
-- `docker compose up -d --build` starts all required services.
+- `docker compose up -d --build` starts required services.
 - `GET /api/v1/health` returns healthy backend status.
 - Swagger/OpenAPI loads at `/docs`.
 - User can register, login, authorize, and access protected routes.
 - User can create a task and retrieve task status.
 - Celery receives and executes a no-op task.
 - Callback webhook fires on task completion.
-- WebSocket `/api/v1/ws/tasks` accepts a JWT token and responds to `ping`.
+- WebSocket `/api/v1/ws/tasks` accepts JWT token and responds to `ping`.
 - Pipeline can be created and run successfully.
 - Redis retry behavior is documented or implemented.
-- GPU allocation logic has a documented race-condition review.
+- GPU allocation logic has documented race-condition review.
 
 ---
 
-# Phase B: Petals-Inspired GPU Node Layer
+# Phase B: Host Room and Virtual Network Layer — PLANNED
 
 ## Goal
 
-Add the foundation for ZepGPU to operate across multiple independent GPU nodes.
+Allow a host master to create a ZepGPU room that represents a private virtual GPU network.
 
 ## Main Concept
 
-A ZepGPU node should be able to join the network and advertise available GPU resources, similar to how Petals peers contribute parts of model capacity to a distributed network.
+A room is the user-facing object that groups connected GPU clients. The room should act like the "network container" for connected provider nodes.
+
+## Checklist
+
+- [ ] Add `gpu_rooms` database model
+- [ ] Add `gpu_room_members` database model
+- [ ] Add room creation endpoint
+- [ ] Add room list/detail endpoints
+- [ ] Add room delete/archive endpoint
+- [ ] Add host ownership rules
+- [ ] Add room status states
+- [ ] Add UI page for room creation
+- [ ] Add UI page for room details
+- [ ] Add room membership display
+
+## Database Tables
+
+### `gpu_rooms`
+
+```sql
+CREATE TABLE gpu_rooms (
+    id UUID PRIMARY KEY,
+    host_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    namespace_id UUID NULL,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    status VARCHAR(50) DEFAULT 'active',
+    network_mode VARCHAR(50) DEFAULT 'vpn',
+    coordinator_url VARCHAR(500),
+    vpn_network_id UUID NULL,
+    max_nodes INTEGER DEFAULT 32,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+### `gpu_room_members`
+
+```sql
+CREATE TABLE gpu_room_members (
+    id UUID PRIMARY KEY,
+    room_id UUID REFERENCES gpu_rooms(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    node_id UUID NULL,
+    role VARCHAR(50) DEFAULT 'provider',
+    status VARCHAR(50) DEFAULT 'invited',
+    joined_at TIMESTAMP,
+    left_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+## API Endpoints
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `POST` | `/api/v1/rooms` | Create GPU room |
+| `GET` | `/api/v1/rooms` | List rooms |
+| `GET` | `/api/v1/rooms/{room_id}` | Get room details |
+| `DELETE` | `/api/v1/rooms/{room_id}` | Delete/archive room |
+| `GET` | `/api/v1/rooms/{room_id}/members` | List room members |
+| `POST` | `/api/v1/rooms/{room_id}/members/{member_id}/remove` | Remove member |
+
+## Proposed File/Module Changes
+
+- `deepiri_zepgpu/database/models/gpu_room.py`
+- `deepiri_zepgpu/database/models/gpu_room_member.py`
+- `deepiri_zepgpu/database/repositories/room_repository.py`
+- `deepiri_zepgpu/api/server/routes/rooms.py`
+- `alembic/versions/<new>_add_gpu_rooms.py`
+- `zepgpu-ui/src/pages/Rooms.tsx`
+- `zepgpu-ui/src/pages/RoomDetail.tsx`
+- `zepgpu-ui/src/api/client.ts`
+- `zepgpu-ui/src/types/index.ts`
+
+## Acceptance Criteria
+
+- Host user can create a room.
+- Room appears in API list.
+- Room detail page shows host, status, and members.
+- Only host/admin can manage room membership.
+- Room can later attach to VPN network configuration.
+
+---
+
+# Phase C: Built-In VPN Join Flow — PLANNED
+
+## Goal
+
+Allow clients to join a host-created room using generated VPN/config credentials.
+
+## Main Concept
+
+A host should create a room and generate connection configurations. Clients use those configs to tap into the room's virtual network.
+
+## Checklist
+
+- [ ] Reuse or extend existing VPN models/routes
+- [ ] Add room-to-VPN network mapping
+- [ ] Add invite/config generation
+- [ ] Add one-time or expiring join credentials
+- [ ] Add client join endpoint
+- [ ] Add connected/disconnected status tracking
+- [ ] Add UI for copying/downloading join configs
+- [ ] Add UI for connected clients
+- [ ] Add local simulation path for testing without real cloud
+
+## Database Tables
+
+### `room_invites`
+
+```sql
+CREATE TABLE room_invites (
+    id UUID PRIMARY KEY,
+    room_id UUID REFERENCES gpu_rooms(id) ON DELETE CASCADE,
+    created_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    invite_code VARCHAR(255) UNIQUE NOT NULL,
+    max_uses INTEGER DEFAULT 1,
+    uses INTEGER DEFAULT 0,
+    expires_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+### `room_connection_configs`
+
+```sql
+CREATE TABLE room_connection_configs (
+    id UUID PRIMARY KEY,
+    room_id UUID REFERENCES gpu_rooms(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    node_id UUID NULL,
+    config_type VARCHAR(50) DEFAULT 'vpn',
+    config_payload JSONB NOT NULL,
+    revoked BOOLEAN DEFAULT false,
+    created_at TIMESTAMP DEFAULT NOW(),
+    revoked_at TIMESTAMP
+);
+```
+
+## API Endpoints
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `POST` | `/api/v1/rooms/{room_id}/invites` | Create room invite |
+| `GET` | `/api/v1/rooms/{room_id}/invites` | List room invites |
+| `POST` | `/api/v1/rooms/join` | Join room with invite/config |
+| `POST` | `/api/v1/rooms/{room_id}/connection-config` | Generate VPN/client config |
+| `POST` | `/api/v1/rooms/{room_id}/connection-config/{config_id}/revoke` | Revoke config |
+| `GET` | `/api/v1/rooms/{room_id}/connections` | List connected clients |
+
+## Proposed File/Module Changes
+
+- `deepiri_zepgpu/database/models/room_invite.py`
+- `deepiri_zepgpu/database/models/room_connection_config.py`
+- `deepiri_zepgpu/api/server/routes/room_invites.py`
+- `deepiri_zepgpu/api/server/routes/room_connections.py`
+- `deepiri_zepgpu/vpn/room_network.py`
+- `deepiri_zepgpu/vpn/config_generator.py`
+- `zepgpu-ui/src/pages/RoomInvites.tsx`
+- `zepgpu-ui/src/components/ConnectionConfigPanel.tsx`
+
+## Acceptance Criteria
+
+- Host can generate a join invite/config.
+- Client can join a room using credentials.
+- Host can see connected clients.
+- Configs can be revoked.
+- Local/dev simulation works even without real cloud deployment.
+
+---
+
+# Phase D: GPU Node Discovery and Metrics — PLANNED
+
+## Goal
+
+Once clients connect to a room, they should become GPU provider nodes that report metrics and availability.
+
+## Checklist
+
+- [ ] Add `gpu_nodes` database model
+- [ ] Add `gpu_node_devices` database model
+- [ ] Add Alembic migration for node tables
+- [ ] Add node registration endpoint
+- [ ] Add node heartbeat endpoint
+- [ ] Add node list/detail endpoints
+- [ ] Add node drain endpoint
+- [ ] Add GPU capability reporting
+- [ ] Add node health states
+- [ ] Build first `zepgpu-node-agent` prototype
+- [ ] Add node status visibility in room UI
 
 ## Database Tables
 
 ### `gpu_nodes`
 
-Tracks provider machines that can execute work.
-
-Suggested fields:
-
 ```sql
 CREATE TABLE gpu_nodes (
     id UUID PRIMARY KEY,
+    room_id UUID REFERENCES gpu_rooms(id) ON DELETE CASCADE,
     owner_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
     namespace_id UUID NULL,
     node_name VARCHAR(255) NOT NULL,
     hostname VARCHAR(255),
     public_address VARCHAR(500),
     private_address VARCHAR(500),
+    vpn_ip VARCHAR(100),
     region VARCHAR(100),
     status VARCHAR(50) DEFAULT 'unknown',
     node_version VARCHAR(100),
@@ -465,8 +516,6 @@ CREATE TABLE gpu_nodes (
 
 ### `gpu_node_devices`
 
-Tracks GPUs attached to a node.
-
 ```sql
 CREATE TABLE gpu_node_devices (
     id UUID PRIMARY KEY,
@@ -478,7 +527,9 @@ CREATE TABLE gpu_node_devices (
     total_memory_mb BIGINT,
     available_memory_mb BIGINT,
     utilization_percent FLOAT,
+    memory_utilization_percent FLOAT,
     temperature_celsius INTEGER,
+    power_draw_watts FLOAT,
     driver_version VARCHAR(100),
     cuda_version VARCHAR(100),
     state VARCHAR(50) DEFAULT 'unknown',
@@ -493,9 +544,9 @@ CREATE TABLE gpu_node_devices (
 
 | Method | Endpoint | Purpose |
 |---|---|---|
-| `POST` | `/api/v1/nodes/register` | Register a provider node |
+| `POST` | `/api/v1/rooms/{room_id}/nodes/register` | Register provider node |
 | `POST` | `/api/v1/nodes/{node_id}/heartbeat` | Update node health/capacity |
-| `GET` | `/api/v1/nodes` | List nodes |
+| `GET` | `/api/v1/rooms/{room_id}/nodes` | List room nodes |
 | `GET` | `/api/v1/nodes/{node_id}` | Get node details |
 | `POST` | `/api/v1/nodes/{node_id}/drain` | Mark node as draining |
 | `POST` | `/api/v1/nodes/{node_id}/disable` | Disable node scheduling |
@@ -513,53 +564,54 @@ CREATE TABLE gpu_node_devices (
 - `deepiri_zepgpu/node_agent/gpu_reporter.py`
 - `alembic/versions/<new>_add_gpu_nodes.py`
 - `zepgpu-ui/src/pages/Nodes.tsx`
+- `zepgpu-ui/src/components/RoomNodeMetrics.tsx`
 - `zepgpu-ui/src/api/client.ts`
 - `zepgpu-ui/src/types/index.ts`
 
-## Implementation Order
-
-1. Add database models and migration.
-2. Add repository layer for node CRUD and heartbeat updates.
-3. Add API schemas and routes.
-4. Register the route in the FastAPI router.
-5. Add simple node agent CLI prototype.
-6. Make node agent register with coordinator.
-7. Make node agent send periodic heartbeats.
-8. Add node list endpoint testing.
-9. Add basic UI page for nodes.
-10. Document local testing.
-
 ## Acceptance Criteria
 
-- A node can register with the coordinator.
-- Registered node appears in `GET /api/v1/nodes`.
-- Node can send heartbeat updates.
-- Missed heartbeat causes node to become `offline` or `unhealthy`.
-- Node device capability data is stored.
-- API can list node GPUs.
-- Node agent can run locally in dev mode.
+- A connected client can register as a room GPU node.
+- Node appears under the host room.
+- Node sends heartbeat updates.
+- Node reports GPU metrics.
+- Missed heartbeat marks node offline/unhealthy.
+- Host UI shows connected nodes and GPU metrics.
 
 ---
 
-# Phase C: Distributed Scheduler and Remote Execution
+# Phase E: Petals-Inspired Distributed Scheduler and Remote Execution — PLANNED
 
 ## Goal
 
-Evolve ZepGPU from local Celery execution into distributed GPU task routing.
+Allow the host/coordinator to dispatch tasks to connected GPU nodes inside a room.
 
 ## Main Concept
 
-The scheduler should pick the best GPU node for a task based on availability, requirements, health, latency, and reliability.
+The scheduler should pick the best connected node for a workload based on availability, GPU requirements, health, latency, and queue depth.
+
+## Checklist
+
+- [ ] Add `node_task_assignments` database model
+- [ ] Add `node_task_events` database model
+- [ ] Add room-aware scheduling policy
+- [ ] Add node-aware scheduling policy
+- [ ] Add remote task assignment flow
+- [ ] Add remote task accept/reject flow
+- [ ] Add remote execution lifecycle states
+- [ ] Add remote result return path
+- [ ] Add node failure detection
+- [ ] Add retry/reroute logic for failed nodes
+- [ ] Support distributed pipeline stage routing
+- [ ] Add tests for node assignment and rerouting
 
 ## Database Tables
 
 ### `node_task_assignments`
 
-Tracks which node is assigned to each task.
-
 ```sql
 CREATE TABLE node_task_assignments (
     id UUID PRIMARY KEY,
+    room_id UUID REFERENCES gpu_rooms(id) ON DELETE CASCADE,
     task_id UUID REFERENCES tasks(id) ON DELETE CASCADE,
     node_id UUID REFERENCES gpu_nodes(id) ON DELETE SET NULL,
     device_id UUID REFERENCES gpu_node_devices(id) ON DELETE SET NULL,
@@ -578,11 +630,10 @@ CREATE TABLE node_task_assignments (
 
 ### `node_task_events`
 
-Tracks lifecycle events for debugging and auditing.
-
 ```sql
 CREATE TABLE node_task_events (
     id UUID PRIMARY KEY,
+    room_id UUID REFERENCES gpu_rooms(id) ON DELETE CASCADE,
     task_id UUID REFERENCES tasks(id) ON DELETE CASCADE,
     node_id UUID REFERENCES gpu_nodes(id) ON DELETE SET NULL,
     event_type VARCHAR(100) NOT NULL,
@@ -595,7 +646,7 @@ CREATE TABLE node_task_events (
 
 | Method | Endpoint | Purpose |
 |---|---|---|
-| `POST` | `/api/v1/node-tasks/{task_id}/assign` | Assign task to a node |
+| `POST` | `/api/v1/rooms/{room_id}/tasks/{task_id}/assign` | Assign task to room node |
 | `POST` | `/api/v1/node-tasks/{task_id}/accept` | Node accepts task |
 | `POST` | `/api/v1/node-tasks/{task_id}/start` | Node reports task started |
 | `POST` | `/api/v1/node-tasks/{task_id}/complete` | Node reports task completed |
@@ -616,23 +667,9 @@ CREATE TABLE node_task_events (
 - `deepiri_zepgpu/node_agent/result_uploader.py`
 - `deepiri_zepgpu/node_agent/log_streamer.py`
 
-## Implementation Order
-
-1. Add assignment/event database models.
-2. Add assignment repository.
-3. Add node selector that filters healthy nodes.
-4. Add basic scheduling policy.
-5. Add node task API routes.
-6. Add node agent polling or control channel.
-7. Make agent accept assigned task.
-8. Make agent execute no-op task.
-9. Make agent report completion.
-10. Add failure retry path.
-11. Add distributed pipeline stage assignment.
-12. Add integration tests.
-
 ## Scheduling Policy Inputs
 
+- Room membership
 - Required GPU memory
 - GPU type
 - Node health
@@ -647,7 +684,7 @@ CREATE TABLE node_task_events (
 
 ## Acceptance Criteria
 
-- Scheduler can select a healthy node for a task.
+- Scheduler can select a healthy node inside a room.
 - Task assignment record is created.
 - Node agent receives or polls assigned task.
 - Node agent can execute no-op task.
@@ -658,53 +695,122 @@ CREATE TABLE node_task_events (
 
 ---
 
-# Phase D: Petals-Inspired Workload Partitioning Research
+# Phase F: Host Master UI and Room Dashboard — PLANNED
 
 ## Goal
 
-Research whether ZepGPU should support partitioned workloads across nodes, especially for AI/model tasks.
+Build the UI experience the host master needs to manage the distributed GPU room.
 
-## Why This Matters
+## Checklist
 
-Petals splits large models into blocks/layers across peer machines. ZepGPU may not need this for all GPU tasks, but it could be powerful for LLM inference, batch inference, and distributed ML workflows.
+- [ ] Add room creation page
+- [ ] Add room detail dashboard
+- [ ] Add invite/config generation UI
+- [ ] Add connected clients list
+- [ ] Add GPU metrics cards per node
+- [ ] Add node health indicators
+- [ ] Add task dispatch controls
+- [ ] Add room activity/event log
+- [ ] Add WebSocket updates for node metrics
+- [ ] Add basic graph of total room compute
 
-## Work Items
+## UI Views
 
-### D1. Identify Workload Categories
+### Room List
 
-Classify workloads into:
+Shows all rooms the user owns or belongs to.
 
-1. Single-node tasks
-2. Multi-GPU single-node tasks
-3. Multi-node pipeline tasks
-4. Multi-node partitioned model tasks
-5. Batch distributed tasks
+### Room Detail
 
-### D2. Start With Pipeline Distribution
+Shows:
 
-Do not start by splitting arbitrary Python functions. Start by distributing pipeline stages across nodes.
+- room name
+- room status
+- connection method
+- host
+- connected nodes
+- connected users
+- total GPUs
+- total VRAM
+- available VRAM
+- running tasks
+- node health
 
-### D3. Research Model Partitioning
+### Node Metrics Panel
 
-Study:
+Shows per-node:
 
-- layer/block partitioning
-- tensor parallelism
-- pipeline parallelism
-- batch routing
-- model shard placement
-- latency impact
+- GPU name
+- utilization
+- memory usage
+- temperature
+- power draw
+- active task
+- latency
+- last heartbeat
 
-### D4. Define Constraints
+### Dispatch Panel
 
-Distributed model execution has risks:
+Allows the host to:
 
-- network latency
-- node churn
-- inconsistent GPU speeds
-- result verification
-- model artifact distribution
-- privacy/security
+- choose a task/pipeline
+- select auto-scheduling or specific node
+- dispatch the workload
+- watch status updates
+
+## Proposed File/Module Changes
+
+- `zepgpu-ui/src/pages/Rooms.tsx`
+- `zepgpu-ui/src/pages/RoomDetail.tsx`
+- `zepgpu-ui/src/components/RoomNodeList.tsx`
+- `zepgpu-ui/src/components/RoomNodeMetrics.tsx`
+- `zepgpu-ui/src/components/RoomInvitePanel.tsx`
+- `zepgpu-ui/src/components/RoomDispatchPanel.tsx`
+- `zepgpu-ui/src/components/RoomActivityLog.tsx`
+- `zepgpu-ui/src/api/client.ts`
+- `zepgpu-ui/src/types/index.ts`
+
+## Acceptance Criteria
+
+- Host can create room from UI.
+- Host can generate invite/config from UI.
+- Host can see connected clients.
+- Host can see GPU metrics per connected node.
+- Host can dispatch workload to room.
+- UI updates status in near real time.
+
+---
+
+# Phase G: Workload Combination and Partitioning Research — RESEARCH
+
+## Goal
+
+Research how ZepGPU can combine utilization across connected GPUs using async queues, distributed execution, and memory-architecture-inspired approaches.
+
+## Checklist
+
+- [ ] Classify workload types
+- [ ] Identify single-node workloads
+- [ ] Identify distributed pipeline workloads
+- [ ] Identify batch-parallel workloads
+- [ ] Research model layer/block partitioning from Petals
+- [ ] Research tensor parallelism
+- [ ] Research pipeline parallelism
+- [ ] Research async queue-based execution
+- [ ] Research memory architecture-inspired scheduling
+- [ ] Decide what ZepGPU should support first
+
+## Practical Recommendation
+
+Do not start with arbitrary multi-node function splitting.
+
+Recommended order:
+
+1. Whole task to one remote node.
+2. Pipeline stages across different nodes.
+3. Batch-parallel jobs across multiple nodes.
+4. Model-specific partitioning for LLM workloads.
+5. Advanced memory/pipeline parallel strategies.
 
 ## Proposed File/Module Changes
 
@@ -712,238 +818,173 @@ Distributed model execution has risks:
 - `docs/model_partitioning_research.md`
 - `deepiri_zepgpu/core/workload_classifier.py`
 - `deepiri_zepgpu/core/pipeline_partition_planner.py`
+- `deepiri_zepgpu/core/batch_distributor.py`
 
 ## Acceptance Criteria
 
 - Workload categories are documented.
-- Team decides which workload types ZepGPU will support first.
-- Pipeline-stage distribution is selected as the first practical target.
-- Model sharding is treated as research until a clear use case is approved.
+- Team decides first supported distributed workload type.
+- Pipeline-stage distribution is selected as first practical target.
+- Model sharding remains research until approved.
 - Risks and constraints are documented.
 
 ---
 
-# Phase E: Trust, Accounting, and Reputation Layer
+# Phase H: Cloud / Decentralized Hosting Research — RESEARCH
 
 ## Goal
 
-Add the non-blockchain trust layer required before any marketplace or blockchain integration.
+Decide how the host room/coordinator should run in real deployments.
 
-## Why Before Blockchain?
+## Context
 
-ZepGPU should first track usage, reliability, and receipts internally. Blockchain should only be added after the off-chain data model is correct.
+If the system is only hosted from a local device with manual port forwarding, it is not truly decentralized or cloud-ready. A better architecture may require a cloud-hosted coordinator or relay so clients can join reliably.
 
-## Database Tables
+## Options to Research
 
-### `usage_ledger`
+### Option 1: Local Host + Port Forwarding
 
-```sql
-CREATE TABLE usage_ledger (
-    id UUID PRIMARY KEY,
-    task_id UUID REFERENCES tasks(id) ON DELETE SET NULL,
-    requester_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-    provider_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-    node_id UUID REFERENCES gpu_nodes(id) ON DELETE SET NULL,
-    gpu_type VARCHAR(100),
-    gpu_seconds DECIMAL(15, 4),
-    memory_mb INTEGER,
-    status VARCHAR(50),
-    cost_estimate DECIMAL(15, 6),
-    created_at TIMESTAMP DEFAULT NOW()
-);
-```
+Pros:
 
-### `execution_receipts`
+- Simple for early dev
+- No cloud cost
+- Easy to simulate
 
-```sql
-CREATE TABLE execution_receipts (
-    id UUID PRIMARY KEY,
-    task_id UUID REFERENCES tasks(id) ON DELETE CASCADE,
-    requester_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-    provider_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-    node_id UUID REFERENCES gpu_nodes(id) ON DELETE SET NULL,
-    receipt_hash VARCHAR(255) NOT NULL,
-    result_hash VARCHAR(255),
-    payload JSONB NOT NULL,
-    signature TEXT,
-    created_at TIMESTAMP DEFAULT NOW()
-);
-```
+Cons:
 
-### `provider_reputation`
+- NAT/port issues
+- not truly decentralized
+- host machine must stay online
+- poor reliability
 
-```sql
-CREATE TABLE provider_reputation (
-    id UUID PRIMARY KEY,
-    provider_user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-    node_id UUID REFERENCES gpu_nodes(id) ON DELETE CASCADE,
-    successful_tasks INTEGER DEFAULT 0,
-    failed_tasks INTEGER DEFAULT 0,
-    timeout_tasks INTEGER DEFAULT 0,
-    average_latency_ms DECIMAL(15, 2),
-    average_runtime_ms DECIMAL(15, 2),
-    uptime_percent DECIMAL(5, 2),
-    reputation_score DECIMAL(10, 4),
-    updated_at TIMESTAMP DEFAULT NOW()
-);
-```
+### Option 2: Cloud-Hosted Coordinator
 
-## API Endpoints
+Pros:
 
-| Method | Endpoint | Purpose |
-|---|---|---|
-| `GET` | `/api/v1/accounting/usage` | List usage records |
-| `GET` | `/api/v1/accounting/usage/me` | Current user's usage |
-| `GET` | `/api/v1/accounting/receipts/{task_id}` | Get task receipt |
-| `POST` | `/api/v1/accounting/receipts/{task_id}/generate` | Generate receipt |
-| `GET` | `/api/v1/reputation/providers` | List provider reputation |
-| `GET` | `/api/v1/reputation/providers/{provider_id}` | Get provider reputation |
+- reliable room server
+- easier for clients to connect
+- better for production
+- cleaner VPN management
 
-## Proposed File/Module Changes
+Cons:
 
-- `deepiri_zepgpu/database/models/usage_ledger.py`
-- `deepiri_zepgpu/database/models/execution_receipt.py`
-- `deepiri_zepgpu/database/models/provider_reputation.py`
-- `deepiri_zepgpu/database/repositories/accounting_repository.py`
-- `deepiri_zepgpu/database/repositories/reputation_repository.py`
-- `deepiri_zepgpu/api/server/routes/accounting.py`
-- `deepiri_zepgpu/api/server/routes/reputation.py`
-- `deepiri_zepgpu/core/receipt_generator.py`
-- `deepiri_zepgpu/core/reputation.py`
+- cloud cost
+- coordinator becomes centralized
 
-## Acceptance Criteria
+### Option 3: Hybrid Coordinator + Local Providers
 
-- Usage record is created for completed tasks.
-- Receipt can be generated for a completed task.
-- Receipt hash is deterministic.
-- Provider reputation updates after task completion/failure.
-- API exposes usage, receipts, and reputation.
-- Data model works without blockchain.
+Pros:
 
----
+- practical first production architecture
+- providers still contribute local GPUs
+- cloud only coordinates rooms, auth, and routing
 
-# Phase F: Blockchain Feasibility Layer
+Cons:
 
-## Goal
+- still not fully decentralized
+- requires cloud deployment work
 
-Evaluate and optionally prototype blockchain support after the distributed compute system and accounting layer work off-chain.
+### Option 4: Fully Decentralized Network
+
+Pros:
+
+- closest to Petals style
+- no single central coordinator
+
+Cons:
+
+- hardest to build
+- complex peer discovery
+- harder auth/security
+- harder UI/room management
 
 ## Recommendation
 
-Blockchain should be optional and modular.
+Start with:
 
-ZepGPU should work without blockchain. Blockchain should only add:
+> Hybrid coordinator + local provider nodes.
 
-- public receipts
-- marketplace settlement
-- wallet identity
-- provider staking
-- reputation anchoring
-
-## Database Tables
-
-### `wallet_identities`
-
-```sql
-CREATE TABLE wallet_identities (
-    id UUID PRIMARY KEY,
-    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-    wallet_address VARCHAR(255) NOT NULL,
-    chain VARCHAR(100),
-    verified BOOLEAN DEFAULT false,
-    verification_message TEXT,
-    verified_at TIMESTAMP,
-    created_at TIMESTAMP DEFAULT NOW(),
-    UNIQUE(wallet_address, chain)
-);
-```
-
-### `onchain_receipt_anchors`
-
-```sql
-CREATE TABLE onchain_receipt_anchors (
-    id UUID PRIMARY KEY,
-    receipt_id UUID REFERENCES execution_receipts(id) ON DELETE CASCADE,
-    chain VARCHAR(100),
-    contract_address VARCHAR(255),
-    tx_hash VARCHAR(255),
-    block_number BIGINT,
-    status VARCHAR(50),
-    created_at TIMESTAMP DEFAULT NOW(),
-    confirmed_at TIMESTAMP
-);
-```
-
-## API Endpoints
-
-| Method | Endpoint | Purpose |
-|---|---|---|
-| `POST` | `/api/v1/blockchain/wallets/connect` | Connect wallet identity |
-| `POST` | `/api/v1/blockchain/wallets/verify` | Verify wallet signature |
-| `GET` | `/api/v1/blockchain/wallets/me` | Get current user's wallets |
-| `POST` | `/api/v1/blockchain/receipts/{receipt_id}/anchor` | Anchor receipt hash on-chain |
-| `GET` | `/api/v1/blockchain/receipts/{receipt_id}/anchor` | Get anchoring status |
-
-## Proposed File/Module Changes
-
-- `deepiri_zepgpu/database/models/wallet_identity.py`
-- `deepiri_zepgpu/database/models/onchain_receipt_anchor.py`
-- `deepiri_zepgpu/database/repositories/blockchain_repository.py`
-- `deepiri_zepgpu/api/server/routes/blockchain.py`
-- `deepiri_zepgpu/blockchain/wallets.py`
-- `deepiri_zepgpu/blockchain/receipts.py`
-- `deepiri_zepgpu/blockchain/contracts/`
-- `docs/blockchain_feasibility.md`
-
-## Implementation Order
-
-1. Write blockchain feasibility report.
-2. Add wallet identity model without requiring wallet login.
-3. Add wallet verification endpoint.
-4. Generate off-chain execution receipts first.
-5. Add optional receipt hash anchoring.
-6. Compare whether settlement should be on-chain, off-chain, or not included.
-7. Only then consider smart contracts.
+This allows ZepGPU to simulate and eventually deploy room-based distributed GPU networking without requiring full decentralization on day one.
 
 ## Acceptance Criteria
 
-- ZepGPU works without blockchain enabled.
-- Wallet identity is optional.
-- Receipts can be generated off-chain.
-- Receipt hash can be anchored on-chain in a prototype.
-- No task payloads, logs, model artifacts, or results are stored on-chain.
-- Team has a written go/no-go decision for blockchain settlement.
+- Team chooses deployment architecture for room coordinator.
+- Local simulation path is documented.
+- Cloud deployment path is documented.
+- NAT/VPN limitations are documented.
+
+---
+
+# Phase I: Blockchain Deferred — NOT ACTIVE
+
+## Status
+
+Blockchain is deferred based on final review.
+
+## Current Decision
+
+Blockchain should not be implemented at this moment.
+
+The active direction is:
+
+1. Petals-inspired room/network architecture
+2. Built-in VPN join flow
+3. GPU node discovery
+4. Metrics visibility
+5. Distributed scheduling
+6. Remote execution
+7. Cloud/decentralized hosting research
+
+## When Blockchain May Be Revisited
+
+Blockchain may be reconsidered later only if ZepGPU needs:
+
+- marketplace payments
+- provider identity
+- public usage receipts
+- reputation anchoring
+- settlement between requesters and providers
+
+## What Should Not Be Built Now
+
+- token system
+- smart contracts
+- staking/slashing
+- on-chain task execution
+- on-chain result storage
+- on-chain model artifact storage
+- blockchain-required login
+
+## Acceptance Criteria
+
+- Blockchain is removed from active implementation phases.
+- Roadmap focuses on Petals-inspired room/network architecture.
+- Any blockchain discussion remains clearly marked as deferred.
+
+---
+
+# Proposed Updated Roadmap Summary
+
+| Priority | Phase | Focus | Status |
+|---|---|---|---|
+| 1 | Phase A | Stabilize current ZepGPU foundation | In progress |
+| 2 | Phase B | Host room and virtual network layer | Planned |
+| 3 | Phase C | Built-in VPN join flow | Planned |
+| 4 | Phase D | GPU node discovery and metrics | Planned |
+| 5 | Phase E | Petals-inspired distributed scheduler and remote execution | Planned |
+| 6 | Phase F | Host master UI and room dashboard | Planned |
+| 7 | Phase G | Workload combination and partitioning research | Research |
+| 8 | Phase H | Cloud/decentralized hosting research | Research |
+| 9 | Phase I | Blockchain deferred | Not active |
 
 ---
 
 
-
-# Final Recommendation
-
-The best next step is not to immediately build blockchain features. The best next step is to use Petals as inspiration to evolve ZepGPU into a distributed GPU node network.
-
-Recommended order:
-
-1. Finish the current stabilization work that supports distributed execution.
-2. Add GPU node registration, heartbeat, and capability reporting.
-3. Add node agent prototype.
-4. Add distributed scheduler and remote execution.
-5. Add accounting, receipts, and reputation off-chain.
-6. Research blockchain as an optional receipt/payment/reputation layer.
-7. Only prototype blockchain if the off-chain distributed compute layer works and the team confirms it is useful.
-
----
-
-
-
-## Sources
+# Sources
 
 - Petals GitHub repository: https://github.com/bigscience-workshop/petals
 - Petals project site: https://petals.dev/
 - Petals ACL paper: https://aclanthology.org/2023.acl-demo.54/
 - Petals arXiv paper: https://arxiv.org/abs/2209.01188
 - Yandex Research Petals explainer: https://research.yandex.com/blog/petals-decentralized-inference-and-finetuning-of-large-language-models
-- Akash Network: https://akash.network/
-- Akash documentation: https://akash.network/docs/getting-started/what-is-akash/
-- Golem Network: https://golem.network/
-- Golem provider documentation: https://docs.golem.network/docs/providers
+- Existing ZepGPU README and implementation plan
