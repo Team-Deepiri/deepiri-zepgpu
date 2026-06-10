@@ -467,6 +467,8 @@ export interface VpnNetwork {
   is_active: boolean
   peer_count: number
   created_at: string
+  owner_id?: string | null
+  updated_at?: string
 }
 
 export interface Peer {
@@ -479,6 +481,12 @@ export interface Peer {
   is_online: boolean
   last_seen: string
   gpu_count: number
+  network_id?: string | null
+  public_key?: string | null
+  endpoint?: string | null
+  allowed_ips?: string[] | null
+  created_at?: string
+  updated_at?: string
 }
 
 export interface GpuShare {
@@ -504,6 +512,9 @@ export interface GpuPoolSummary {
   online_peers: number
   online_gpu_hosts: number
   gpu_breakdown: GpuShare[]
+  available_gpus?: number
+  peers?: Peer[]
+  gpus?: unknown[]
 }
 
 export interface VpnInvite {
@@ -516,6 +527,9 @@ export interface VpnInvite {
   expires_at: string | null
   is_revoked: boolean
   created_at: string
+  network_id?: string | null
+  invite_code?: string
+  uses?: number
 }
 
 export interface Friend {
@@ -532,10 +546,16 @@ export interface FriendList {
   friends: Friend[]
   pending: Friend[]
   sent_requests: Friend[]
+  incoming_requests?: unknown[]
+  outgoing_requests?: unknown[]
 }
 
 export interface VpnConfigResponse {
   config_text: string
   vpn_ip: string
   peer_id: string
+  config?: string
+  network?: VpnNetwork
+  peer?: Peer
+  wireguard_config?: string
 }

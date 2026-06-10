@@ -18,6 +18,26 @@ from deepiri_zepgpu.database.repositories import TaskRepository
 router = APIRouter()
 
 
+
+def _validate_task_callable(func_name: str | None, serialized_func: str | None) -> None:
+    """Validate that a task has an executable function reference."""
+    if serialized_func:
+        return
+
+    if not func_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Task requires either serialized_func or func_name.",
+        )
+
+    parts = func_name.split(".")
+    if len(parts) < 2 or any(not part.isidentifier() for part in parts):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="func_name must be a dotted Python path like 'package.module.function'.",
+        )
+
+
 class TaskCreateRequest(BaseModel):
     """Task creation request."""
     name: str | None = None
@@ -73,11 +93,15 @@ class TaskResultResponse(BaseModel):
     presigned_url: str | None = None
 
 
-async def enqueue_task_to_celery(task_id: str) -> None:
+def enqueue_task_to_celery(task_id: str) -> None:
     """Enqueue task to Celery for execution."""
+    import logging
+
     from deepiri_zepgpu.queue.tasks import execute_task
-    
-    execute_task.delay(task_id)
+
+    logger = logging.getLogger(__name__)
+    async_result = execute_task.apply_async(args=[task_id], queue="celery")
+    logger.info("Enqueued task %s to Celery with celery_task_id=%s", task_id, async_result.id)
 
 
 async def send_callback(callback_url: str, task_id: str, status: str, result: Any = None) -> None:
@@ -109,6 +133,8 @@ async def create_task(
     """Create a new task and enqueue it for execution."""
     from deepiri_zepgpu.database.models import Task
     
+    _validate_task_callable(request.func_name, request.serialized_func)
+    
     task = Task(
         id=str(uuid.uuid4()),
         user_id=current_user.id if current_user else None,
@@ -135,7 +161,7 @@ async def create_task(
     background_tasks.add_task(enqueue_task_to_celery, task.id)
     
     return TaskResponse(
-        id=task.id,
+        id=str(task.id),
         name=task.name,
         status=task.status.value,
         priority=task.priority.value,
@@ -148,7 +174,7 @@ async def create_task(
         completed_at=task.completed_at,
         error=task.error,
         execution_time_ms=task.execution_time_ms,
-        user_id=task.user_id,
+        user_id=str(task.user_id) if task.user_id else None,
     )
 
 
@@ -173,7 +199,7 @@ async def list_tasks(
     return TaskListResponse(
         tasks=[
             TaskResponse(
-                id=t.id,
+                id=str(t.id),
                 name=t.name,
                 status=t.status.value,
                 priority=t.priority.value,
@@ -186,7 +212,7 @@ async def list_tasks(
                 completed_at=t.completed_at,
                 error=t.error,
                 execution_time_ms=t.execution_time_ms,
-                user_id=t.user_id,
+                user_id=str(t.user_id) if t.user_id else None,
             )
             for t in tasks
         ],
@@ -209,11 +235,11 @@ async def get_task(
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     
-    if current_user and task.user_id != current_user.id:
+    if current_user and str(task.user_id) != str(current_user.id):
         raise HTTPException(status_code=403, detail="Access denied")
     
     return TaskResponse(
-        id=task.id,
+        id=str(task.id),
         name=task.name,
         status=task.status.value,
         priority=task.priority.value,
@@ -226,7 +252,7 @@ async def get_task(
         completed_at=task.completed_at,
         error=task.error,
         execution_time_ms=task.execution_time_ms,
-        user_id=task.user_id,
+        user_id=str(task.user_id) if task.user_id else None,
     )
 
 
@@ -243,7 +269,7 @@ async def cancel_task(
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     
-    if current_user and task.user_id != current_user.id:
+    if current_user and str(task.user_id) != str(current_user.id):
         raise HTTPException(status_code=403, detail="Access denied")
     
     if task.status in [DBTaskStatus.COMPLETED, DBTaskStatus.FAILED, DBTaskStatus.CANCELLED]:
@@ -266,7 +292,7 @@ async def retry_task(
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     
-    if current_user and task.user_id != current_user.id:
+    if current_user and str(task.user_id) != str(current_user.id):
         raise HTTPException(status_code=403, detail="Access denied")
     
     if task.status not in [DBTaskStatus.FAILED, DBTaskStatus.CANCELLED, DBTaskStatus.TIMEOUT]:
@@ -278,7 +304,7 @@ async def retry_task(
     task = await repo.get_by_id(task_id)
     
     return TaskResponse(
-        id=task.id,
+        id=str(task.id),
         name=task.name,
         status=task.status.value,
         priority=task.priority.value,
@@ -291,7 +317,7 @@ async def retry_task(
         completed_at=task.completed_at,
         error=task.error,
         execution_time_ms=task.execution_time_ms,
-        user_id=task.user_id,
+        user_id=str(task.user_id) if task.user_id else None,
     )
 
 
@@ -310,7 +336,7 @@ async def get_task_result(
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     
-    if current_user and task.user_id != current_user.id:
+    if current_user and str(task.user_id) != str(current_user.id):
         raise HTTPException(status_code=403, detail="Access denied")
     
     result_data = None

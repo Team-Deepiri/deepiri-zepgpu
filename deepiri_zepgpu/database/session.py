@@ -9,6 +9,7 @@ from typing import AsyncGenerator, Generator
 from sqlalchemy import create_engine, event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import NullPool
 
 from deepiri_zepgpu.config import settings
 
@@ -18,10 +19,9 @@ DATABASE_SYNC_URL = os.getenv("DATABASE_SYNC_URL", "postgresql://deepiri:deepiri
 async_engine = create_async_engine(
     DATABASE_URL,
     echo=settings.database.echo,
-    pool_size=settings.database.pool_size,
-    max_overflow=settings.database.max_overflow,
     pool_pre_ping=True,
     pool_recycle=3600,
+    poolclass=NullPool,
 )
 
 sync_engine = create_engine(

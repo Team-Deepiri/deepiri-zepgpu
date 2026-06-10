@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 from typing import Any, Optional
 
 import redis.asyncio as redis
 
 from deepiri_zepgpu.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class RedisQueue:
@@ -23,14 +27,38 @@ class RedisQueue:
         self._redis: Optional[redis.Redis] = None
         self._pubsub: Optional[redis.client.PubSub] = None
 
-    async def connect(self) -> None:
-        """Connect to Redis."""
-        self._redis = redis.from_url(
-            settings.redis.url,
-            encoding="utf-8",
-            decode_responses=True,
-        )
-        self._pubsub = self._redis.pubsub()
+    async def connect(self, retries: int = 5, delay_seconds: float = 2.0) -> None:
+        """Connect to Redis with retry handling for local/container startup."""
+        last_error: Exception | None = None
+
+        for attempt in range(1, retries + 1):
+            try:
+                self._redis = redis.from_url(
+                    settings.redis.url,
+                    encoding="utf-8",
+                    decode_responses=True,
+                )
+                await self._redis.ping()
+                self._pubsub = self._redis.pubsub()
+                logger.info("Connected to Redis on attempt %s", attempt)
+                return
+            except Exception as exc:
+                last_error = exc
+                logger.warning(
+                    "Redis connection attempt %s/%s failed: %s",
+                    attempt,
+                    retries,
+                    exc,
+                )
+
+                if self._redis:
+                    await self._redis.close()
+                    self._redis = None
+
+                if attempt < retries:
+                    await asyncio.sleep(delay_seconds)
+
+        raise RuntimeError(f"Failed to connect to Redis after {retries} attempts") from last_error
 
     async def disconnect(self) -> None:
         """Disconnect from Redis."""
@@ -158,6 +186,9 @@ class RedisQueue:
 
     async def health_check(self) -> bool:
         """Check Redis connection health."""
+        if not self._redis:
+            return False
+
         try:
             await self._redis.ping()
             return True

@@ -79,7 +79,7 @@ services:
       dockerfile: docker/Dockerfile
     image: zepgpu:latest
     container_name: celery-worker-schedules
-    command: celery -A deepiri_zepgpu.queue.celery_app worker --loglevel=info --queues=schedules
+    command: celery -A deepiri_zepgpu.queue.celery_app worker --loglevel=info --queues=schedules,celery
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
