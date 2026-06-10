@@ -505,16 +505,34 @@ export interface GpuShare {
   last_updated: string
 }
 
+export interface DynamicGpu {
+  id: string
+  device_id: number
+  device_index?: number
+  name: string
+  gpu_type: string
+  state: string
+  total_memory_mb: number
+  available_memory_mb: number
+  utilization_percent: number | null
+  temperature_celsius?: number | null
+  power_draw_watts?: number | null
+  peer_id?: string | null
+  peer_username?: string | null
+  vpn_ip?: string | null
+  last_updated: string
+}
+
 export interface GpuPoolSummary {
   total_gpus: number
+  available_gpus: number
   total_memory_mb: number
   available_memory_mb: number
   online_peers: number
   online_gpu_hosts: number
   gpu_breakdown: GpuShare[]
-  available_gpus?: number
-  peers?: Peer[]
-  gpus?: unknown[]
+  peers: Peer[]
+  gpus: DynamicGpu[]
 }
 
 export interface VpnInvite {
