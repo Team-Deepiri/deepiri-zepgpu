@@ -60,8 +60,8 @@ class PipelineBuilder:
 
     def preprocess(
         self,
-        name: str = "preprocess",
         func: Callable[..., Any],
+        name: str = "preprocess",
         args: Optional[dict[str, Any]] = None,
         **kwargs: Any,
     ) -> "PipelineBuilder":
@@ -94,8 +94,8 @@ class PipelineBuilder:
 
     def postprocess(
         self,
-        name: str = "postprocess",
         func: Callable[..., Any],
+        name: str = "postprocess",
         args: Optional[dict[str, Any]] = None,
         depends_on: Optional[list[str]] = None,
         **kwargs: Any,

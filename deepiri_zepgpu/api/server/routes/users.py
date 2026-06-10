@@ -88,6 +88,8 @@ def hash_password(password: str) -> str:
 
 def verify_password(password: str, password_hash: str) -> bool:
     """Verify a password."""
+    import hashlib
+    
     try:
         hash_value, salt = password_hash.rsplit(":", 1)
         computed_hash = hashlib.pbkdf2_hmac(

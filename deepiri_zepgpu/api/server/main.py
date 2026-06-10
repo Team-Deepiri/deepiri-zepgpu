@@ -84,7 +84,15 @@ async def lifespan(app: FastAPI):
     """Application lifespan events."""
     await init_db()
     await queue.connect()
-    await result_store.initialize()
+    try:
+        await result_store.initialize()
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning(
+            "Result store initialization failed; continuing without result storage: %s",
+            exc,
+        )
+
     vpn_stop = asyncio.Event()
     vpn_task = asyncio.create_task(_vpn_registry_maintenance_loop(vpn_stop))
     yield

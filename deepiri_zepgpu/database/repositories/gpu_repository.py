@@ -179,13 +179,22 @@ class GPURepository:
         device_index: int,
         task_id: str,
     ) -> GPUDevice | None:
-        """Allocate GPU to a task."""
-        device = await self.get_by_device_index(device_index)
-        if not device or device.state != GPUState.IDLE:
-            return None
-        
-        device.state = GPUState.ALLOCATED
-        device.current_task_id = task_id
+        """Atomically allocate an idle GPU to a task."""
+        result = await self.session.execute(
+            update(GPUDevice)
+            .where(
+                GPUDevice.device_index == device_index,
+                GPUDevice.state == GPUState.IDLE,
+                GPUDevice.is_available == True,
+            )
+            .values(
+                state=GPUState.ALLOCATED,
+                current_task_id=task_id,
+                last_seen=datetime.utcnow(),
+            )
+            .returning(GPUDevice)
+        )
+        device = result.scalar_one_or_none()
         await self.session.flush()
         return device
 
@@ -194,29 +203,33 @@ class GPURepository:
         device_indices: list[int],
         gang_task_id: str,
     ) -> list[GPUDevice] | None:
-        """Atomically allocate multiple GPUs to a gang task.
-        
-        Args:
-            device_indices: List of GPU device indices to allocate
-            gang_task_id: The gang task ID
-            
-        Returns:
-            List of allocated GPU devices, or None if allocation failed
-        """
-        allocated = []
-        
+        """Atomically allocate multiple idle GPUs to a gang task."""
+        result = await self.session.execute(
+            select(GPUDevice)
+            .where(
+                GPUDevice.device_index.in_(device_indices),
+                GPUDevice.state == GPUState.IDLE,
+                GPUDevice.is_available == True,
+            )
+            .with_for_update()
+        )
+        devices = list(result.scalars().all())
+
+        if len(devices) != len(set(device_indices)):
+            return None
+
+        device_by_index = {device.device_index: device for device in devices}
+        allocated: list[GPUDevice] = []
+
         for idx in device_indices:
-            device = await self.get_by_device_index(idx)
-            if not device or device.state != GPUState.IDLE:
-                for d in allocated:
-                    d.state = GPUState.IDLE
-                    d.current_task_id = None
-                await self.session.flush()
+            device = device_by_index.get(idx)
+            if device is None or device.state != GPUState.IDLE:
                 return None
+
             device.state = GPUState.GANG_ALLOCATED
             device.current_task_id = gang_task_id
             allocated.append(device)
-        
+
         await self.session.flush()
         return allocated
 
