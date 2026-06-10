@@ -23,10 +23,14 @@ class DatabaseSettings(BaseSettings):
 
 class RedisSettings(BaseSettings):
     """Redis configuration."""
-    
-    url: str = Field(default="redis://localhost:6379/0")
-    celery_broker_url: str = Field(default="redis://localhost:6379/1")
-    celery_result_backend: str = Field(default="redis://localhost:6379/2")
+
+    url: str = Field(default_factory=lambda: os.getenv("REDIS_URL", "redis://localhost:6379/0"))
+    celery_broker_url: str = Field(
+        default_factory=lambda: os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/1")
+    )
+    celery_result_backend: str = Field(
+        default_factory=lambda: os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/2")
+    )
 
 
 class S3Settings(BaseSettings):
@@ -74,7 +78,9 @@ class AuthSettings(BaseSettings):
 class ScheduleSettings(BaseSettings):
     """Scheduled task configuration."""
     
-    beat_schedule_db: str = Field(default="redis://localhost:6379/3")
+    beat_schedule_db: str = Field(
+        default_factory=lambda: os.getenv("CELERY_BEAT_SCHEDULE_DB", "redis://localhost:6379/3")
+    )
     beat_sync_interval_seconds: int = Field(default=60)
     max_consecutive_failures: int = Field(default=5)
     default_schedule_enabled: bool = Field(default=True)
