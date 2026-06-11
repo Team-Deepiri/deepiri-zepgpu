@@ -45,8 +45,8 @@ _Made by Deepiri_
 
 ```bash
 # Clone the repository
-git clone https://github.com/deepiri/zepgpu.git
-cd zepgpu
+git clone https://github.com/Team-Deepiri/deepiri-zepgpu.git
+cd deepiri-zepgpu
 
 # Install dependencies
 poetry install
