@@ -34,42 +34,63 @@ logger = logging.getLogger(__name__)
 
 class GPUTask(Task):
     """Base task class for GPU operations."""
-    
+
+    def _get_db_task_id(self, args: tuple) -> str | None:
+        """Get the application/database task ID from Celery task args."""
+        if args and len(args) > 0:
+            return str(args[0])
+        return None
+
     def on_failure(self, exc: Exception, task_id: str, args: tuple, kwargs: dict, einfo: Any) -> None:
         """Handle task failure."""
         logger.error(f"Task {task_id} failed: {exc}")
-        asyncio.run(_mark_task_failed(task_id, str(exc), traceback.format_exc()))
-        asyncio.run(_execute_callback(task_id, "failed"))
-    
+
+        db_task_id = self._get_db_task_id(args)
+        if db_task_id:
+            asyncio.run(_mark_task_failed(db_task_id, str(exc), traceback.format_exc()))
+            asyncio.run(_execute_callback(db_task_id, "failed"))
+
     def on_success(self, retval: Any, task_id: str, args: tuple, kwargs: dict) -> None:
         """Handle task success."""
         logger.info(f"Task {task_id} succeeded")
-        asyncio.run(_execute_callback(task_id, "completed"))
+
+        db_task_id = self._get_db_task_id(args)
+        if db_task_id:
+            asyncio.run(_execute_callback(db_task_id, "completed"))
 
 
 async def _execute_callback(task_id: str, status: str) -> None:
     """Execute callback webhook if configured."""
     import httpx
-    
+
+    logger.info(f"Checking callback for task {task_id} with status {status}")
+
     async with get_db_context() as db:
         repo = TaskRepository(db)
         task = await repo.get_by_id(task_id)
-        
-        if not task or not task.callback_url:
+
+        if not task:
+            logger.warning(f"Callback skipped: task {task_id} not found")
             return
-        
+
+        if not task.callback_url:
+            logger.info(f"Callback skipped: task {task_id} has no callback_url")
+            return
+
         try:
             async with httpx.AsyncClient() as client:
                 await client.post(
                     task.callback_url,
                     json={
-                        "task_id": task_id,
+                        "task_id": str(task_id),
                         "status": status,
-                        "user_id": task.user_id,
+                        "user_id": str(task.user_id) if task.user_id else None,
                     },
                     timeout=10.0,
                 )
-                logger.info(f"Callback executed for task {task_id}")
+
+            logger.info(f"Callback executed for task {task_id} to {task.callback_url}")
+
         except Exception as e:
             logger.warning(f"Callback failed for task {task_id}: {e}")
 

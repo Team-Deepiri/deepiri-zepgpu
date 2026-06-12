@@ -5,7 +5,7 @@ import type {
   Namespace, NamespaceMember, Team, NamespaceQuota, NamespaceUsage,
   CloudProvider, CloudRegion, CloudGPUInstance, CloudLaunchRequest, CloudCostEstimate,
   AuditLog, Alert, GPUMetrics, ServiceMetrics, TaskMetrics, LeaderboardEntry, Achievement,
-  DAGData, VpnNetwork, Peer, GpuShare, GpuPoolSummary, VpnInvite, Friend, FriendList, VpnConfigResponse,
+  DAGData, VpnNetwork, Peer, GpuPoolSummary, VpnInvite, FriendList, VpnConfigResponse,
 } from '@/types'
 
 const api = axios.create({
