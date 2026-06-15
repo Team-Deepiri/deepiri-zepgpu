@@ -12,6 +12,7 @@ from typing import Any
 
 try:
     import cupy as cp
+
     CUPY_AVAILABLE = True
 except ImportError:
     CUPY_AVAILABLE = False
@@ -20,6 +21,7 @@ except ImportError:
 @dataclass
 class KernelMetadata:
     """Metadata for a compiled kernel."""
+
     name: str
     source_hash: str
     compiled_at: datetime = field(default_factory=datetime.utcnow)
@@ -150,6 +152,7 @@ class KernelCache:
 @dataclass
 class KernelTemplate:
     """Template for generating CUDA kernels."""
+
     name: str
     source_template: str
     param_types: dict[str, str]

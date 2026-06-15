@@ -14,6 +14,7 @@ router = APIRouter()
 
 class HealthResponse(BaseModel):
     """Health check response."""
+
     status: str
     timestamp: datetime
     version: str
@@ -24,7 +25,9 @@ class HealthResponse(BaseModel):
 @router.get("", response_model=HealthResponse)
 async def health_check() -> HealthResponse:
     """Check API health."""
-    redis_healthy = await queue.health_check() if hasattr(queue, '_redis') and queue._redis else False
+    redis_healthy = (
+        await queue.health_check() if hasattr(queue, "_redis") and queue._redis else False
+    )
 
     return HealthResponse(
         status="healthy",

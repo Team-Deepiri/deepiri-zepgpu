@@ -32,12 +32,14 @@ class WireGuardConfigGenerator:
         allowed_ips: str = "0.0.0.0/0, ::/0",
         persistent_keepalive: int = 25,
     ) -> WireGuardConfigGenerator:
-        self._peers.append({
-            "public_key": public_key,
-            "endpoint": endpoint,
-            "allowed_ips": allowed_ips,
-            "persistent_keepalive": persistent_keepalive,
-        })
+        self._peers.append(
+            {
+                "public_key": public_key,
+                "endpoint": endpoint,
+                "allowed_ips": allowed_ips,
+                "persistent_keepalive": persistent_keepalive,
+            }
+        )
         return self
 
     def generate(self) -> str:

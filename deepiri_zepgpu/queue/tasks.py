@@ -42,7 +42,9 @@ class GPUTask(Task):
             return str(args[0])
         return None
 
-    def on_failure(self, exc: Exception, task_id: str, args: tuple, kwargs: dict, einfo: Any) -> None:
+    def on_failure(
+        self, exc: Exception, task_id: str, args: tuple, kwargs: dict, einfo: Any
+    ) -> None:
         """Handle task failure."""
         logger.error(f"Task {task_id} failed: {exc}")
 
@@ -161,21 +163,30 @@ def execute_task(  # noqa: C901
             if task.gpu_memory_mb > 0:
                 available_gpus = await gpu_repo.list_available()
                 for device in available_gpus:
-                    if device.total_memory_mb and device.available_memory_mb and device.available_memory_mb >= task.gpu_memory_mb:
+                    if (
+                        device.total_memory_mb
+                        and device.available_memory_mb
+                        and device.available_memory_mb >= task.gpu_memory_mb
+                    ):
                         gpu_device = await gpu_repo.allocate(device.device_index, task_id)
                         if gpu_device:
                             gpu_device_id = gpu_device.device_index
-                            await repo.update_status(task_id, task.status, gpu_device_id=gpu_device_id)
+                            await repo.update_status(
+                                task_id, task.status, gpu_device_id=gpu_device_id
+                            )
                             logger.info(f"Allocated GPU {gpu_device_id} to task {task_id}")
                             break
 
                 if gpu_device is None and not task.allow_fallback_cpu:
                     await repo.mark_failed(task_id, "No GPU available", "")
-                    await _log_audit(AuditAction.TASK_FAIL, task_id, task.user_id, {"error": "No GPU available"})
+                    await _log_audit(
+                        AuditAction.TASK_FAIL, task_id, task.user_id, {"error": "No GPU available"}
+                    )
                     return {"status": "error", "message": "No GPU available"}
 
             try:
                 import os
+
                 if gpu_device_id is not None:
                     os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_device_id)
 
@@ -189,6 +200,7 @@ def execute_task(  # noqa: C901
                 elif task.func_name:
                     module_name, func_name = task.func_name.rsplit(".", 1)
                     import importlib
+
                     module = importlib.import_module(module_name)
                     func = getattr(module, func_name)
                     func_args = cloudpickle.loads(task.args) if task.args else ()
@@ -227,7 +239,9 @@ def execute_task(  # noqa: C901
             finally:
                 if gpu_device_id is not None:
                     await gpu_repo.release(gpu_device_id)
-                    await _log_audit(AuditAction.GPU_RELEASE, task_id, task.user_id, {"device_id": gpu_device_id})
+                    await _log_audit(
+                        AuditAction.GPU_RELEASE, task_id, task.user_id, {"device_id": gpu_device_id}
+                    )
                     logger.info(f"Released GPU {gpu_device_id} from task {task_id}")
 
     return asyncio.run(_execute())
@@ -284,14 +298,23 @@ def execute_pipeline(self, pipeline_id: str) -> dict[str, Any]:
                     for _ in range(600):
                         await asyncio.sleep(2)
                         task = await task_repo.get_by_id(task_id)
-                        if task and task.status.value in ("completed", "failed", "cancelled", "timeout"):
+                        if task and task.status.value in (
+                            "completed",
+                            "failed",
+                            "cancelled",
+                            "timeout",
+                        ):
                             if task.status.value == "completed":
                                 completed_stages.add(stage_name)
                                 results[stage_name] = {"status": "success", "task_id": task_id}
                             else:
                                 error_msg = f"Stage {stage_name} failed"
                                 await pipeline_repo.mark_failed(pipeline_id, error_msg)
-                                return {"status": "error", "message": error_msg, "failed_stage": stage_name}
+                                return {
+                                    "status": "error",
+                                    "message": error_msg,
+                                    "failed_stage": stage_name,
+                                }
                             break
                     else:
                         error_msg = f"Stage {stage_name} timed out waiting for task"
@@ -323,6 +346,7 @@ def cleanup_old_results(days: int = 7) -> dict[str, int]:
     Returns:
         Dictionary with cleanup statistics
     """
+
     async def _cleanup() -> dict[str, int]:
         async with get_db_context() as db:
             repo = TaskRepository(db)
@@ -339,6 +363,7 @@ def sync_gpu_devices() -> dict[str, Any]:
     Returns:
         Dictionary with GPU device information
     """
+
     async def _sync() -> dict[str, Any]:
         from deepiri_zepgpu.core.gpu_manager import GPUManager
 
@@ -400,6 +425,7 @@ def update_gpu_metrics() -> dict[str, Any]:
     Returns:
         Dictionary with updated metrics
     """
+
     async def _update() -> dict[str, Any]:
         from deepiri_zepgpu.core.gpu_manager import GPUManager
 
@@ -492,7 +518,11 @@ def execute_scheduled_task(self, schedule_id: str, run_id: str | None = None) ->
                     gpu_type=schedule.gpu_type,
                     allow_fallback_cpu=schedule.allow_fallback_cpu,
                     tags=schedule.tags,
-                    metadata_json={**(schedule.metadata_json or {}), "schedule_id": schedule_id, "run_id": run.id if run else None},
+                    metadata_json={
+                        **(schedule.metadata_json or {}),
+                        "schedule_id": schedule_id,
+                        "run_id": run.id if run else None,
+                    },
                     callback_url=schedule.callback_url,
                     status=TaskStatus.PENDING,
                 )
@@ -567,7 +597,9 @@ def execute_delayed_task(self, task_id: str) -> dict[str, Any]:
                 return {"status": "error", "message": "Task not found"}
 
             if task.status not in [TaskStatus.PENDING, TaskStatus.SCHEDULED]:
-                logger.info(f"Task {task_id} is no longer pending (status: {task.status}), skipping")
+                logger.info(
+                    f"Task {task_id} is no longer pending (status: {task.status}), skipping"
+                )
                 return {"status": "skipped", "message": f"Task status is {task.status}"}
 
             execute_task.delay(task_id)
@@ -616,6 +648,7 @@ def cleanup_old_schedule_runs(days: int = 30) -> dict[str, int]:
     Returns:
         Dictionary with cleanup statistics
     """
+
     async def _cleanup() -> dict[str, int]:
         async with get_db_context() as db:
             repo = ScheduleRunRepository(db)
@@ -662,7 +695,9 @@ def execute_gang_task(  # noqa: C901
                 return {"status": "error", "message": "Gang task not found"}
 
             if gang_task.status != GangStatus.PENDING:
-                logger.info(f"Gang task {gang_task_id} is no longer pending (status: {gang_task.status})")
+                logger.info(
+                    f"Gang task {gang_task_id} is no longer pending (status: {gang_task.status})"
+                )
                 return {"status": "skipped", "message": f"Status is {gang_task.status}"}
 
             await gang_repo.update_status(gang_task_id, GangStatus.SCHEDULING)
@@ -697,6 +732,7 @@ def execute_gang_task(  # noqa: C901
 
             try:
                 import os
+
                 os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(str(i) for i in gpu_ids)
 
                 result = None
@@ -709,6 +745,7 @@ def execute_gang_task(  # noqa: C901
                 elif gang_task.func_name:
                     module_name, func_name = gang_task.func_name.rsplit(".", 1)
                     import importlib
+
                     module = importlib.import_module(module_name)
                     func = getattr(module, func_name)
                     func_args = cloudpickle.loads(gang_task.args) if gang_task.args else ()
@@ -722,7 +759,9 @@ def execute_gang_task(  # noqa: C901
                 if gang_task.user_id:
                     execution_time_ms = 0
                     if gang_task.started_at:
-                        execution_time_ms = int((datetime.utcnow() - gang_task.started_at).total_seconds() * 1000)
+                        execution_time_ms = int(
+                            (datetime.utcnow() - gang_task.started_at).total_seconds() * 1000
+                        )
                     await fair_share_repo.record_gpu_usage(
                         gang_task.user_id,
                         gpu_seconds=execution_time_ms / 1000,
@@ -785,13 +824,18 @@ def preempt_task(self, task_id: str, gang_task_id: str | None = None) -> dict[st
                 return {"status": "error", "message": "Task not found"}
 
             if task.status != TaskStatus.RUNNING:
-                return {"status": "skipped", "message": f"Task is not running (status: {task.status})"}
+                return {
+                    "status": "skipped",
+                    "message": f"Task is not running (status: {task.status})",
+                }
 
             gpu_device_id = task.gpu_device_id
 
             execution_time_ms = 0
             if task.started_at:
-                execution_time_ms = int((datetime.utcnow() - task.started_at).total_seconds() * 1000)
+                execution_time_ms = int(
+                    (datetime.utcnow() - task.started_at).total_seconds() * 1000
+                )
 
             checkpoint_ref = None
             if gang_task_id:
@@ -856,7 +900,7 @@ def check_and_preempt() -> dict[str, Any]:
                     preemptible = await gpu_repo.list_preemptible(min_priority=gang.priority - 1)
 
                     if len(preemptible) >= gang.num_gpus_required:
-                        for gpu in preemptible[:gang.num_gpus_required]:
+                        for gpu in preemptible[: gang.num_gpus_required]:
                             if gpu.current_task_id:
                                 preempt_task.delay(gpu.current_task_id, gang.id)
                                 preempted += 1
@@ -881,6 +925,7 @@ def update_fair_share_usage() -> dict[str, Any]:
     Returns:
         Dictionary with update results
     """
+
     async def _update() -> dict[str, Any]:
         async with get_db_context() as db:
             from deepiri_zepgpu.database.repositories import FairShareRepository, TaskRepository
@@ -913,6 +958,7 @@ def get_fair_share_weights() -> dict[str, Any]:
     Returns:
         Dictionary with user weights
     """
+
     async def _get() -> dict[str, Any]:
         async with get_db_context() as db:
             from deepiri_zepgpu.database.repositories import FairShareRepository
@@ -946,6 +992,7 @@ def reset_expired_fair_share_periods() -> dict[str, int]:
     Returns:
         Dictionary with reset statistics
     """
+
     async def _reset() -> dict[str, int]:
         async with get_db_context() as db:
             from deepiri_zepgpu.database.repositories import FairShareRepository

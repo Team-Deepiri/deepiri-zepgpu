@@ -17,7 +17,6 @@ from deepiri_zepgpu.database.repositories import TaskRepository
 router = APIRouter()
 
 
-
 def _validate_task_callable(func_name: str | None, serialized_func: str | None) -> None:
     """Validate that a task has an executable function reference."""
     if serialized_func:
@@ -39,6 +38,7 @@ def _validate_task_callable(func_name: str | None, serialized_func: str | None) 
 
 class TaskCreateRequest(BaseModel):
     """Task creation request."""
+
     name: str | None = None
     func_name: str | None = None
     serialized_func: str | None = None
@@ -57,6 +57,7 @@ class TaskCreateRequest(BaseModel):
 
 class TaskResponse(BaseModel):
     """Task response."""
+
     id: str
     name: str | None
     status: str
@@ -78,6 +79,7 @@ class TaskResponse(BaseModel):
 
 class TaskListResponse(BaseModel):
     """Task list response."""
+
     tasks: list[TaskResponse]
     total: int
     limit: int
@@ -86,6 +88,7 @@ class TaskListResponse(BaseModel):
 
 class TaskResultResponse(BaseModel):
     """Task result response."""
+
     task_id: str
     status: str
     result: Any | None
@@ -295,7 +298,9 @@ async def retry_task(
         raise HTTPException(status_code=403, detail="Access denied")
 
     if task.status not in [DBTaskStatus.FAILED, DBTaskStatus.CANCELLED, DBTaskStatus.TIMEOUT]:
-        raise HTTPException(status_code=400, detail="Can only retry failed/cancelled/timed out tasks")
+        raise HTTPException(
+            status_code=400, detail="Can only retry failed/cancelled/timed out tasks"
+        )
 
     await repo.update_status(task_id, DBTaskStatus.PENDING)
     background_tasks.add_task(enqueue_task_to_celery, task_id)
@@ -346,6 +351,7 @@ async def get_task_result(
         result_bytes = await result_store.retrieve_result(task_id, "redis", task.result_ref)
         if result_bytes:
             import pickle
+
             result_data = pickle.loads(result_bytes)
         presigned_url = await result_store.get_presigned_url(task_id)
 

@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 @dataclass
 class RemoteGPUDevice:
     """Wraps a remote peer's GPU as a local GPU device."""
+
     peer_id: str
     peer_username: str
     share_id: str
@@ -39,10 +40,7 @@ class RemoteGPUDevice:
         return abs(hash(self.share_id)) % 1_000_000
 
     def can_allocate(self, required_memory_mb: int) -> bool:
-        return (
-            self.state == GPUState.IDLE and
-            self.available_memory_mb >= required_memory_mb
-        )
+        return self.state == GPUState.IDLE and self.available_memory_mb >= required_memory_mb
 
     def allocate(self, task_id: str) -> bool:
         if self.state != GPUState.IDLE:
@@ -93,8 +91,10 @@ class GpuPoolAggregator:
                 share_id = gpu_data["share_id"]
                 cc_str = gpu_data.get("compute_capability", "0.0")
                 cc_parts = cc_str.split(".")
-                cc = (int(cc_parts[0]) if len(cc_parts) > 0 else 0,
-                      int(cc_parts[1]) if len(cc_parts) > 1 else 0)
+                cc = (
+                    int(cc_parts[0]) if len(cc_parts) > 0 else 0,
+                    int(cc_parts[1]) if len(cc_parts) > 1 else 0,
+                )
 
                 device = RemoteGPUDevice(
                     peer_id=gpu_data["peer_id"],
@@ -148,7 +148,9 @@ class GpuPoolAggregator:
                 device = self._remote_devices.get(share_id)
                 if not device or not device.can_allocate(0):
                     return False
-                if self._remote_lock is not None and not self._remote_lock.acquire(share_id, task_id):
+                if self._remote_lock is not None and not self._remote_lock.acquire(
+                    share_id, task_id
+                ):
                     return False
                 if not device.allocate(task_id):
                     if self._remote_lock is not None:
@@ -179,7 +181,9 @@ class GpuPoolAggregator:
         else:
             self._local_manager.release_device(device_id)
 
-    def get_device(self, device_id: int, is_remote: bool = False, share_id: str | None = None) -> GPUDevice | RemoteGPUDevice | None:
+    def get_device(
+        self, device_id: int, is_remote: bool = False, share_id: str | None = None
+    ) -> GPUDevice | RemoteGPUDevice | None:
         if is_remote and share_id:
             with self._lock:
                 return self._remote_devices.get(share_id)

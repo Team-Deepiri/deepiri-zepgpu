@@ -59,7 +59,9 @@ class ConnectionManager:
             except Exception as e:
                 logger.error(f"Error broadcasting message: {e}")
 
-    async def broadcast_task_update(self, task_id: str, status: str, user_id: str, data: dict[str, Any] | None = None) -> None:
+    async def broadcast_task_update(
+        self, task_id: str, status: str, user_id: str, data: dict[str, Any] | None = None
+    ) -> None:
         """Broadcast task status update."""
         message = {
             "type": "task_update",

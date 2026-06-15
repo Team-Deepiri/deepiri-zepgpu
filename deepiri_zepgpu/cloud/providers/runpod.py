@@ -66,15 +66,18 @@ class RunPodProvider(CloudProvider):
                 gpus = []
                 for gpu in data.get("data", {}).get("gpuTypes", []):
                     price = gpu.get("lowestPrice", {})
-                    gpus.append(GPUInfo(
-                        provider_instance_id=gpu["id"],
-                        name=gpu["displayName"],
-                        gpu_type=gpu["id"],
-                        gpu_count=gpu.get("gpuCount", 1),
-                        memory_gb=gpu.get("memoryInGb", 0),
-                        price_per_hour=price.get("uninterruptablePrice", 0) or price.get("minimumBidPrice", 0),
-                        available=True,
-                    ))
+                    gpus.append(
+                        GPUInfo(
+                            provider_instance_id=gpu["id"],
+                            name=gpu["displayName"],
+                            gpu_type=gpu["id"],
+                            gpu_count=gpu.get("gpuCount", 1),
+                            memory_gb=gpu.get("memoryInGb", 0),
+                            price_per_hour=price.get("uninterruptablePrice", 0)
+                            or price.get("minimumBidPrice", 0),
+                            available=True,
+                        )
+                    )
                 return gpus
         except Exception:
             return []

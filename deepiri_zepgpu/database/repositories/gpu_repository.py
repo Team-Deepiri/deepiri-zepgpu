@@ -33,16 +33,12 @@ class GPURepository:
 
     async def get_by_id(self, device_id: int) -> GPUDevice | None:
         """Get GPU by ID."""
-        result = await self.session.execute(
-            select(GPUDevice).where(GPUDevice.id == device_id)
-        )
+        result = await self.session.execute(select(GPUDevice).where(GPUDevice.id == device_id))
         return result.scalar_one_or_none()
 
     async def list_all(self) -> Sequence[GPUDevice]:
         """List all GPU devices."""
-        result = await self.session.execute(
-            select(GPUDevice).order_by(GPUDevice.device_index)
-        )
+        result = await self.session.execute(select(GPUDevice).order_by(GPUDevice.device_index))
         return result.scalars().all()
 
     async def list_available(self) -> Sequence[GPUDevice]:
@@ -73,11 +69,15 @@ class GPURepository:
         Returns:
             List of consecutive available GPUs that meet requirements
         """
-        query = select(GPUDevice).where(
-            GPUDevice.state == GPUState.IDLE,
-            GPUDevice.is_available.is_(True),
-            GPUDevice.available_memory_mb >= memory_per_gpu_mb,
-        ).order_by(GPUDevice.device_index)
+        query = (
+            select(GPUDevice)
+            .where(
+                GPUDevice.state == GPUState.IDLE,
+                GPUDevice.is_available.is_(True),
+                GPUDevice.available_memory_mb >= memory_per_gpu_mb,
+            )
+            .order_by(GPUDevice.device_index)
+        )
 
         if gpu_type:
             query = query.where(GPUDevice.gpu_type == gpu_type)
@@ -254,9 +254,7 @@ class GPURepository:
             List of released GPU devices
         """
         result = await self.session.execute(
-            select(GPUDevice).where(
-                GPUDevice.current_task_id == gang_task_id
-            )
+            select(GPUDevice).where(GPUDevice.current_task_id == gang_task_id)
         )
         devices = result.scalars().all()
 
@@ -355,14 +353,10 @@ class GPURepository:
 
     async def get_total_memory_mb(self) -> int:
         """Get total GPU memory."""
-        result = await self.session.execute(
-            select(func.sum(GPUDevice.total_memory_mb))
-        )
+        result = await self.session.execute(select(func.sum(GPUDevice.total_memory_mb)))
         return result.scalar() or 0
 
     async def get_available_memory_mb(self) -> int:
         """Get total available GPU memory."""
-        result = await self.session.execute(
-            select(func.sum(GPUDevice.available_memory_mb))
-        )
+        result = await self.session.execute(select(func.sum(GPUDevice.available_memory_mb)))
         return result.scalar() or 0

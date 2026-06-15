@@ -13,6 +13,7 @@ from typing import Any
 
 class PipelineStageStatus(Enum):
     """Status of a pipeline stage."""
+
     PENDING = "pending"
     WAITING = "waiting"
     RUNNING = "running"
@@ -24,6 +25,7 @@ class PipelineStageStatus(Enum):
 @dataclass
 class PipelineStage:
     """Single stage in a pipeline."""
+
     name: str
     func: Callable[..., Any]
     args_template: dict[str, Any] = field(default_factory=dict)
@@ -38,6 +40,7 @@ class PipelineStage:
 @dataclass
 class Pipeline:
     """Represents a multi-stage GPU compute pipeline."""
+
     name: str
     stages: list[PipelineStage]
     pipeline_id: str = field(default_factory=lambda: str(uuid.uuid4()))
@@ -118,17 +121,13 @@ class PipelineManager:
         stage_tasks: dict[str, asyncio.Task] = {}
 
         while len(completed) + len(failed_stages) < len(pipeline.stages):
-            ready_stages = self._get_ready_stages(
-                pipeline, completed, failed_stages, context
-            )
+            ready_stages = self._get_ready_stages(pipeline, completed, failed_stages, context)
 
             if not ready_stages and len(stage_tasks) == 0:
                 break
 
-            for stage in ready_stages[:self._max_concurrent_stages - len(stage_tasks)]:
-                task = asyncio.create_task(
-                    self._execute_stage(pipeline, stage, context)
-                )
+            for stage in ready_stages[: self._max_concurrent_stages - len(stage_tasks)]:
+                task = asyncio.create_task(self._execute_stage(pipeline, stage, context))
                 stage_tasks[stage.name] = task
 
             if stage_tasks:
@@ -245,10 +244,7 @@ class PipelineManager:
             "pipeline_id": pipeline.pipeline_id,
             "name": pipeline.name,
             "status": pipeline.status.value,
-            "stages": {
-                name: status.value
-                for name, status in pipeline.stage_statuses.items()
-            },
+            "stages": {name: status.value for name, status in pipeline.stage_statuses.items()},
             "completed_stages": pipeline.completed_stages,
             "total_stages": len(pipeline.stages),
             "errors": pipeline.errors,

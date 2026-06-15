@@ -174,5 +174,3 @@ class TaskExecutionResponse(BaseModel):
     error: str | None = None
     traceback: str | None = None
     execution_time: float = 0.0
-
-

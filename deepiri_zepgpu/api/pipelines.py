@@ -182,19 +182,25 @@ def create_inference_pipeline(
     Returns:
         List of pipeline stages
     """
-    return PipelineBuilder("inference_pipeline").preprocess(
-        name="preprocess",
-        func=preprocess_fn,
-    ).compute(
-        name="inference",
-        func=model_fn,
-        depends_on=["preprocess"],
-        gpu_memory_mb=gpu_memory_mb,
-    ).postprocess(
-        name="postprocess",
-        func=postprocess_fn,
-        depends_on=["inference"],
-    ).build()
+    return (
+        PipelineBuilder("inference_pipeline")
+        .preprocess(
+            name="preprocess",
+            func=preprocess_fn,
+        )
+        .compute(
+            name="inference",
+            func=model_fn,
+            depends_on=["preprocess"],
+            gpu_memory_mb=gpu_memory_mb,
+        )
+        .postprocess(
+            name="postprocess",
+            func=postprocess_fn,
+            depends_on=["inference"],
+        )
+        .build()
+    )
 
 
 def create_simulation_pipeline(

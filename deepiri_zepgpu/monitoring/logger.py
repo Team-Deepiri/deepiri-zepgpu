@@ -12,6 +12,7 @@ from typing import Any
 
 try:
     import structlog
+
     STRUCTLOG_AVAILABLE = True
 except ImportError:
     STRUCTLOG_AVAILABLE = False
@@ -19,6 +20,7 @@ except ImportError:
 
 class LogLevel(Enum):
     """Log levels."""
+
     DEBUG = "debug"
     INFO = "info"
     WARNING = "warning"
@@ -93,13 +95,15 @@ class StructuredLogger:
         ctx.update(kwargs)
 
         if self._json_output:
-            return json.dumps({
-                "timestamp": datetime.utcnow().isoformat(),
-                "level": level,
-                "logger": self._name,
-                "message": message,
-                **ctx,
-            })
+            return json.dumps(
+                {
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "level": level,
+                    "logger": self._name,
+                    "message": message,
+                    **ctx,
+                }
+            )
         else:
             ctx_str = " ".join(f"{k}={v}" for k, v in ctx.items())
             return f"[{self._name}] {level.upper()}: {message} {ctx_str}".strip()

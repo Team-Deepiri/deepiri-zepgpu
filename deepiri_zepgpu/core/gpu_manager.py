@@ -11,6 +11,7 @@ from enum import Enum
 
 try:
     import pynvml
+
     PYNVML_AVAILABLE = True
 except ImportError:
     PYNVML_AVAILABLE = False
@@ -18,6 +19,7 @@ except ImportError:
 
 class GPUState(Enum):
     """GPU availability state."""
+
     IDLE = "idle"
     ALLOCATED = "allocated"
     RESERVED = "reserved"
@@ -27,6 +29,7 @@ class GPUState(Enum):
 
 class GPUType(Enum):
     """Supported GPU types."""
+
     NVIDIA = "nvidia"
     AMD = "amd"
     CPU = "cpu"
@@ -35,6 +38,7 @@ class GPUType(Enum):
 @dataclass
 class GPUDevice:
     """Represents a GPU device."""
+
     device_id: int
     name: str
     gpu_type: GPUType = GPUType.NVIDIA
@@ -51,10 +55,7 @@ class GPUDevice:
 
     def can_allocate(self, required_memory_mb: int) -> bool:
         """Check if GPU can allocate requested memory."""
-        return (
-            self.state == GPUState.IDLE and
-            self.available_memory_mb >= required_memory_mb
-        )
+        return self.state == GPUState.IDLE and self.available_memory_mb >= required_memory_mb
 
     def allocate(self, task_id: str) -> bool:
         """Allocate GPU to a task."""
@@ -216,7 +217,9 @@ class GPUManager:
                         device.available_memory_mb = (
                             memory_info.free // (1024 * 1024) - self._memory_overhead_mb
                         )
-                        device.utilization_percent = pynvml.nvmlDeviceGetUtilizationRates(handle).gpu
+                        device.utilization_percent = pynvml.nvmlDeviceGetUtilizationRates(
+                            handle
+                        ).gpu
                         device.temperature_celsius = pynvml.nvmlDeviceGetTemperature(
                             handle, pynvml.NVML_TEMPERATURE_GPU
                         )

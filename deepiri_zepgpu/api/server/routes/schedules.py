@@ -24,6 +24,7 @@ router = APIRouter()
 
 class ScheduleCreateRequest(BaseModel):
     """Schedule creation request."""
+
     name: str = Field(..., min_length=1, max_length=255)
     description: str | None = None
 
@@ -69,6 +70,7 @@ class ScheduleCreateRequest(BaseModel):
 
 class ScheduleUpdateRequest(BaseModel):
     """Schedule update request."""
+
     name: str | None = Field(None, min_length=1, max_length=255)
     description: str | None = None
 
@@ -101,6 +103,7 @@ class ScheduleUpdateRequest(BaseModel):
 
 class ScheduleResponse(BaseModel):
     """Schedule response."""
+
     id: str
     name: str
     description: str | None
@@ -128,6 +131,7 @@ class ScheduleResponse(BaseModel):
 
 class ScheduleListResponse(BaseModel):
     """Schedule list response."""
+
     schedules: list[ScheduleResponse]
     total: int
     limit: int
@@ -136,6 +140,7 @@ class ScheduleListResponse(BaseModel):
 
 class ScheduleRunResponse(BaseModel):
     """Schedule run response."""
+
     id: str
     schedule_id: str
     task_id: str | None
@@ -154,6 +159,7 @@ class ScheduleRunResponse(BaseModel):
 
 class ScheduleRunListResponse(BaseModel):
     """Schedule run list response."""
+
     runs: list[ScheduleRunResponse]
     total: int
     limit: int
@@ -162,6 +168,7 @@ class ScheduleRunListResponse(BaseModel):
 
 class DelayedTaskRequest(BaseModel):
     """Delayed task request."""
+
     name: str | None = None
     func_name: str | None = None
     serialized_func: str | None = None
@@ -183,6 +190,7 @@ class DelayedTaskRequest(BaseModel):
 
 class DelayedTaskResponse(BaseModel):
     """Delayed task response."""
+
     task_id: str
     execute_at: datetime
     status: str
@@ -719,7 +727,11 @@ async def create_delayed_task(
         gpu_type=request.gpu_type,
         allow_fallback_cpu=request.allow_fallback_cpu,
         tags=request.tags,
-        metadata_json={**request.metadata, "delayed": True, "execute_at": request.execute_at.isoformat()},
+        metadata_json={
+            **request.metadata,
+            "delayed": True,
+            "execute_at": request.execute_at.isoformat(),
+        },
         callback_url=request.callback_url,
         status=DBTaskStatus.SCHEDULED,
     )

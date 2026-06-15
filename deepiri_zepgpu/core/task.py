@@ -14,6 +14,7 @@ import cloudpickle
 
 class TaskStatus(Enum):
     """Task execution status."""
+
     PENDING = "pending"
     QUEUED = "queued"
     SCHEDULED = "scheduled"
@@ -26,6 +27,7 @@ class TaskStatus(Enum):
 
 class TaskPriority(Enum):
     """Task priority levels."""
+
     LOW = 1
     NORMAL = 2
     HIGH = 3
@@ -36,6 +38,7 @@ class TaskPriority(Enum):
 @dataclass
 class TaskResources:
     """GPU/CPU resource requirements for a task."""
+
     gpu_memory_mb: int = 1024
     cpu_cores: int = 1
     timeout_seconds: int = 3600
@@ -46,6 +49,7 @@ class TaskResources:
 @dataclass
 class Task:
     """Represents a GPU compute task."""
+
     func: Callable[..., Any]
     args: tuple[Any, ...] = field(default_factory=tuple)
     kwargs: dict[str, Any] = field(default_factory=dict)
@@ -119,7 +123,11 @@ class Task:
             priority=TaskPriority[data.get("priority", "NORMAL")],
             resources=resources,
             metadata=data.get("metadata", {}),
-            created_at=datetime.fromisoformat(data["created_at"]) if data.get("created_at") else datetime.utcnow(),
+            created_at=(
+                datetime.fromisoformat(data["created_at"])
+                if data.get("created_at")
+                else datetime.utcnow()
+            ),
             gpu_device_id=data.get("gpu_device_id"),
             tags=data.get("tags", []),
         )
@@ -128,6 +136,7 @@ class Task:
 @dataclass
 class TaskResult:
     """Result from a completed task."""
+
     task_id: str
     status: TaskStatus
     result: Any | None = None

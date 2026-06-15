@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 
 class TaskStatus(str, enum.Enum):
     """Task execution status."""
+
     PENDING = "pending"
     QUEUED = "queued"
     SCHEDULED = "scheduled"
@@ -40,6 +41,7 @@ class TaskStatus(str, enum.Enum):
 
 class TaskPriority(int, enum.Enum):
     """Task priority levels."""
+
     LOW = 1
     NORMAL = 2
     HIGH = 3

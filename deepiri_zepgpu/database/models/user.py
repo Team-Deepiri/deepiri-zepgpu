@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 
 class UserRole(str, enum.Enum):
     """User roles for access control."""
+
     ADMIN = "admin"
     RESEARCHER = "researcher"
     USER = "user"
@@ -53,11 +54,19 @@ class User(UUIDMixin, TimestampMixin, Base):
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     tasks: Mapped[list[Task]] = relationship("Task", back_populates="user", lazy="dynamic")
-    pipelines: Mapped[list[Pipeline]] = relationship("Pipeline", back_populates="user", lazy="dynamic")
-    audit_logs: Mapped[list[AuditLog]] = relationship("AuditLog", back_populates="user", lazy="dynamic")
+    pipelines: Mapped[list[Pipeline]] = relationship(
+        "Pipeline", back_populates="user", lazy="dynamic"
+    )
+    audit_logs: Mapped[list[AuditLog]] = relationship(
+        "AuditLog", back_populates="user", lazy="dynamic"
+    )
     quota: Mapped[UserQuota] = relationship("UserQuota", back_populates="user", uselist=False)
-    scheduled_tasks: Mapped[list[ScheduledTask]] = relationship("ScheduledTask", back_populates="user", lazy="dynamic")
-    gang_tasks: Mapped[list[GangTask]] = relationship("GangTask", back_populates="user", lazy="dynamic")
+    scheduled_tasks: Mapped[list[ScheduledTask]] = relationship(
+        "ScheduledTask", back_populates="user", lazy="dynamic"
+    )
+    gang_tasks: Mapped[list[GangTask]] = relationship(
+        "GangTask", back_populates="user", lazy="dynamic"
+    )
 
     vpn_peers: Mapped[list[Peer]] = relationship("Peer", back_populates="user", lazy="dynamic")
     friendships_initiated: Mapped[list[Friendship]] = relationship(

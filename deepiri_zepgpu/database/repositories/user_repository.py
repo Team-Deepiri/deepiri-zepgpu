@@ -51,40 +51,30 @@ class UserRepository:
 
     async def get_by_id(self, user_id: str) -> User | None:
         """Get user by ID."""
-        result = await self.session.execute(
-            select(User).where(User.id == user_id)
-        )
+        result = await self.session.execute(select(User).where(User.id == user_id))
         return result.scalar_one_or_none()
 
     async def get_by_id_with_quota(self, user_id: str) -> User | None:
         """Get user by ID with quota loaded."""
         result = await self.session.execute(
-            select(User)
-            .options(selectinload(User.quota))
-            .where(User.id == user_id)
+            select(User).options(selectinload(User.quota)).where(User.id == user_id)
         )
         return result.scalar_one_or_none()
 
     async def get_by_username(self, username: str) -> User | None:
         """Get user by username."""
-        result = await self.session.execute(
-            select(User).where(User.username == username)
-        )
+        result = await self.session.execute(select(User).where(User.username == username))
         return result.scalar_one_or_none()
 
     async def get_by_email(self, email: str) -> User | None:
         """Get user by email."""
-        result = await self.session.execute(
-            select(User).where(User.email == email)
-        )
+        result = await self.session.execute(select(User).where(User.email == email))
         return result.scalar_one_or_none()
 
     async def get_by_username_or_email(self, username: str, email: str) -> User | None:
         """Get user by username or email."""
         result = await self.session.execute(
-            select(User).where(
-                or_(User.username == username, User.email == email)
-            )
+            select(User).where(or_(User.username == username, User.email == email))
         )
         return result.scalar_one_or_none()
 
@@ -172,7 +162,5 @@ class UserRepository:
 
     async def exists_by_email(self, email: str) -> bool:
         """Check if email exists."""
-        result = await self.session.execute(
-            select(func.count(User.id)).where(User.email == email)
-        )
+        result = await self.session.execute(select(func.count(User.id)).where(User.email == email))
         return (result.scalar() or 0) > 0

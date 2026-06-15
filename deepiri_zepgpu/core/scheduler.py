@@ -24,6 +24,7 @@ except ImportError:  # pragma: no cover
 
 class SchedulingPolicy(Enum):
     """Task scheduling policies."""
+
     FIFO = "fifo"
     PRIORITY = "priority"
     FAIR_SHARE = "fair_share"
@@ -34,6 +35,7 @@ class SchedulingPolicy(Enum):
 @dataclass
 class QueueStats:
     """Statistics for task queues."""
+
     total_tasks: int = 0
     pending_tasks: int = 0
     running_tasks: int = 0
@@ -47,6 +49,7 @@ class QueueStats:
 @dataclass(order=True)
 class PriorityTaskItem:
     """Priority queue item with ordering."""
+
     priority: int
     created_at: float
     task_id: str = field(compare=False)
@@ -110,10 +113,7 @@ class TaskScheduler:
             task.status = TaskStatus.QUEUED
             task_id = task.task_id
 
-            priority_value = (
-                (6 - task.priority.value) * 1_000_000_000 +
-                task.created_at.timestamp()
-            )
+            priority_value = (6 - task.priority.value) * 1_000_000_000 + task.created_at.timestamp()
             heapq.heappush(
                 self._pending_queue,
                 PriorityTaskItem(
@@ -121,7 +121,7 @@ class TaskScheduler:
                     created_at=task.created_at.timestamp(),
                     task_id=task_id,
                     task=task,
-                )
+                ),
             )
 
             self._stats.pending_tasks += 1
@@ -136,8 +136,8 @@ class TaskScheduler:
         usage = self._user_usage[uid]
         quota = self._user_quotas[uid]
         return (
-            usage["tasks_submitted"] < quota["max_tasks"] and
-            usage["gpu_seconds"] < quota["max_gpu_hours"] * 3600
+            usage["tasks_submitted"] < quota["max_tasks"]
+            and usage["gpu_seconds"] < quota["max_gpu_hours"] * 3600
         )
 
     def set_user_quota(
@@ -183,9 +183,9 @@ class TaskScheduler:
                 if item.task_id == task_id:
                     return item.task
             return (
-                self._running_tasks.get(task_id) or
-                self._completed_tasks.get(task_id) or
-                self._failed_tasks.get(task_id)
+                self._running_tasks.get(task_id)
+                or self._completed_tasks.get(task_id)
+                or self._failed_tasks.get(task_id)
             )
 
     def list_tasks(
@@ -359,15 +359,18 @@ class TaskScheduler:
             exec_time = (task.completed_at - task.started_at).total_seconds()
             total_completed = self._stats.completed_tasks
             self._stats.average_execution_time = (
-                (self._stats.average_execution_time * (total_completed - 1) + exec_time) /
-                total_completed if total_completed > 0 else exec_time
+                (self._stats.average_execution_time * (total_completed - 1) + exec_time)
+                / total_completed
+                if total_completed > 0
+                else exec_time
             )
 
             wait_time = (task.started_at - task.created_at).total_seconds()
             total_finished = self._stats.completed_tasks + self._stats.failed_tasks
             self._stats.average_wait_time = (
-                (self._stats.average_wait_time * (total_finished - 1) + wait_time) /
-                total_finished if total_finished > 0 else wait_time
+                (self._stats.average_wait_time * (total_finished - 1) + wait_time) / total_finished
+                if total_finished > 0
+                else wait_time
             )
 
         self._stats.last_updated = datetime.utcnow()

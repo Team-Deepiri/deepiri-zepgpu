@@ -16,6 +16,7 @@ T = TypeVar("T")
 @dataclass
 class ModelMetadata:
     """Metadata for a cached model."""
+
     name: str
     version: str
     checksum: str
@@ -124,7 +125,11 @@ class ModelCache(Generic[T]):
                 "models_cached": len(self._cache),
                 "size_mb": self._current_size_mb,
                 "max_size_mb": self._max_size_mb,
-                "utilization_percent": (self._current_size_mb / self._max_size_mb * 100) if self._max_size_mb > 0 else 0,
+                "utilization_percent": (
+                    (self._current_size_mb / self._max_size_mb * 100)
+                    if self._max_size_mb > 0
+                    else 0
+                ),
                 "models": [
                     {
                         "name": m.name,

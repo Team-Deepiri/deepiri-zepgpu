@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 
 class ScheduleType(str, enum.Enum):
     """Schedule type enum."""
+
     CRON = "cron"
     INTERVAL = "interval"
     ONCE = "once"
@@ -35,6 +36,7 @@ class ScheduleType(str, enum.Enum):
 
 class ScheduleStatus(str, enum.Enum):
     """Schedule status enum."""
+
     ACTIVE = "active"
     PAUSED = "paused"
     COMPLETED = "completed"
@@ -45,7 +47,6 @@ class ScheduledTask(UUIDMixin, TimestampMixin, Base):
     """Periodic/scheduled task model."""
 
     __tablename__ = "scheduled_tasks"
-
 
     runs: Mapped[list[ScheduledTaskRun]] = relationship(
         "ScheduledTaskRun",
@@ -83,7 +84,9 @@ class ScheduledTask(UUIDMixin, TimestampMixin, Base):
     )
 
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    next_run_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
     run_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     consecutive_failures: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 

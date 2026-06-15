@@ -15,6 +15,7 @@ from deepiri_zepgpu.monitoring.logger import get_logger
 
 class AlertSeverity(Enum):
     """Alert severity levels."""
+
     INFO = "info"
     WARNING = "warning"
     ERROR = "error"
@@ -23,6 +24,7 @@ class AlertSeverity(Enum):
 
 class AlertType(Enum):
     """Alert types."""
+
     TASK_FAILED = "task_failed"
     TASK_TIMEOUT = "task_timeout"
     GPU_ERROR = "gpu_error"
@@ -36,6 +38,7 @@ class AlertType(Enum):
 @dataclass
 class Alert:
     """Alert representation."""
+
     alert_type: AlertType
     severity: AlertSeverity
     message: str
@@ -90,6 +93,7 @@ class WebhookAlertHandler(AlertHandler):
         """Send alert to webhook."""
         try:
             import httpx
+
             async with httpx.AsyncClient() as client:
                 await client.post(
                     self._webhook_url,

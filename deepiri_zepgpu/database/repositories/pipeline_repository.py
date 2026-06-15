@@ -43,17 +43,12 @@ class PipelineRepository:
 
     async def get_by_id(self, pipeline_id: str) -> Pipeline | None:
         """Get pipeline by ID."""
-        result = await self.session.execute(
-            select(Pipeline).where(Pipeline.id == pipeline_id)
-        )
+        result = await self.session.execute(select(Pipeline).where(Pipeline.id == pipeline_id))
         return result.scalar_one_or_none()
 
     async def get_by_id_with_user(self, pipeline_id: str) -> Pipeline | None:
         """Get pipeline by ID with user loaded."""
-        result = await self.session.execute(
-            select(Pipeline)
-            .where(Pipeline.id == pipeline_id)
-        )
+        result = await self.session.execute(select(Pipeline).where(Pipeline.id == pipeline_id))
         return result.scalar_one_or_none()
 
     async def list_by_user(

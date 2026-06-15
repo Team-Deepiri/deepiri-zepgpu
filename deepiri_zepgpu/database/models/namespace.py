@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 
 class NamespaceStatus(str, enum.Enum):
     """Namespace status."""
+
     ACTIVE = "active"
     SUSPENDED = "suspended"
     ARCHIVED = "archived"
@@ -63,8 +64,12 @@ class Namespace(UUIDMixin, TimestampMixin, Base):
     is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     owner: Mapped[User | None] = relationship("User", foreign_keys=[owner_id])
-    members: Mapped[list[NamespaceMember]] = relationship("NamespaceMember", back_populates="namespace", cascade="all, delete-orphan")
-    teams: Mapped[list[Team]] = relationship("Team", back_populates="namespace", cascade="all, delete-orphan")
+    members: Mapped[list[NamespaceMember]] = relationship(
+        "NamespaceMember", back_populates="namespace", cascade="all, delete-orphan"
+    )
+    teams: Mapped[list[Team]] = relationship(
+        "Team", back_populates="namespace", cascade="all, delete-orphan"
+    )
 
     __table_args__ = (
         Index("idx_namespaces_status", "status"),
@@ -77,6 +82,7 @@ class Namespace(UUIDMixin, TimestampMixin, Base):
 
 class TeamRole(str, enum.Enum):
     """Team membership role."""
+
     OWNER = "owner"
     ADMIN = "admin"
     MEMBER = "member"
@@ -151,7 +157,9 @@ class Team(UUIDMixin, TimestampMixin, Base):
 
     namespace: Mapped[Namespace] = relationship("Namespace", back_populates="teams")
     team_lead: Mapped[User | None] = relationship("User", foreign_keys=[team_lead_id])
-    members: Mapped[list[TeamMember]] = relationship("TeamMember", back_populates="team", cascade="all, delete-orphan")
+    members: Mapped[list[TeamMember]] = relationship(
+        "TeamMember", back_populates="team", cascade="all, delete-orphan"
+    )
 
     __table_args__ = (
         Index("idx_teams_namespace", "namespace_id"),

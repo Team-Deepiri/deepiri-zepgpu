@@ -15,6 +15,7 @@ import jwt
 
 class UserRole(Enum):
     """User roles for access control."""
+
     ADMIN = "admin"
     RESEARCHER = "researcher"
     USER = "user"
@@ -24,6 +25,7 @@ class UserRole(Enum):
 @dataclass
 class User:
     """User account representation."""
+
     user_id: str
     username: str
     email: str
@@ -31,17 +33,20 @@ class User:
     created_at: datetime = field(default_factory=datetime.utcnow)
     last_login: datetime | None = None
     is_active: bool = True
-    quota: dict[str, int] = field(default_factory=lambda: {
-        "max_tasks": 100,
-        "max_gpu_hours": 24,
-        "max_concurrent_tasks": 4,
-    })
+    quota: dict[str, int] = field(
+        default_factory=lambda: {
+            "max_tasks": 100,
+            "max_gpu_hours": 24,
+            "max_concurrent_tasks": 4,
+        }
+    )
     metadata: dict = field(default_factory=dict)
 
 
 @dataclass
 class AuthToken:
     """Authentication token."""
+
     token: str
     user_id: str
     expires_at: datetime
@@ -161,12 +166,16 @@ class UserManager:
     def _hash_password(self, password: str, salt: str | None = None) -> str:
         """Hash password with salt."""
         salt = salt or secrets.token_hex(16)
-        return hashlib.pbkdf2_hmac(
-            "sha256",
-            password.encode(),
-            salt.encode(),
-            100000,
-        ).hex() + ":" + salt
+        return (
+            hashlib.pbkdf2_hmac(
+                "sha256",
+                password.encode(),
+                salt.encode(),
+                100000,
+            ).hex()
+            + ":"
+            + salt
+        )
 
     def _verify_password(self, password: str, user_id: str) -> bool:
         """Verify password for user."""
@@ -208,10 +217,7 @@ class UserManager:
             del self._username_index[user.username]
             del self._email_index[user.email]
 
-            tokens_to_remove = [
-                t for t, token in self._tokens.items()
-                if token.user_id == user_id
-            ]
+            tokens_to_remove = [t for t, token in self._tokens.items() if token.user_id == user_id]
             for token in tokens_to_remove:
                 del self._tokens[token]
 

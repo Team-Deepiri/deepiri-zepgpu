@@ -64,20 +64,20 @@ class AWSProvider(CloudProvider):
 
         for instance_type, specs in AWS_GPU_INSTANCE_TYPES.items():
             try:
-                self.ec2.describe_instance_types(
-                    InstanceTypes=[instance_type]
-                )
+                self.ec2.describe_instance_types(InstanceTypes=[instance_type])
                 price = self._get_instance_price(instance_type)
 
-                gpus.append(GPUInfo(
-                    provider_instance_id=instance_type,
-                    name=f"{specs['name']} ({instance_type})",
-                    gpu_type=instance_type,
-                    gpu_count=specs["gpu_count"],
-                    memory_gb=specs["memory_gb"],
-                    price_per_hour=price,
-                    available=True,
-                ))
+                gpus.append(
+                    GPUInfo(
+                        provider_instance_id=instance_type,
+                        name=f"{specs['name']} ({instance_type})",
+                        gpu_type=instance_type,
+                        gpu_count=specs["gpu_count"],
+                        memory_gb=specs["memory_gb"],
+                        price_per_hour=price,
+                        available=True,
+                    )
+                )
             except Exception:
                 continue
 
@@ -105,7 +105,11 @@ class AWSProvider(CloudProvider):
             specs = AWS_GPU_INSTANCE_TYPES.get(instance_type, {})
 
             instance_params = {
-                "ImageId": config.env.get("ami_id", "ami-0c55b159cbfafe1f0") if config.env else "ami-0c55b159cbfafe1f0",
+                "ImageId": (
+                    config.env.get("ami_id", "ami-0c55b159cbfafe1f0")
+                    if config.env
+                    else "ami-0c55b159cbfafe1f0"
+                ),
                 "InstanceType": instance_type,
                 "KeyName": config.env.get("key_name", "") if config.env else "",
                 "MinCount": 1,
@@ -199,7 +203,9 @@ class AWSProvider(CloudProvider):
                 instance_id=instance_data.get("InstanceId", ""),
                 provider_type=self.provider_type,
                 provider_instance_id=instance_data.get("InstanceId", ""),
-                status=status_map.get(instance_data.get("State", {}).get("Name", ""), InstanceStatus.PENDING),
+                status=status_map.get(
+                    instance_data.get("State", {}).get("Name", ""), InstanceStatus.PENDING
+                ),
                 gpu_type=instance_type,
                 gpu_count=specs.get("gpu_count", 0),
                 memory_gb=specs.get("memory_gb", 0),

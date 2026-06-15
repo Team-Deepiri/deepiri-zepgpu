@@ -33,7 +33,11 @@ class TaskCancellation:
 
         cancelled = []
         for task in tasks:
-            if task.status in {TaskStatus.PENDING, TaskStatus.QUEUED, TaskStatus.SCHEDULED} and self.cancel(task.task_id):
+            if task.status in {
+                TaskStatus.PENDING,
+                TaskStatus.QUEUED,
+                TaskStatus.SCHEDULED,
+            } and self.cancel(task.task_id):
                 cancelled.append(task.task_id)
 
         return cancelled

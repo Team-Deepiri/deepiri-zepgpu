@@ -32,9 +32,7 @@ class GangScheduleRepository:
 
     async def get_by_id(self, gang_task_id: str) -> GangTask | None:
         """Get gang task by ID."""
-        result = await self.session.execute(
-            select(GangTask).where(GangTask.id == gang_task_id)
-        )
+        result = await self.session.execute(select(GangTask).where(GangTask.id == gang_task_id))
         return result.scalar_one_or_none()
 
     async def list_by_user(
@@ -52,7 +50,11 @@ class GangScheduleRepository:
         if status is not None:
             query = query.where(GangTask.status == status)
 
-        query = query.order_by(GangTask.priority.desc(), GangTask.created_at.asc()).limit(limit).offset(offset)
+        query = (
+            query.order_by(GangTask.priority.desc(), GangTask.created_at.asc())
+            .limit(limit)
+            .offset(offset)
+        )
 
         result = await self.session.execute(query)
         return result.scalars().all()
@@ -110,7 +112,9 @@ class GangScheduleRepository:
         """Mark gang task as completed."""
         return await self.update_status(gang_task_id, GangStatus.COMPLETED)
 
-    async def mark_failed(self, gang_task_id: str, error: str, traceback: str | None = None) -> GangTask | None:
+    async def mark_failed(
+        self, gang_task_id: str, error: str, traceback: str | None = None
+    ) -> GangTask | None:
         """Mark gang task as failed."""
         return await self.update_status(
             gang_task_id,

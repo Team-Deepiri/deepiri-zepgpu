@@ -15,6 +15,7 @@ router = APIRouter()
 
 class UserRegisterRequest(BaseModel):
     """User registration request."""
+
     username: str = Field(..., min_length=3, max_length=50)
     email: EmailStr
     password: str = Field(..., min_length=8)
@@ -24,12 +25,14 @@ class UserRegisterRequest(BaseModel):
 
 class UserLoginRequest(BaseModel):
     """User login request."""
+
     username: str
     password: str
 
 
 class UserResponse(BaseModel):
     """User response."""
+
     id: str
     username: str
     email: str
@@ -47,6 +50,7 @@ class UserResponse(BaseModel):
 
 class UserUpdateRequest(BaseModel):
     """User update request."""
+
     first_name: str | None = None
     last_name: str | None = None
     email: EmailStr | None = None
@@ -54,6 +58,7 @@ class UserUpdateRequest(BaseModel):
 
 class TokenResponse(BaseModel):
     """Token response."""
+
     access_token: str
     token_type: str = "bearer"
     expires_in: int
@@ -61,6 +66,7 @@ class TokenResponse(BaseModel):
 
 class QuotaResponse(BaseModel):
     """Quota response."""
+
     max_tasks: int
     max_gpu_hours: float
     max_concurrent_tasks: int
@@ -73,13 +79,18 @@ def hash_password(password: str) -> str:
     """Hash a password."""
     import hashlib
     import secrets
+
     salt = secrets.token_hex(16)
-    return hashlib.pbkdf2_hmac(
-        "sha256",
-        password.encode(),
-        salt.encode(),
-        100000,
-    ).hex() + ":" + salt
+    return (
+        hashlib.pbkdf2_hmac(
+            "sha256",
+            password.encode(),
+            salt.encode(),
+            100000,
+        ).hex()
+        + ":"
+        + salt
+    )
 
 
 def verify_password(password: str, password_hash: str) -> bool:

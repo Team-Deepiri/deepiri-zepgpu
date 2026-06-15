@@ -29,17 +29,13 @@ class TaskRepository:
 
     async def get_by_id(self, task_id: str) -> Task | None:
         """Get task by ID."""
-        result = await self.session.execute(
-            select(Task).where(Task.id == task_id)
-        )
+        result = await self.session.execute(select(Task).where(Task.id == task_id))
         return result.scalar_one_or_none()
 
     async def get_by_id_with_user(self, task_id: str) -> Task | None:
         """Get task by ID with user loaded."""
         result = await self.session.execute(
-            select(Task)
-            .options(selectinload(Task.user))
-            .where(Task.id == task_id)
+            select(Task).options(selectinload(Task.user)).where(Task.id == task_id)
         )
         return result.scalar_one_or_none()
 
@@ -102,7 +98,12 @@ class TaskRepository:
 
         if status == TaskStatus.RUNNING:
             task.started_at = datetime.utcnow()
-        elif status in [TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED, TaskStatus.TIMEOUT]:
+        elif status in [
+            TaskStatus.COMPLETED,
+            TaskStatus.FAILED,
+            TaskStatus.CANCELLED,
+            TaskStatus.TIMEOUT,
+        ]:
             task.completed_at = datetime.utcnow()
 
         for key, value in kwargs.items():
@@ -201,7 +202,9 @@ class TaskRepository:
             update(Task)
             .where(
                 and_(
-                    Task.status.in_([TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED]),
+                    Task.status.in_(
+                        [TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED]
+                    ),
                     Task.created_at < cutoff,
                 )
             )

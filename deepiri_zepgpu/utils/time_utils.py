@@ -134,10 +134,7 @@ class RateLimiter:
         """Check if request is allowed under rate limit."""
         now = datetime.utcnow()
         elapsed = (now - self._last_update).total_seconds()
-        self._tokens = min(
-            self._burst,
-            self._tokens + (elapsed * self._max_per_second)
-        )
+        self._tokens = min(self._burst, self._tokens + (elapsed * self._max_per_second))
         self._last_update = now
 
         if self._tokens >= 1:

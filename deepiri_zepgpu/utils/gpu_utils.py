@@ -7,18 +7,21 @@ from typing import Any
 
 try:
     import pynvml
+
     PYNVML_AVAILABLE = True
 except ImportError:
     PYNVML_AVAILABLE = False
 
 try:
     import torch
+
     TORCH_AVAILABLE = True
 except ImportError:
     TORCH_AVAILABLE = False
 
 try:
     import cupy as cp  # noqa: F401
+
     CUPY_AVAILABLE = True
 except ImportError:
     CUPY_AVAILABLE = False
@@ -80,7 +83,8 @@ def get_gpu_memory_info(device_id: int = 0) -> dict[str, int]:
             "total": torch.cuda.get_device_properties(device_id).total_memory,
             "allocated": torch.cuda.memory_allocated(device_id),
             "cached": torch.cuda.memory_reserved(device_id),
-            "free": torch.cuda.get_device_properties(device_id).total_memory - torch.cuda.memory_allocated(device_id),
+            "free": torch.cuda.get_device_properties(device_id).total_memory
+            - torch.cuda.memory_allocated(device_id),
         }
 
     return {"total": 0, "allocated": 0, "cached": 0, "free": 0}

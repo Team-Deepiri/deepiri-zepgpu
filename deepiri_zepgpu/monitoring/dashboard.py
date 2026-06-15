@@ -11,6 +11,7 @@ from typing import Any
 
 try:
     import websockets
+
     WEBSOCKETS_AVAILABLE = True
 except ImportError:
     WEBSOCKETS_AVAILABLE = False
@@ -18,6 +19,7 @@ except ImportError:
 
 class DashboardEvent:
     """Dashboard event types."""
+
     TASK_SUBMITTED = "task_submitted"
     TASK_STARTED = "task_started"
     TASK_COMPLETED = "task_completed"
@@ -73,11 +75,15 @@ class MonitoringDashboard:
             self._clients.add(websocket)
 
         try:
-            await websocket.send(json.dumps({
-                "type": "connected",
-                "timestamp": datetime.utcnow().isoformat(),
-                "message": "Connected to DeepIRI GPU Monitor",
-            }))
+            await websocket.send(
+                json.dumps(
+                    {
+                        "type": "connected",
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "message": "Connected to DeepIRI GPU Monitor",
+                    }
+                )
+            )
 
             async for message in websocket:
                 try:
@@ -98,25 +104,37 @@ class MonitoringDashboard:
 
         if command == "subscribe":
             event_types = data.get("events", [])
-            await websocket.send(json.dumps({
-                "type": "subscribed",
-                "events": event_types,
-            }))
+            await websocket.send(
+                json.dumps(
+                    {
+                        "type": "subscribed",
+                        "events": event_types,
+                    }
+                )
+            )
 
         elif command == "get_status":
             status = self._get_system_status()
-            await websocket.send(json.dumps({
-                "type": "status",
-                "data": status,
-            }))
+            await websocket.send(
+                json.dumps(
+                    {
+                        "type": "status",
+                        "data": status,
+                    }
+                )
+            )
 
         elif command == "get_metrics":
             if self._collector:
                 summary = self._collector.get_summary()
-                await websocket.send(json.dumps({
-                    "type": "metrics",
-                    "data": summary,
-                }))
+                await websocket.send(
+                    json.dumps(
+                        {
+                            "type": "metrics",
+                            "data": summary,
+                        }
+                    )
+                )
 
     def _get_system_status(self) -> dict[str, Any]:
         """Get current system status."""
@@ -131,11 +149,13 @@ class MonitoringDashboard:
         data: dict[str, Any],
     ) -> None:
         """Broadcast event to all connected clients."""
-        message = json.dumps({
-            "type": event_type,
-            "timestamp": datetime.utcnow().isoformat(),
-            "data": data,
-        })
+        message = json.dumps(
+            {
+                "type": event_type,
+                "timestamp": datetime.utcnow().isoformat(),
+                "data": data,
+            }
+        )
 
         with self._lock:
             clients = list(self._clients)
@@ -160,11 +180,14 @@ class MonitoringDashboard:
             "failed": DashboardEvent.TASK_FAILED,
         }.get(status, DashboardEvent.QUEUE_UPDATE)
 
-        await self.broadcast_event(event_type, {
-            "task_id": task_id,
-            "status": status,
-            **kwargs,
-        })
+        await self.broadcast_event(
+            event_type,
+            {
+                "task_id": task_id,
+                "status": status,
+                **kwargs,
+            },
+        )
 
     async def broadcast_gpu_metrics(self, metrics: dict[str, Any]) -> None:
         """Broadcast GPU metrics update."""
@@ -176,11 +199,14 @@ class MonitoringDashboard:
 
     async def broadcast_alert(self, alert_type: str, message: str, **kwargs: Any) -> None:
         """Broadcast alert."""
-        await self.broadcast_event(DashboardEvent.ALERT, {
-            "alert_type": alert_type,
-            "message": message,
-            **kwargs,
-        })
+        await self.broadcast_event(
+            DashboardEvent.ALERT,
+            {
+                "alert_type": alert_type,
+                "message": message,
+                **kwargs,
+            },
+        )
 
 
 class PrometheusExporter:
@@ -196,7 +222,9 @@ class PrometheusExporter:
             key = self._make_key(name, labels)
             self._metrics[key] = value
 
-    def increment_counter(self, name: str, value: float = 1.0, labels: dict[str, str] | None = None) -> None:
+    def increment_counter(
+        self, name: str, value: float = 1.0, labels: dict[str, str] | None = None
+    ) -> None:
         """Increment a counter metric."""
         with self._lock:
             key = self._make_key(name, labels)

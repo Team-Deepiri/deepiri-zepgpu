@@ -85,7 +85,9 @@ class ScheduleRepository:
         )
         return result.scalars().all()
 
-    async def get_due_schedules(self, before_time: datetime | None = None) -> Sequence[ScheduledTask]:
+    async def get_due_schedules(
+        self, before_time: datetime | None = None
+    ) -> Sequence[ScheduledTask]:
         """Get schedules that are due to run."""
         if before_time is None:
             before_time = datetime.utcnow()
@@ -138,7 +140,9 @@ class ScheduleRepository:
         await self.session.flush()
         return True
 
-    async def update_next_run(self, schedule_id: str, next_run_at: datetime) -> ScheduledTask | None:
+    async def update_next_run(
+        self, schedule_id: str, next_run_at: datetime
+    ) -> ScheduledTask | None:
         """Update the next run time for a schedule."""
         return await self.update(schedule_id, next_run_at=next_run_at)
 
@@ -286,7 +290,11 @@ class ScheduleRunRepository:
 
         if status == ScheduleRunStatus.RUNNING:
             run.started_at = datetime.utcnow()
-        elif status in [ScheduleRunStatus.COMPLETED, ScheduleRunStatus.FAILED, ScheduleRunStatus.CANCELLED]:
+        elif status in [
+            ScheduleRunStatus.COMPLETED,
+            ScheduleRunStatus.FAILED,
+            ScheduleRunStatus.CANCELLED,
+        ]:
             run.completed_at = datetime.utcnow()
             if run.started_at:
                 run.duration_ms = int((run.completed_at - run.started_at).total_seconds() * 1000)
@@ -346,11 +354,13 @@ class ScheduleRunRepository:
             .where(
                 and_(
                     ScheduledTaskRun.created_at < cutoff,
-                    ScheduledTaskRun.status.in_([
-                        ScheduleRunStatus.COMPLETED,
-                        ScheduleRunStatus.FAILED,
-                        ScheduleRunStatus.CANCELLED,
-                    ])
+                    ScheduledTaskRun.status.in_(
+                        [
+                            ScheduleRunStatus.COMPLETED,
+                            ScheduleRunStatus.FAILED,
+                            ScheduleRunStatus.CANCELLED,
+                        ]
+                    ),
                 )
             )
             .values(result_summary=None)

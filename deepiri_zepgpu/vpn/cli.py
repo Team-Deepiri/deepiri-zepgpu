@@ -11,6 +11,7 @@ from pathlib import Path
 
 try:
     import click
+
     HAS_CLICK = True
 except ImportError:
     HAS_CLICK = False
@@ -95,7 +96,9 @@ def apply_wireguard_config(config_text: str, interface: str = "wg0") -> bool:
             text=True,
         )
         if result.returncode != 0:
-            subprocess.run(["ln", "-sf", str(conf_path), f"/etc/wireguard/{interface}.conf"], check=True)
+            subprocess.run(
+                ["ln", "-sf", str(conf_path), f"/etc/wireguard/{interface}.conf"], check=True
+            )
             result = subprocess.run(
                 ["wg-quick", "up", f"/etc/wireguard/{interface}.conf"],
                 capture_output=True,
@@ -107,7 +110,10 @@ def apply_wireguard_config(config_text: str, interface: str = "wg0") -> bool:
         return True
 
     else:
-        print("WireGuard on Windows not yet supported via CLI. Please import the .conf file manually.", file=sys.stderr)
+        print(
+            "WireGuard on Windows not yet supported via CLI. Please import the .conf file manually.",
+            file=sys.stderr,
+        )
         print(f"Config saved to: {conf_path}", file=sys.stderr)
         return False
 
@@ -172,6 +178,7 @@ def install_wireguard() -> bool:
 
 
 if HAS_CLICK:
+
     @click.group()
     def vpn():
         """ZepGPU VPN - GPU sharing network management."""
@@ -325,7 +332,10 @@ if HAS_CLICK:
             while True:
                 gpus = discover_local_gpus()
                 if gpus:
-                    print(f"  Found {len(gpus)} GPU(s): " + ", ".join(f"{g.name} ({g.total_memory_mb}MB)" for g in gpus))
+                    print(
+                        f"  Found {len(gpus)} GPU(s): "
+                        + ", ".join(f"{g.name} ({g.total_memory_mb}MB)" for g in gpus)
+                    )
                 try:
                     async with httpx.AsyncClient(timeout=10) as client:
                         await client.post(
@@ -383,7 +393,9 @@ if HAS_CLICK:
             print(f"  Online GPU Hosts: {data['online_gpu_hosts']}")
             print("\nGPU Breakdown:")
             for gpu in data.get("gpu_breakdown", []):
-                print(f"  [{gpu['username']}] {gpu['name']} - {gpu['total_memory_mb'] // 1024}GB - {gpu['state']}")
+                print(
+                    f"  [{gpu['username']}] {gpu['name']} - {gpu['total_memory_mb'] // 1024}GB - {gpu['state']}"
+                )
         except Exception as e:
             print(f"Failed to fetch GPU pool: {e}", file=sys.stderr)
             sys.exit(1)

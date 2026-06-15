@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 
 class ScheduleRunStatus(str, enum.Enum):
     """Schedule run status enum."""
+
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"

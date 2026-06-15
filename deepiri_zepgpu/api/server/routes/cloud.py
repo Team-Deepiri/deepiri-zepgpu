@@ -15,10 +15,15 @@ router = APIRouter()
 
 class LaunchInstanceRequest(BaseModel):
     """Request to launch a cloud GPU instance."""
+
     name: str = Field(default="zepgpu-instance", max_length=255)
-    gpu_type: str | None = Field(None, description="Specific GPU type ID (e.g., 'NVIDIA A100' or 'g4dn.xlarge')")
+    gpu_type: str | None = Field(
+        None, description="Specific GPU type ID (e.g., 'NVIDIA A100' or 'g4dn.xlarge')"
+    )
     gpu_count: int = Field(default=1, ge=1, le=8)
-    max_price_per_hour: float | None = Field(None, ge=0, description="Maximum price per hour in USD")
+    max_price_per_hour: float | None = Field(
+        None, ge=0, description="Maximum price per hour in USD"
+    )
     provider: str | None = Field(None, description="Specific provider to use (runpod, aws, lambda)")
     image: str = Field(default="runpod/pytorch:2.1.0-python3.10")
     env: dict[str, str] = Field(default_factory=dict)
@@ -26,6 +31,7 @@ class LaunchInstanceRequest(BaseModel):
 
 class InstanceResponse(BaseModel):
     """Cloud instance response."""
+
     instance_id: str
     provider: str
     provider_instance_id: str
@@ -40,6 +46,7 @@ class InstanceResponse(BaseModel):
 
 class GPUInfoResponse(BaseModel):
     """GPU info response."""
+
     provider: str
     gpu_type: str
     name: str
@@ -51,6 +58,7 @@ class GPUInfoResponse(BaseModel):
 
 class CostEstimateResponse(BaseModel):
     """Cost estimate response."""
+
     provider: str
     gpu_type: str
     gpu_count: int
@@ -61,6 +69,7 @@ class CostEstimateResponse(BaseModel):
 
 class ProviderStatusResponse(BaseModel):
     """Provider status response."""
+
     name: str
     type: str
     display_name: str
@@ -78,13 +87,15 @@ async def list_providers() -> list[ProviderStatusResponse]:
     for p in providers:
         name = p["name"]
         p_status = status_info.get(name, {})
-        result.append(ProviderStatusResponse(
-            name=name,
-            type=p["type"],
-            display_name=p["display_name"],
-            status=p_status.get("status", "unknown"),
-            error=p_status.get("error"),
-        ))
+        result.append(
+            ProviderStatusResponse(
+                name=name,
+                type=p["type"],
+                display_name=p["display_name"],
+                status=p_status.get("status", "unknown"),
+                error=p_status.get("error"),
+            )
+        )
 
     return result
 
@@ -119,15 +130,17 @@ async def list_available_gpus(
     for p_name, gpus in all_gpus.items():
         for g in gpus:
             if g.available:
-                result.append(GPUInfoResponse(
-                    provider=p_name,
-                    gpu_type=g.gpu_type,
-                    name=g.name,
-                    gpu_count=g.gpu_count,
-                    memory_gb=g.memory_gb,
-                    price_per_hour=g.price_per_hour,
-                    available=g.available,
-                ))
+                result.append(
+                    GPUInfoResponse(
+                        provider=p_name,
+                        gpu_type=g.gpu_type,
+                        name=g.name,
+                        gpu_count=g.gpu_count,
+                        memory_gb=g.memory_gb,
+                        price_per_hour=g.price_per_hour,
+                        available=g.available,
+                    )
+                )
 
     result.sort(key=lambda x: x.price_per_hour)
     return result
@@ -152,6 +165,7 @@ async def launch_instance(
             raise HTTPException(status_code=404, detail=f"Provider '{request.provider}' not found")
 
         from deepiri_zepgpu.cloud.providers.base import LaunchConfig
+
         config = LaunchConfig(
             name=request.name,
             gpu_type_id=request.gpu_type or "",
@@ -164,7 +178,9 @@ async def launch_instance(
         try:
             instance = await p.launch_instance(config)
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to launch instance: {str(e)}") from e
+            raise HTTPException(
+                status_code=500, detail=f"Failed to launch instance: {str(e)}"
+            ) from e
 
         return InstanceResponse(
             instance_id=instance.instance_id,

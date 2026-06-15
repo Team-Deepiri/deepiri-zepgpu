@@ -23,6 +23,7 @@ from deepiri_zepgpu.vpn.task_router import TaskRouter
 @dataclass
 class ExecutionResult:
     """Result from task execution."""
+
     success: bool
     result: Any = None
     error: str | None = None
@@ -89,6 +90,7 @@ class TaskExecutor:
         except Exception as e:
             execution_time = time.time() - start_time
             import traceback
+
             tb = traceback.format_exc()
             task.status = TaskStatus.FAILED
             task.error = str(e)
@@ -142,6 +144,7 @@ class TaskExecutor:
             )
         except Exception as e:
             import traceback as tb
+
             execution_time = time.time() - start_time
             task.status = TaskStatus.FAILED
             task.error = str(e)
@@ -170,8 +173,7 @@ class TaskExecutor:
             result = await func(*args, **kwargs)
         else:
             result = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: func(*args, **kwargs)
+                None, lambda: func(*args, **kwargs)
             )
 
         return result
@@ -188,17 +190,27 @@ class TaskExecutor:
             env["CUDA_VISIBLE_DEVICES"] = str(task.gpu_device_id or 0)
 
             docker_cmd = [
-                self._container_runtime, "run",
+                self._container_runtime,
+                "run",
                 "--rm",
-                "--gpus", f'"device={task.gpu_device_id or 0}"',
-                "-e", f"TASK_ID={task.task_id}",
-                "-e", f"CUDA_VISIBLE_DEVICES={task.gpu_device_id or 0}",
-                "--memory", f"{task.resources.gpu_memory_mb}m",
-                "--cpus", str(task.resources.cpu_cores),
-                "-v", f"{self._work_dir}:/workspace",
-                "-w", "/workspace",
+                "--gpus",
+                f'"device={task.gpu_device_id or 0}"',
+                "-e",
+                f"TASK_ID={task.task_id}",
+                "-e",
+                f"CUDA_VISIBLE_DEVICES={task.gpu_device_id or 0}",
+                "--memory",
+                f"{task.resources.gpu_memory_mb}m",
+                "--cpus",
+                str(task.resources.cpu_cores),
+                "-v",
+                f"{self._work_dir}:/workspace",
+                "-w",
+                "/workspace",
                 image,
-                "python", "-c", self._generate_task_code(task),
+                "python",
+                "-c",
+                self._generate_task_code(task),
             ]
 
             process = await asyncio.create_subprocess_exec(
@@ -231,6 +243,7 @@ class TaskExecutor:
 
         except Exception as e:
             import traceback
+
             return ExecutionResult(
                 success=False,
                 error=str(e),
@@ -274,7 +287,9 @@ except Exception as e:
         if container_id:
             with contextlib.suppress(Exception):
                 await asyncio.create_subprocess_exec(
-                    self._container_runtime, "kill", container_id,
+                    self._container_runtime,
+                    "kill",
+                    container_id,
                     stdout=asyncio.subprocess.DEVNULL,
                     stderr=asyncio.subprocess.DEVNULL,
                 )
@@ -283,7 +298,10 @@ except Exception as e:
         """Clean up container resources."""
         with contextlib.suppress(Exception):
             await asyncio.create_subprocess_exec(
-                self._container_runtime, "rm", "-f", container_id,
+                self._container_runtime,
+                "rm",
+                "-f",
+                container_id,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
             )
@@ -297,7 +315,7 @@ except Exception as e:
         """Execute multiple tasks in parallel with batching."""
         results = []
         for i in range(0, len(tasks), batch_size):
-            batch = tasks[i:i + batch_size]
+            batch = tasks[i : i + batch_size]
             batch_results = await asyncio.gather(
                 *[self.execute_task(task) for task in batch],
                 return_exceptions=True,

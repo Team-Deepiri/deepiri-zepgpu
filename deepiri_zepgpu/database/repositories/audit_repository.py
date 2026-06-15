@@ -51,9 +51,7 @@ class AuditRepository:
 
     async def get_by_id(self, log_id: str) -> AuditLog | None:
         """Get audit log by ID."""
-        result = await self.session.execute(
-            select(AuditLog).where(AuditLog.id == log_id)
-        )
+        result = await self.session.execute(select(AuditLog).where(AuditLog.id == log_id))
         return result.scalar_one_or_none()
 
     async def list_by_user(
@@ -119,10 +117,7 @@ class AuditRepository:
     ) -> Sequence[AuditLog]:
         """List recent audit logs."""
         result = await self.session.execute(
-            select(AuditLog)
-            .order_by(AuditLog.created_at.desc())
-            .limit(limit)
-            .offset(offset)
+            select(AuditLog).order_by(AuditLog.created_at.desc()).limit(limit).offset(offset)
         )
         return result.scalars().all()
 
@@ -159,9 +154,8 @@ class AuditRepository:
         cutoff = datetime.utcnow() - timedelta(days=days)
 
         from sqlalchemy import delete
-        result = await self.session.execute(
-            delete(AuditLog).where(AuditLog.created_at < cutoff)
-        )
+
+        result = await self.session.execute(delete(AuditLog).where(AuditLog.created_at < cutoff))
         await self.session.flush()
         return result.rowcount or 0
 

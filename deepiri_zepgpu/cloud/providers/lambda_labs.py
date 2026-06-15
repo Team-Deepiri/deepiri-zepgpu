@@ -48,15 +48,21 @@ class LambdaLabsProvider(CloudProvider):
 
                 gpus = []
                 for type_id, type_data in data.get("data", {}).items():
-                    gpus.append(GPUInfo(
-                        provider_instance_id=type_id,
-                        name=type_data.get("instance_type", {}).get("description", type_id),
-                        gpu_type=type_id,
-                        gpu_count=type_data.get("instance_type", {}).get("specs", {}).get("gpus", 1),
-                        memory_gb=type_data.get("instance_type", {}).get("specs", {}).get("memory_gib", 0),
-                        price_per_hour=type_data.get("instance_price_cents_per_hour", 0) / 100,
-                        available=type_data.get("availability", "") == "available",
-                    ))
+                    gpus.append(
+                        GPUInfo(
+                            provider_instance_id=type_id,
+                            name=type_data.get("instance_type", {}).get("description", type_id),
+                            gpu_type=type_id,
+                            gpu_count=type_data.get("instance_type", {})
+                            .get("specs", {})
+                            .get("gpus", 1),
+                            memory_gb=type_data.get("instance_type", {})
+                            .get("specs", {})
+                            .get("memory_gib", 0),
+                            price_per_hour=type_data.get("instance_price_cents_per_hour", 0) / 100,
+                            available=type_data.get("availability", "") == "available",
+                        )
+                    )
                 return gpus
         except Exception:
             return []

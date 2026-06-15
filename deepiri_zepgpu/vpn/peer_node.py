@@ -56,6 +56,7 @@ _vpn_ip: str = ""
 
 try:
     import pynvml
+
     PYNVML_AVAILABLE = True
 except ImportError:
     PYNVML_AVAILABLE = False
@@ -83,13 +84,15 @@ def discover_local_gpus() -> list[GpuInfo]:
             except Exception:
                 cc_str = "0.0"
 
-            gpus.append(GpuInfo(
-                device_index=i,
-                name=name,
-                total_memory_mb=total_mb,
-                available_memory_mb=free_mb,
-                compute_capability=cc_str,
-            ))
+            gpus.append(
+                GpuInfo(
+                    device_index=i,
+                    name=name,
+                    total_memory_mb=total_mb,
+                    available_memory_mb=free_mb,
+                    compute_capability=cc_str,
+                )
+            )
         pynvml.nvmlShutdown()
     except Exception:
         pass
@@ -116,6 +119,7 @@ async def execute_task(payload: TaskPayload):
         kwargs = pickle.loads(base64.b64decode(payload.kwargs_encoded))
 
         import os
+
         old_cuda = os.environ.get("CUDA_VISIBLE_DEVICES")
         os.environ["CUDA_VISIBLE_DEVICES"] = str(payload.gpu_device_id)
 
@@ -141,6 +145,7 @@ async def execute_task(payload: TaskPayload):
         )
     except Exception as e:
         import traceback
+
         execution_time = time.time() - start_time
         task_result = TaskResult(
             task_id=payload.task_id,
@@ -194,6 +199,9 @@ async def start_peer_server(relay_url: str, peer_id: str, vpn_ip: str):
     _vpn_ip = vpn_ip
 
     import uvicorn
-    config = uvicorn.Config(app, host=vpn_ip, port=vpn_settings.peer_server_port, log_level="warning")
+
+    config = uvicorn.Config(
+        app, host=vpn_ip, port=vpn_settings.peer_server_port, log_level="warning"
+    )
     server = uvicorn.Server(config)
     await server.serve()

@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 class AuditAction(str, enum.Enum):
     """Audit log action types."""
+
     USER_LOGIN = "user_login"
     USER_LOGOUT = "user_logout"
     USER_REGISTER = "user_register"

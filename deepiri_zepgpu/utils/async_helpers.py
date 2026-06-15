@@ -98,7 +98,7 @@ class AsyncBatchProcessor:
         results = []
 
         for i in range(0, len(items), self._batch_size):
-            batch = items[i:i + self._batch_size]
+            batch = items[i : i + self._batch_size]
 
             batch_results = await gather_with_concurrency(
                 self._max_concurrent,
@@ -151,6 +151,7 @@ class AsyncCache:
         if key in self._cache:
             value, expiry = self._cache[key]
             import time
+
             if time.time() < expiry:
                 return value
             del self._cache[key]
@@ -159,6 +160,7 @@ class AsyncCache:
     async def set(self, key: str, value: Any, ttl: float | None = None) -> None:
         """Set value in cache."""
         import time
+
         expiry = time.time() + (ttl or self._ttl)
         self._cache[key] = (value, expiry)
 
@@ -173,6 +175,7 @@ class AsyncCache:
     async def cleanup(self) -> int:
         """Remove expired entries. Returns count of removed entries."""
         import time
+
         now = time.time()
         expired = [k for k, (_, expiry) in self._cache.items() if now >= expiry]
         for key in expired:

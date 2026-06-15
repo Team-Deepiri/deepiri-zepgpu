@@ -72,10 +72,15 @@ class RedisQueue:
         priority = task_data.get("priority", 2)
         queue_key = f"{self.TASK_QUEUE}:{priority}"
 
-        await self._redis.rpush(queue_key, json.dumps({
-            "task_id": task_id,
-            **task_data,
-        }))
+        await self._redis.rpush(
+            queue_key,
+            json.dumps(
+                {
+                    "task_id": task_id,
+                    **task_data,
+                }
+            ),
+        )
 
     async def dequeue_task(self, timeout: int = 0) -> dict[str, Any] | None:
         """Get task from queue."""
@@ -133,9 +138,12 @@ class RedisQueue:
     async def set_gpu_status(self, device_id: int, status: dict[str, Any]) -> None:
         """Set GPU device status."""
         key = f"{self.GPU_DEVICES}:{device_id}"
-        await self._redis.hset(key, mapping={
-            "status": json.dumps(status),
-        })
+        await self._redis.hset(
+            key,
+            mapping={
+                "status": json.dumps(status),
+            },
+        )
         await self._redis.expire(key, 300)
 
     async def get_gpu_status(self, device_id: int) -> dict[str, Any] | None:

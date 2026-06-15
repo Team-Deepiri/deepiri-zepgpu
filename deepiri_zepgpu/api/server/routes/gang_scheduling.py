@@ -18,6 +18,7 @@ router = APIRouter()
 
 class GangTaskCreateRequest(BaseModel):
     """Gang task creation request."""
+
     name: str = Field(..., min_length=1, max_length=255)
     description: str | None = None
 
@@ -45,6 +46,7 @@ class GangTaskCreateRequest(BaseModel):
 
 class GangTaskUpdateRequest(BaseModel):
     """Gang task update request."""
+
     name: str | None = Field(None, min_length=1, max_length=255)
     description: str | None = None
 
@@ -56,6 +58,7 @@ class GangTaskUpdateRequest(BaseModel):
 
 class GangTaskResponse(BaseModel):
     """Gang task response."""
+
     id: str
     name: str
     description: str | None
@@ -80,6 +83,7 @@ class GangTaskResponse(BaseModel):
 
 class GangTaskListResponse(BaseModel):
     """Gang task list response."""
+
     tasks: list[GangTaskResponse]
     total: int
     limit: int
@@ -88,6 +92,7 @@ class GangTaskListResponse(BaseModel):
 
 class PreemptionResponse(BaseModel):
     """Preemption response."""
+
     status: str
     preempted_task_id: str | None
     gang_task_id: str | None
@@ -96,6 +101,7 @@ class PreemptionResponse(BaseModel):
 
 class FairShareResponse(BaseModel):
     """Fair share response."""
+
     user_id: str
     weight: float
     gpu_seconds_used: float
@@ -108,6 +114,7 @@ class FairShareResponse(BaseModel):
 
 class FairShareUpdateRequest(BaseModel):
     """Fair share update request."""
+
     weight: float = Field(default=1.0, ge=0.1, le=10.0)
     gpu_seconds_limit: float | None = Field(None, ge=0)
 
@@ -277,7 +284,9 @@ async def update_gang_task(
         raise HTTPException(status_code=403, detail="Access denied")
 
     if task.status not in [DBGangStatus.PENDING, DBGangStatus.SCHEDULING]:
-        raise HTTPException(status_code=400, detail="Cannot update task that is already running or completed")
+        raise HTTPException(
+            status_code=400, detail="Cannot update task that is already running or completed"
+        )
 
     update_data = request.model_dump(exclude_unset=True)
     for key, value in update_data.items():
@@ -355,7 +364,11 @@ async def retry_gang_task(
     if current_user and task.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
 
-    if task.status not in [DBGangStatus.FAILED, DBGangStatus.CANCELLED, DBGangStatus.PARTIAL_FAILURE]:
+    if task.status not in [
+        DBGangStatus.FAILED,
+        DBGangStatus.CANCELLED,
+        DBGangStatus.PARTIAL_FAILURE,
+    ]:
         raise HTTPException(status_code=400, detail="Can only retry failed/cancelled/partial tasks")
 
     await repo.update_status(gang_task_id, DBGangStatus.PENDING)

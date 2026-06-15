@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 class GPUState(str, enum.Enum):
     """GPU availability state."""
+
     IDLE = "idle"
     ALLOCATED = "allocated"
     GANG_ALLOCATED = "gang_allocated"
@@ -29,6 +30,7 @@ class GPUState(str, enum.Enum):
 
 class GPUType(str, enum.Enum):
     """GPU vendor/type."""
+
     NVIDIA = "nvidia"
     AMD = "amd"
     INTEL = "intel"

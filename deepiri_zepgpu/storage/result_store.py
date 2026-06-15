@@ -19,10 +19,12 @@ class ResultStore:
     async def initialize(self) -> None:
         """Initialize storage backends."""
         from deepiri_zepgpu.storage.s3_client import storage
+
         storage.connect()
         self._s3_client = storage
 
         from deepiri_zepgpu.queue.redis_queue import RedisQueue
+
         self._redis_client = RedisQueue()
         await self._redis_client.connect()
 
@@ -45,10 +47,13 @@ class ResultStore:
         size_bytes = len(result)
 
         if size_bytes <= self.SMALL_RESULT_THRESHOLD:
-            await self._redis_client.set_task_result(task_id, {
-                "result": result.hex(),
-                "size": size_bytes,
-            })
+            await self._redis_client.set_task_result(
+                task_id,
+                {
+                    "result": result.hex(),
+                    "size": size_bytes,
+                },
+            )
             return "redis", task_id, size_bytes
 
         elif store_in_s3 and size_bytes <= self.LARGE_RESULT_THRESHOLD:

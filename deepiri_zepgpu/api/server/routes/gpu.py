@@ -13,6 +13,7 @@ router = APIRouter()
 
 class GPUDeviceResponse(BaseModel):
     """GPU device response."""
+
     id: int
     device_index: int
     name: str | None
@@ -34,6 +35,7 @@ class GPUDeviceResponse(BaseModel):
 
 class GPUListResponse(BaseModel):
     """GPU list response."""
+
     devices: list[GPUDeviceResponse]
     total_count: int
     available_count: int
@@ -41,6 +43,7 @@ class GPUListResponse(BaseModel):
 
 class GPUMetricsResponse(BaseModel):
     """GPU metrics response."""
+
     device_index: int
     utilization_percent: float
     memory_used_mb: float
@@ -70,12 +73,20 @@ async def list_gpu_devices() -> GPUListResponse:
                 vendor=None,
                 total_memory_mb=d.total_memory_mb,
                 available_memory_mb=d.available_memory_mb,
-                memory_usage_percent=((d.total_memory_mb - d.available_memory_mb) / d.total_memory_mb * 100) if d.total_memory_mb > 0 else None,
+                memory_usage_percent=(
+                    ((d.total_memory_mb - d.available_memory_mb) / d.total_memory_mb * 100)
+                    if d.total_memory_mb > 0
+                    else None
+                ),
                 state=d.state.value,
                 utilization_percent=d.utilization_percent,
                 temperature_celsius=int(d.temperature_celsius) if d.temperature_celsius else None,
                 power_draw_watts=d.power_draw_watts,
-                compute_capability=f"{d.compute_capability[0]}.{d.compute_capability[1]}" if d.compute_capability else None,
+                compute_capability=(
+                    f"{d.compute_capability[0]}.{d.compute_capability[1]}"
+                    if d.compute_capability
+                    else None
+                ),
                 current_task_id=d.current_task_id,
             )
             for d in devices
@@ -97,6 +108,7 @@ async def get_gpu_device(device_index: int) -> GPUDeviceResponse:
 
     if not device:
         from fastapi import HTTPException
+
         raise HTTPException(status_code=404, detail="GPU device not found")
 
     return GPUDeviceResponse(
@@ -107,12 +119,20 @@ async def get_gpu_device(device_index: int) -> GPUDeviceResponse:
         vendor=None,
         total_memory_mb=device.total_memory_mb,
         available_memory_mb=device.available_memory_mb,
-        memory_usage_percent=((device.total_memory_mb - device.available_memory_mb) / device.total_memory_mb * 100) if device.total_memory_mb > 0 else None,
+        memory_usage_percent=(
+            ((device.total_memory_mb - device.available_memory_mb) / device.total_memory_mb * 100)
+            if device.total_memory_mb > 0
+            else None
+        ),
         state=device.state.value,
         utilization_percent=device.utilization_percent,
         temperature_celsius=int(device.temperature_celsius) if device.temperature_celsius else None,
         power_draw_watts=device.power_draw_watts,
-        compute_capability=f"{device.compute_capability[0]}.{device.compute_capability[1]}" if device.compute_capability else None,
+        compute_capability=(
+            f"{device.compute_capability[0]}.{device.compute_capability[1]}"
+            if device.compute_capability
+            else None
+        ),
         current_task_id=device.current_task_id,
     )
 
@@ -161,5 +181,7 @@ async def get_gpu_stats() -> dict[str, Any]:
         "total_memory_mb": total_memory,
         "available_memory_mb": available_memory,
         "used_memory_mb": total_memory - available_memory,
-        "memory_utilization_percent": ((total_memory - available_memory) / total_memory * 100) if total_memory > 0 else 0,
+        "memory_utilization_percent": (
+            ((total_memory - available_memory) / total_memory * 100) if total_memory > 0 else 0
+        ),
     }

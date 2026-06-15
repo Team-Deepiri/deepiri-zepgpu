@@ -52,11 +52,13 @@ async def task_updates_websocket(  # noqa: C901
     await manager.connect(websocket, user_id)
 
     try:
-        await websocket.send_json({
-            "type": "connected",
-            "user_id": user_id,
-            "message": "Connected to task updates stream",
-        })
+        await websocket.send_json(
+            {
+                "type": "connected",
+                "user_id": user_id,
+                "message": "Connected to task updates stream",
+            }
+        )
 
         while True:
             data = await websocket.receive_text()
@@ -76,34 +78,42 @@ async def task_updates_websocket(  # noqa: C901
                     elif msg_type == "subscribe_task":
                         task_id = msg.get("task_id")
                         if task_id:
-                            await websocket.send_json({
-                                "type": "subscribed",
-                                "task_id": task_id,
-                            })
+                            await websocket.send_json(
+                                {
+                                    "type": "subscribed",
+                                    "task_id": task_id,
+                                }
+                            )
 
                     elif msg_type == "unsubscribe_task":
                         task_id = msg.get("task_id")
                         if task_id:
-                            await websocket.send_json({
-                                "type": "unsubscribed",
-                                "task_id": task_id,
-                            })
+                            await websocket.send_json(
+                                {
+                                    "type": "unsubscribed",
+                                    "task_id": task_id,
+                                }
+                            )
 
                     elif msg_type == "get_status":
                         async with get_db_context() as db:
                             repo = TaskRepository(db)
                             pending = await repo.list_pending(limit=10)
-                            await websocket.send_json({
-                                "type": "status",
-                                "pending_tasks": len(pending),
-                            })
+                            await websocket.send_json(
+                                {
+                                    "type": "status",
+                                    "pending_tasks": len(pending),
+                                }
+                            )
 
             except Exception as e:
                 logger.error(f"Error processing WebSocket message: {e}")
-                await websocket.send_json({
-                    "type": "error",
-                    "message": str(e),
-                })
+                await websocket.send_json(
+                    {
+                        "type": "error",
+                        "message": str(e),
+                    }
+                )
 
     except WebSocketDisconnect:
         pass
@@ -129,11 +139,13 @@ async def gpu_updates_websocket(
     await manager.connect(websocket, user_id)
 
     try:
-        await websocket.send_json({
-            "type": "connected",
-            "user_id": user_id,
-            "message": "Connected to GPU metrics stream",
-        })
+        await websocket.send_json(
+            {
+                "type": "connected",
+                "user_id": user_id,
+                "message": "Connected to GPU metrics stream",
+            }
+        )
 
         async def send_gpu_updates():
             """Send periodic GPU updates."""
@@ -144,15 +156,21 @@ async def gpu_updates_websocket(
                         devices = await gpu_repo.list_all()
 
                         for device in devices:
-                            await websocket.send_json({
-                                "type": "gpu_update",
-                                "device_id": device.device_index,
-                                "name": device.name,
-                                "utilization_percent": device.utilization_percent,
-                                "temperature_celsius": device.temperature_celsius,
-                                "power_draw_watts": device.power_draw_watts,
-                                "state": device.state.value if hasattr(device.state, 'value') else str(device.state),
-                            })
+                            await websocket.send_json(
+                                {
+                                    "type": "gpu_update",
+                                    "device_id": device.device_index,
+                                    "name": device.name,
+                                    "utilization_percent": device.utilization_percent,
+                                    "temperature_celsius": device.temperature_celsius,
+                                    "power_draw_watts": device.power_draw_watts,
+                                    "state": (
+                                        device.state.value
+                                        if hasattr(device.state, "value")
+                                        else str(device.state)
+                                    ),
+                                }
+                            )
 
                     await asyncio.sleep(5)
 
@@ -196,11 +214,13 @@ async def metrics_websocket(  # noqa: C901
     await manager.connect(websocket, user_id)
 
     try:
-        await websocket.send_json({
-            "type": "connected",
-            "user_id": user_id,
-            "message": "Connected to metrics stream",
-        })
+        await websocket.send_json(
+            {
+                "type": "connected",
+                "user_id": user_id,
+                "message": "Connected to metrics stream",
+            }
+        )
 
         async def send_metrics():
             """Send periodic system metrics."""
@@ -224,6 +244,7 @@ async def metrics_websocket(  # noqa: C901
                         for status in ["pending", "queued", "scheduled"]:
                             try:
                                 from deepiri_zepgpu.database.models.task import TaskStatus
+
                                 status_enum = TaskStatus(status)
                                 count = await task_repo.count_by_status(status_enum)
                                 pending_count += count
@@ -232,13 +253,15 @@ async def metrics_websocket(  # noqa: C901
 
                         available_gpus = await gpu_repo.count_available()
 
-                    await websocket.send_json({
-                        "type": "metrics",
-                        "cpu_percent": cpu_percent,
-                        "memory_percent": memory.percent,
-                        "pending_tasks": pending_count,
-                        "available_gpus": available_gpus,
-                    })
+                    await websocket.send_json(
+                        {
+                            "type": "metrics",
+                            "cpu_percent": cpu_percent,
+                            "memory_percent": memory.percent,
+                            "pending_tasks": pending_count,
+                            "available_gpus": available_gpus,
+                        }
+                    )
 
                     await asyncio.sleep(10)
 

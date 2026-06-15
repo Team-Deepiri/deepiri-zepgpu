@@ -36,23 +36,17 @@ class NamespaceRepository:
 
     async def get_by_id(self, namespace_id: str) -> Namespace | None:
         """Get namespace by ID."""
-        result = await self.session.execute(
-            select(Namespace).where(Namespace.id == namespace_id)
-        )
+        result = await self.session.execute(select(Namespace).where(Namespace.id == namespace_id))
         return result.scalar_one_or_none()
 
     async def get_by_name(self, name: str) -> Namespace | None:
         """Get namespace by name."""
-        result = await self.session.execute(
-            select(Namespace).where(Namespace.name == name)
-        )
+        result = await self.session.execute(select(Namespace).where(Namespace.name == name))
         return result.scalar_one_or_none()
 
     async def get_by_owner(self, owner_id: str) -> Sequence[Namespace]:
         """Get namespaces owned by a user."""
-        result = await self.session.execute(
-            select(Namespace).where(Namespace.owner_id == owner_id)
-        )
+        result = await self.session.execute(select(Namespace).where(Namespace.owner_id == owner_id))
         return result.scalars().all()
 
     async def list_all(
@@ -140,7 +134,9 @@ class NamespaceMemberRepository:
         )
         return result.scalar_one_or_none()
 
-    async def get_by_user_namespace(self, user_id: str, namespace_id: str) -> NamespaceMember | None:
+    async def get_by_user_namespace(
+        self, user_id: str, namespace_id: str
+    ) -> NamespaceMember | None:
         """Get member by user and namespace."""
         result = await self.session.execute(
             select(NamespaceMember).where(
@@ -223,9 +219,7 @@ class TeamRepository:
 
     async def get_by_id(self, team_id: str) -> Team | None:
         """Get team by ID."""
-        result = await self.session.execute(
-            select(Team).where(Team.id == team_id)
-        )
+        result = await self.session.execute(select(Team).where(Team.id == team_id))
         return result.scalar_one_or_none()
 
     async def get_by_namespace_name(self, namespace_id: str, name: str) -> Team | None:
@@ -243,9 +237,7 @@ class TeamRepository:
     async def list_by_namespace(self, namespace_id: str) -> Sequence[Team]:
         """List teams in a namespace."""
         result = await self.session.execute(
-            select(Team)
-            .where(Team.namespace_id == namespace_id)
-            .order_by(Team.name)
+            select(Team).where(Team.namespace_id == namespace_id).order_by(Team.name)
         )
         return result.scalars().all()
 
@@ -289,25 +281,19 @@ class TeamMemberRepository:
 
     async def get_by_id(self, member_id: str) -> TeamMember | None:
         """Get member by ID."""
-        result = await self.session.execute(
-            select(TeamMember).where(TeamMember.id == member_id)
-        )
+        result = await self.session.execute(select(TeamMember).where(TeamMember.id == member_id))
         return result.scalar_one_or_none()
 
     async def list_by_team(self, team_id: str) -> Sequence[TeamMember]:
         """List members of a team."""
         result = await self.session.execute(
-            select(TeamMember)
-            .where(TeamMember.team_id == team_id)
-            .order_by(TeamMember.joined_at)
+            select(TeamMember).where(TeamMember.team_id == team_id).order_by(TeamMember.joined_at)
         )
         return result.scalars().all()
 
     async def list_by_user(self, user_id: str) -> Sequence[TeamMember]:
         """List teams for a user."""
-        result = await self.session.execute(
-            select(TeamMember).where(TeamMember.user_id == user_id)
-        )
+        result = await self.session.execute(select(TeamMember).where(TeamMember.user_id == user_id))
         return result.scalars().all()
 
     async def update_role(self, member_id: str, role: TeamRole) -> TeamMember | None:
@@ -423,7 +409,9 @@ class NamespaceUsageRepository:
         await self.session.flush()
         return usage
 
-    async def increment_tasks(self, namespace_id: str, task_type: str = "total") -> NamespaceUsage | None:
+    async def increment_tasks(
+        self, namespace_id: str, task_type: str = "total"
+    ) -> NamespaceUsage | None:
         """Increment task count."""
         usage = await self.get_or_create(namespace_id)
         if task_type == "total":

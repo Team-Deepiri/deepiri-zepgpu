@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 class PipelineStatus(str, enum.Enum):
     """Pipeline execution status."""
+
     PENDING = "pending"
     CREATED = "created"
     RUNNING = "running"
@@ -28,6 +29,7 @@ class PipelineStatus(str, enum.Enum):
 
 class PipelineStageStatus(str, enum.Enum):
     """Pipeline stage status."""
+
     PENDING = "pending"
     WAITING = "waiting"
     RUNNING = "running"

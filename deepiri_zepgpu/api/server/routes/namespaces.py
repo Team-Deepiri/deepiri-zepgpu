@@ -24,6 +24,7 @@ router = APIRouter()
 
 class NamespaceCreateRequest(BaseModel):
     """Namespace creation request."""
+
     name: str = Field(..., min_length=3, max_length=255, pattern="^[a-z0-9-]+$")
     display_name: str | None = None
     description: str | None = None
@@ -34,6 +35,7 @@ class NamespaceCreateRequest(BaseModel):
 
 class NamespaceUpdateRequest(BaseModel):
     """Namespace update request."""
+
     display_name: str | None = None
     description: str | None = None
     settings: dict[str, Any] | None = None
@@ -44,6 +46,7 @@ class NamespaceUpdateRequest(BaseModel):
 
 class NamespaceResponse(BaseModel):
     """Namespace response."""
+
     id: str
     name: str
     display_name: str | None
@@ -60,12 +63,14 @@ class NamespaceResponse(BaseModel):
 
 class NamespaceListResponse(BaseModel):
     """Namespace list response."""
+
     namespaces: list[NamespaceResponse]
     total: int
 
 
 class NamespaceMemberResponse(BaseModel):
     """Namespace member response."""
+
     id: str
     namespace_id: str
     user_id: str
@@ -79,12 +84,14 @@ class NamespaceMemberResponse(BaseModel):
 
 class TeamCreateRequest(BaseModel):
     """Team creation request."""
+
     name: str = Field(..., min_length=1, max_length=255)
     description: str | None = None
 
 
 class TeamUpdateRequest(BaseModel):
     """Team update request."""
+
     name: str | None = None
     description: str | None = None
     team_lead_id: str | None = None
@@ -92,6 +99,7 @@ class TeamUpdateRequest(BaseModel):
 
 class TeamResponse(BaseModel):
     """Team response."""
+
     id: str
     namespace_id: str
     name: str
@@ -106,12 +114,14 @@ class TeamResponse(BaseModel):
 
 class TeamListResponse(BaseModel):
     """Team list response."""
+
     teams: list[TeamResponse]
     total: int
 
 
 class TeamMemberResponse(BaseModel):
     """Team member response."""
+
     id: str
     team_id: str
     user_id: str
@@ -125,6 +135,7 @@ class TeamMemberResponse(BaseModel):
 
 class NamespaceQuotaResponse(BaseModel):
     """Namespace quota response."""
+
     namespace_id: str
     max_gpus: int | None
     max_gpus_per_user: int | None
@@ -142,6 +153,7 @@ class NamespaceQuotaResponse(BaseModel):
 
 class NamespaceUsageResponse(BaseModel):
     """Namespace usage response."""
+
     namespace_id: str
     current_gpus: int
     current_storage_gb: float
@@ -158,6 +170,7 @@ class NamespaceUsageResponse(BaseModel):
 
 class QuotaUpdateRequest(BaseModel):
     """Quota update request."""
+
     max_gpus: int | None = None
     max_gpus_per_user: int | None = None
     max_storage_gb: int | None = None
@@ -355,7 +368,11 @@ async def delete_namespace(
     await namespace_repo.delete(namespace_id)
 
 
-@router.post("/{namespace_id}/members", response_model=NamespaceMemberResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/{namespace_id}/members",
+    response_model=NamespaceMemberResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 async def add_namespace_member(
     namespace_id: str,
     user_id: str,
@@ -446,7 +463,9 @@ async def remove_namespace_member(
     await member_repo.delete(member_id)
 
 
-@router.post("/{namespace_id}/teams", response_model=TeamResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/{namespace_id}/teams", response_model=TeamResponse, status_code=status.HTTP_201_CREATED
+)
 async def create_team(
     namespace_id: str,
     request: TeamCreateRequest,

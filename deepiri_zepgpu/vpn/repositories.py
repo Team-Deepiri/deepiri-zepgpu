@@ -56,17 +56,12 @@ class VpnNetworkRepository:
         return network
 
     async def get_by_id(self, network_id: str) -> VpnNetwork | None:
-        result = await self.db.execute(
-            select(VpnNetwork).where(VpnNetwork.id == network_id)
-        )
+        result = await self.db.execute(select(VpnNetwork).where(VpnNetwork.id == network_id))
         return result.scalar_one_or_none()
 
     async def list_user_networks(self, user_id: str) -> list[VpnNetwork]:
         result = await self.db.execute(
-            select(VpnNetwork)
-            .join(Peer)
-            .where(Peer.user_id == user_id)
-            .distinct()
+            select(VpnNetwork).join(Peer).where(Peer.user_id == user_id).distinct()
         )
         return list(result.scalars().all())
 
@@ -155,9 +150,7 @@ class PeerRepository:
         peer = result.scalar_one_or_none()
         if peer:
             peer.last_seen = datetime.utcnow()
-            peer.online_status = (
-                PeerOnlineStatus.ONLINE if is_online else PeerOnlineStatus.OFFLINE
-            )
+            peer.online_status = PeerOnlineStatus.ONLINE if is_online else PeerOnlineStatus.OFFLINE
             if endpoint:
                 peer.endpoint = endpoint
             if mark_gpu_host is not None:
@@ -241,18 +234,18 @@ class GpuShareRepository:
         return share
 
     async def list_by_network(self, network_id: str, active_only: bool = True) -> list[GpuShare]:
-        query = select(GpuShare).options(
-            joinedload(GpuShare.peer).joinedload(Peer.user)
-        ).where(GpuShare.vpn_network_id == network_id)
+        query = (
+            select(GpuShare)
+            .options(joinedload(GpuShare.peer).joinedload(Peer.user))
+            .where(GpuShare.vpn_network_id == network_id)
+        )
         if active_only:
             query = query.where(GpuShare.is_active.is_(True))
         result = await self.db.execute(query)
         return list(result.unique().scalars().all())
 
     async def list_by_peer(self, peer_id: str) -> list[GpuShare]:
-        result = await self.db.execute(
-            select(GpuShare).where(GpuShare.peer_id == peer_id)
-        )
+        result = await self.db.execute(select(GpuShare).where(GpuShare.peer_id == peer_id))
         return list(result.scalars().all())
 
     async def get_by_id(self, share_id: str) -> GpuShare | None:
@@ -275,9 +268,7 @@ class GpuShareRepository:
         return share
 
     async def deactivate_peer_gpus(self, peer_id: str) -> int:
-        result = await self.db.execute(
-            select(GpuShare).where(GpuShare.peer_id == peer_id)
-        )
+        result = await self.db.execute(select(GpuShare).where(GpuShare.peer_id == peer_id))
         shares = list(result.scalars().all())
         for share in shares:
             share.is_active = False
@@ -336,15 +327,11 @@ class FriendshipRepository:
         return list(result.scalars().all())
 
     async def get_by_id(self, friendship_id: str) -> Friendship | None:
-        result = await self.db.execute(
-            select(Friendship).where(Friendship.id == friendship_id)
-        )
+        result = await self.db.execute(select(Friendship).where(Friendship.id == friendship_id))
         return result.scalar_one_or_none()
 
     async def accept(self, friendship_id: str) -> Friendship | None:
-        result = await self.db.execute(
-            select(Friendship).where(Friendship.id == friendship_id)
-        )
+        result = await self.db.execute(select(Friendship).where(Friendship.id == friendship_id))
         friendship = result.scalar_one_or_none()
         if friendship:
             friendship.status = FriendshipStatus.ACCEPTED
@@ -354,9 +341,7 @@ class FriendshipRepository:
         return friendship
 
     async def block(self, friendship_id: str) -> Friendship | None:
-        result = await self.db.execute(
-            select(Friendship).where(Friendship.id == friendship_id)
-        )
+        result = await self.db.execute(select(Friendship).where(Friendship.id == friendship_id))
         friendship = result.scalar_one_or_none()
         if friendship:
             friendship.status = FriendshipStatus.BLOCKED
@@ -406,9 +391,7 @@ class VpnInviteRepository:
         return invite
 
     async def get_by_code(self, code: str) -> VpnInvite | None:
-        result = await self.db.execute(
-            select(VpnInvite).where(VpnInvite.code == code)
-        )
+        result = await self.db.execute(select(VpnInvite).where(VpnInvite.code == code))
         return result.scalar_one_or_none()
 
     async def list_by_creator(self, creator_id: str) -> list[VpnInvite]:
@@ -437,9 +420,7 @@ class VpnInviteRepository:
         return True
 
     async def revoke(self, invite_id: str) -> bool:
-        result = await self.db.execute(
-            select(VpnInvite).where(VpnInvite.id == invite_id)
-        )
+        result = await self.db.execute(select(VpnInvite).where(VpnInvite.id == invite_id))
         invite = result.scalar_one_or_none()
         if invite:
             invite.is_revoked = True

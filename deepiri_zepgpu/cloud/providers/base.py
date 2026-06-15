@@ -12,6 +12,7 @@ from typing import Any
 
 class CloudProviderType(str, Enum):
     """Cloud provider types."""
+
     RUNPOD = "runpod"
     AWS = "aws"
     LAMBDA_LABS = "lambda_labs"
@@ -22,6 +23,7 @@ class CloudProviderType(str, Enum):
 
 class InstanceStatus(str, Enum):
     """Cloud instance status."""
+
     PENDING = "pending"
     STARTING = "starting"
     RUNNING = "running"
@@ -33,6 +35,7 @@ class InstanceStatus(str, Enum):
 @dataclass
 class GPUInfo:
     """GPU information from cloud provider."""
+
     provider_instance_id: str
     name: str
     gpu_type: str
@@ -47,6 +50,7 @@ class GPUInfo:
 @dataclass
 class Instance:
     """Cloud GPU instance."""
+
     instance_id: str
     provider_type: CloudProviderType
     provider_instance_id: str
@@ -65,6 +69,7 @@ class Instance:
 @dataclass
 class LaunchConfig:
     """Configuration for launching a cloud GPU instance."""
+
     name: str
     gpu_type_id: str
     count: int = 1
@@ -81,6 +86,7 @@ class LaunchConfig:
 @dataclass
 class CostEstimate:
     """Cost estimate for cloud resources."""
+
     provider_type: CloudProviderType
     gpu_type: str
     gpu_count: int
@@ -154,7 +160,9 @@ class CloudProviderRegistry:
     _instances: dict[str, CloudProvider] = {}
 
     @classmethod
-    def register(cls, provider_type: CloudProviderType, provider_class: type[CloudProvider]) -> None:
+    def register(
+        cls, provider_type: CloudProviderType, provider_class: type[CloudProvider]
+    ) -> None:
         """Register a cloud provider."""
         cls._providers[provider_type] = provider_class
 
@@ -188,7 +196,9 @@ class CloudProviderRegistry:
 
 def register_provider(provider_type: CloudProviderType):
     """Decorator to register a cloud provider."""
+
     def decorator(cls: type[CloudProvider]) -> type[CloudProvider]:
         CloudProviderRegistry.register(provider_type, cls)
         return cls
+
     return decorator

@@ -13,6 +13,7 @@ import numpy as np
 
 class SerializationError(Exception):
     """Serialization error."""
+
     pass
 
 

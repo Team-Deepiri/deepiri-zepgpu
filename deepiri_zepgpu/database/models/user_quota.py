@@ -75,6 +75,7 @@ class UserQuota(Base):
     def is_period_expired(self) -> bool:
         """Check if quota period has expired."""
         from datetime import timedelta
+
         return datetime.utcnow() > self.period_start + timedelta(hours=self.period_hours)
 
     def reset_period(self) -> None:

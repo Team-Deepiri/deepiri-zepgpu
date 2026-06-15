@@ -152,6 +152,7 @@ class TaskWatcher:
     async def wait_for_completion(self, task_id: str) -> Task:
         """Wait for task to complete."""
         import asyncio
+
         while True:
             task = self._query.get_task(task_id)
             if not task:

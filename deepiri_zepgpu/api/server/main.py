@@ -86,6 +86,7 @@ async def lifespan(app: FastAPI):
         await result_store.initialize()
     except Exception as exc:
         import logging
+
         logging.getLogger(__name__).warning(
             "Result store initialization failed; continuing without result storage: %s",
             exc,
@@ -226,6 +227,7 @@ def create_app() -> FastAPI:
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(
         "deepiri_zepgpu.api.server.main:app",
         host=settings.api.host,

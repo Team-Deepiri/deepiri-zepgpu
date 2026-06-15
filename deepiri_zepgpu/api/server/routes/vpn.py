@@ -110,16 +110,18 @@ async def list_vpn_networks(
     responses = []
     for net in networks:
         peer_count = await repo.get_peer_count(net.id)
-        responses.append(VpnNetworkResponse(
-            id=str(net.id),
-            name=net.name,
-            cidr=net.cidr,
-            listen_port=net.listen_port,
-            relay_endpoint=net.relay_endpoint,
-            is_active=net.is_active,
-            peer_count=peer_count,
-            created_at=net.created_at,
-        ))
+        responses.append(
+            VpnNetworkResponse(
+                id=str(net.id),
+                name=net.name,
+                cidr=net.cidr,
+                listen_port=net.listen_port,
+                relay_endpoint=net.relay_endpoint,
+                is_active=net.is_active,
+                peer_count=peer_count,
+                created_at=net.created_at,
+            )
+        )
     return responses
 
 
@@ -250,17 +252,19 @@ async def list_invites(
     for inv in invites:
         network_repo = VpnNetworkRepository(db)
         network = await network_repo.get_by_id(str(inv.vpn_network_id))
-        responses.append(InviteResponse(
-            id=str(inv.id),
-            code=inv.code,
-            vpn_network_id=str(inv.vpn_network_id),
-            vpn_network_name=network.name if network else "unknown",
-            max_uses=inv.max_uses,
-            used_count=inv.used_count,
-            expires_at=inv.expires_at,
-            is_revoked=inv.is_revoked,
-            created_at=inv.created_at,
-        ))
+        responses.append(
+            InviteResponse(
+                id=str(inv.id),
+                code=inv.code,
+                vpn_network_id=str(inv.vpn_network_id),
+                vpn_network_name=network.name if network else "unknown",
+                max_uses=inv.max_uses,
+                used_count=inv.used_count,
+                expires_at=inv.expires_at,
+                is_revoked=inv.is_revoked,
+                created_at=inv.created_at,
+            )
+        )
     return responses
 
 
@@ -449,7 +453,11 @@ async def peer_heartbeat(
                 "available_memory_mb": gpu.available_memory_mb,
                 "compute_capability": gpu.compute_capability,
                 "gpu_type": gpu.gpu_type,
-                "state": GpuShareState(gpu.state) if gpu.state in ("idle", "allocated", "unavailable") else GpuShareState.IDLE,
+                "state": (
+                    GpuShareState(gpu.state)
+                    if gpu.state in ("idle", "allocated", "unavailable")
+                    else GpuShareState.IDLE
+                ),
                 "utilization_percent": gpu.utilization_percent,
                 "is_active": True,
             },
@@ -526,21 +534,23 @@ async def get_gpu_pool(
     for s in shares:
         peer = await peer_repo.get_by_id(str(s.peer_id))
         username = peer.user.username if peer and peer.user else "unknown"
-        breakdown.append(GpuShareResponse(
-            id=str(s.id),
-            peer_id=str(s.peer_id),
-            username=username,
-            device_index=s.device_index,
-            name=s.name,
-            total_memory_mb=s.total_memory_mb,
-            available_memory_mb=s.available_memory_mb,
-            compute_capability=s.compute_capability,
-            gpu_type=s.gpu_type,
-            state=s.state.value,
-            utilization_percent=s.utilization_percent,
-            is_active=s.is_active,
-            last_updated=s.updated_at,
-        ))
+        breakdown.append(
+            GpuShareResponse(
+                id=str(s.id),
+                peer_id=str(s.peer_id),
+                username=username,
+                device_index=s.device_index,
+                name=s.name,
+                total_memory_mb=s.total_memory_mb,
+                available_memory_mb=s.available_memory_mb,
+                compute_capability=s.compute_capability,
+                gpu_type=s.gpu_type,
+                state=s.state.value,
+                utilization_percent=s.utilization_percent,
+                is_active=s.is_active,
+                last_updated=s.updated_at,
+            )
+        )
 
     return GpuPoolSummary(
         total_gpus=total_gpus,

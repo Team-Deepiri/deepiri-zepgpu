@@ -13,6 +13,7 @@ from deepiri_zepgpu.core.task import Task
 @dataclass
 class ContainerConfig:
     """Container configuration for task isolation."""
+
     image: str = "deepiri-gpu:latest"
     memory_limit_mb: int = 4096
     cpu_limit: float = 2.0
@@ -123,7 +124,9 @@ class ContainerSandbox:
 
         try:
             result = await asyncio.create_subprocess_exec(
-                self._runtime, "stop", container_id,
+                self._runtime,
+                "stop",
+                container_id,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
             )
@@ -149,10 +152,24 @@ class SeccompProfile:
     """Seccomp profile for syscall filtering."""
 
     DEFAULT_ALLOW_LIST = [
-        "read", "write", "close", "stat", "fstat", "mmap",
-        "mprotect", "munmap", "brk", "rt_sigaction", "rt_sigreturn",
-        "ioctl", "readlink", "sysinfo", "getdents64", "getrandom",
-        "clock_gettime", "exit_group",
+        "read",
+        "write",
+        "close",
+        "stat",
+        "fstat",
+        "mmap",
+        "mprotect",
+        "munmap",
+        "brk",
+        "rt_sigaction",
+        "rt_sigreturn",
+        "ioctl",
+        "readlink",
+        "sysinfo",
+        "getdents64",
+        "getrandom",
+        "clock_gettime",
+        "exit_group",
     ]
 
     def __init__(self, allow_syscalls: list[str] | None = None):
@@ -161,13 +178,17 @@ class SeccompProfile:
     def to_json(self) -> str:
         """Generate seccomp profile as JSON."""
         import json
-        return json.dumps({
-            "defaultAction": "SCMP_ACT_ERRNO",
-            "architectures": ["SCMP_ARCH_X86_64", "SCMP_ARCH_AARCH64"],
-            "syscalls": [
-                {
-                    "names": self._allow_syscalls,
-                    "action": "SCMP_ACT_ALLOW",
-                }
-            ],
-        }, indent=2)
+
+        return json.dumps(
+            {
+                "defaultAction": "SCMP_ACT_ERRNO",
+                "architectures": ["SCMP_ARCH_X86_64", "SCMP_ARCH_AARCH64"],
+                "syscalls": [
+                    {
+                        "names": self._allow_syscalls,
+                        "action": "SCMP_ACT_ALLOW",
+                    }
+                ],
+            },
+            indent=2,
+        )

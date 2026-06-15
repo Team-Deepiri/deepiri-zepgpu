@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 
 class GangStatus(str, enum.Enum):
     """Gang scheduling status."""
+
     PENDING = "pending"
     SCHEDULING = "scheduling"
     ALLOCATED = "allocated"
@@ -144,7 +145,9 @@ class PreemptionRecord(UUIDMixin, Base):
 
     checkpoint_ref: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
-    execution_time_before_preemption_ms: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    execution_time_before_preemption_ms: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True
+    )
 
     resume_attempted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     resume_successful: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
