@@ -118,11 +118,9 @@ This phase maps directly to the original implementation plan's **Phase 8: Integr
 
 ### 0.3 Documentation Tasks From Original Phase 8
 
-- [ ] Update README quick start guide with current Docker Compose flow.
-- [ ] Add API documentation with examples for auth, tasks, pipelines, callbacks, and WebSockets.
-- [ ] Create deployment troubleshooting guide for Docker, Redis, Postgres, Celery, MinIO/S3, and GPU/NVIDIA runtime issues.
-
-
+- [x] Update README quick start guide with current Docker Compose flow.
+- [x] Add API documentation with examples for auth, tasks, pipelines, callbacks, and WebSockets.
+- [x] Create deployment troubleshooting guide for Docker, Redis, Postgres, Celery, MinIO/S3, and GPU/NVIDIA runtime issues.
 
 ### 0.4 Proposed Files/Modules To Finish or Review
 
