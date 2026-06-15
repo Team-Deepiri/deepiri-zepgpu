@@ -136,5 +136,4 @@ jobs:
             k8s/deployment.yaml
           images: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}
-```
 
