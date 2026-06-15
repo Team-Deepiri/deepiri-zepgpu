@@ -6,7 +6,7 @@ import base64
 import json
 import pickle
 import zlib
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 
@@ -49,28 +49,28 @@ class Serializer:
         try:
             return pickle.dumps(obj)
         except Exception as e:
-            raise SerializationError(f"Pickle serialization failed: {e}")
+            raise SerializationError(f"Pickle serialization failed: {e}") from e
 
     def _deserialize_pickle(self, data: bytes) -> Any:
         """Deserialize using pickle."""
         try:
             return pickle.loads(data)
         except Exception as e:
-            raise SerializationError(f"Pickle deserialization failed: {e}")
+            raise SerializationError(f"Pickle deserialization failed: {e}") from e
 
     def _serialize_json(self, obj: Any) -> bytes:
         """Serialize using JSON."""
         try:
             return json.dumps(obj, default=self._json_default).encode()
         except Exception as e:
-            raise SerializationError(f"JSON serialization failed: {e}")
+            raise SerializationError(f"JSON serialization failed: {e}") from e
 
     def _deserialize_json(self, data: bytes) -> Any:
         """Deserialize using JSON."""
         try:
             return json.loads(data.decode())
         except Exception as e:
-            raise SerializationError(f"JSON deserialization failed: {e}")
+            raise SerializationError(f"JSON deserialization failed: {e}") from e
 
     def _json_default(self, obj: Any) -> Any:
         """Default JSON serializer for non-serializable objects."""
@@ -118,15 +118,13 @@ class Serializer:
 
 def to_json_serializable(obj: Any) -> Any:
     """Convert object to JSON-serializable form."""
-    if obj is None or isinstance(obj, (bool, int, float, str)):
+    if obj is None or isinstance(obj, bool | int | float | str):
         return obj
     elif isinstance(obj, dict):
         return {k: to_json_serializable(v) for k, v in obj.items()}
-    elif isinstance(obj, (list, tuple)):
+    elif isinstance(obj, list | tuple):
         return [to_json_serializable(item) for item in obj]
-    elif isinstance(obj, np.ndarray):
-        return obj.tolist()
-    elif hasattr(obj, "tolist"):
+    elif isinstance(obj, np.ndarray) or hasattr(obj, "tolist"):
         return obj.tolist()
     elif hasattr(obj, "__dict__"):
         return {k: to_json_serializable(v) for k, v in obj.__dict__.items()}

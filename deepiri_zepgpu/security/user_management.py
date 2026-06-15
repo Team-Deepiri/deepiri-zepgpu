@@ -9,7 +9,6 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Optional
 
 import jwt
 
@@ -30,7 +29,7 @@ class User:
     email: str
     role: UserRole = UserRole.USER
     created_at: datetime = field(default_factory=datetime.utcnow)
-    last_login: Optional[datetime] = None
+    last_login: datetime | None = None
     is_active: bool = True
     quota: dict[str, int] = field(default_factory=lambda: {
         "max_tasks": 100,
@@ -52,7 +51,7 @@ class AuthToken:
 class UserManager:
     """Manages user accounts and authentication."""
 
-    def __init__(self, secret_key: Optional[str] = None):
+    def __init__(self, secret_key: str | None = None):
         self._secret_key = secret_key or secrets.token_hex(32)
         self._users: dict[str, User] = {}
         self._tokens: dict[str, AuthToken] = {}
@@ -64,9 +63,9 @@ class UserManager:
         self,
         username: str,
         email: str,
-        password: Optional[str] = None,
+        password: str | None = None,
         role: UserRole = UserRole.USER,
-        quota: Optional[dict[str, int]] = None,
+        quota: dict[str, int] | None = None,
     ) -> User:
         """Create a new user."""
         with self._lock:
@@ -90,12 +89,12 @@ class UserManager:
 
             return user
 
-    def get_user(self, user_id: str) -> Optional[User]:
+    def get_user(self, user_id: str) -> User | None:
         """Get user by ID."""
         with self._lock:
             return self._users.get(user_id)
 
-    def get_user_by_username(self, username: str) -> Optional[User]:
+    def get_user_by_username(self, username: str) -> User | None:
         """Get user by username."""
         with self._lock:
             user_id = self._username_index.get(username)
@@ -105,7 +104,7 @@ class UserManager:
         self,
         username: str,
         password: str,
-    ) -> Optional[str]:
+    ) -> str | None:
         """Authenticate user and return token."""
         user = self.get_user_by_username(username)
         if not user or not user.is_active:
@@ -143,7 +142,7 @@ class UserManager:
 
             return token
 
-    def verify_token(self, token: str) -> Optional[str]:
+    def verify_token(self, token: str) -> str | None:
         """Verify token and return user_id."""
         try:
             payload = jwt.decode(token, self._secret_key, algorithms=["HS256"])
@@ -159,7 +158,7 @@ class UserManager:
                 return True
             return False
 
-    def _hash_password(self, password: str, salt: Optional[str] = None) -> str:
+    def _hash_password(self, password: str, salt: str | None = None) -> str:
         """Hash password with salt."""
         salt = salt or secrets.token_hex(16)
         return hashlib.pbkdf2_hmac(
@@ -176,11 +175,11 @@ class UserManager:
     def update_user(
         self,
         user_id: str,
-        email: Optional[str] = None,
-        role: Optional[UserRole] = None,
-        quota: Optional[dict[str, int]] = None,
-        is_active: Optional[bool] = None,
-    ) -> Optional[User]:
+        email: str | None = None,
+        role: UserRole | None = None,
+        quota: dict[str, int] | None = None,
+        is_active: bool | None = None,
+    ) -> User | None:
         """Update user attributes."""
         with self._lock:
             user = self._users.get(user_id)
@@ -218,7 +217,7 @@ class UserManager:
 
             return True
 
-    def list_users(self, role: Optional[UserRole] = None) -> list[User]:
+    def list_users(self, role: UserRole | None = None) -> list[User]:
         """List all users."""
         with self._lock:
             users = list(self._users.values())

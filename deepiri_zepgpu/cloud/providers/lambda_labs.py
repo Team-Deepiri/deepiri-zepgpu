@@ -9,11 +9,11 @@ import httpx
 from deepiri_zepgpu.cloud.providers.base import (
     CloudProvider,
     CloudProviderType,
+    CostEstimate,
     GPUInfo,
     Instance,
     InstanceStatus,
     LaunchConfig,
-    CostEstimate,
     register_provider,
 )
 
@@ -21,10 +21,10 @@ from deepiri_zepgpu.cloud.providers.base import (
 @register_provider(CloudProviderType.LAMBDA_LABS)
 class LambdaLabsProvider(CloudProvider):
     """Lambda Labs cloud GPU provider."""
-    
+
     provider_type = CloudProviderType.LAMBDA_LABS
     provider_name = "Lambda Labs"
-    
+
     def __init__(self, config: dict[str, Any]):
         super().__init__(config)
         self.api_key = config.get("api_key", "")
@@ -33,7 +33,7 @@ class LambdaLabsProvider(CloudProvider):
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
-    
+
     async def list_available_gpus(self) -> list[GPUInfo]:
         """List available GPU types from Lambda Labs."""
         try:
@@ -45,7 +45,7 @@ class LambdaLabsProvider(CloudProvider):
                 )
                 response.raise_for_status()
                 data = response.json()
-                
+
                 gpus = []
                 for type_id, type_data in data.get("data", {}).items():
                     gpus.append(GPUInfo(
@@ -60,7 +60,7 @@ class LambdaLabsProvider(CloudProvider):
                 return gpus
         except Exception:
             return []
-    
+
     async def launch_instance(self, config: LaunchConfig) -> Instance:
         """Launch a Lambda Labs GPU instance."""
         data = {
@@ -69,7 +69,7 @@ class LambdaLabsProvider(CloudProvider):
             "ssh_key_names": config.env.get("ssh_key_names", []) if config.env else [],
             "name": config.name,
         }
-        
+
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.post(
@@ -80,7 +80,7 @@ class LambdaLabsProvider(CloudProvider):
                 )
                 response.raise_for_status()
                 result = response.json()
-                
+
                 instance_data = result.get("data", {})
                 return Instance(
                     instance_id=instance_data.get("id", ""),
@@ -93,8 +93,8 @@ class LambdaLabsProvider(CloudProvider):
                     price_per_hour=0,
                 )
         except Exception as e:
-            raise RuntimeError(f"Failed to launch Lambda Labs instance: {e}")
-    
+            raise RuntimeError(f"Failed to launch Lambda Labs instance: {e}") from e
+
     async def stop_instance(self, instance_id: str) -> bool:
         """Stop a Lambda Labs instance."""
         try:
@@ -108,7 +108,7 @@ class LambdaLabsProvider(CloudProvider):
                 return True
         except Exception:
             return False
-    
+
     async def start_instance(self, instance_id: str) -> Instance:
         """Start a stopped Lambda Labs instance."""
         try:
@@ -132,8 +132,8 @@ class LambdaLabsProvider(CloudProvider):
                     price_per_hour=0,
                 )
         except Exception as e:
-            raise RuntimeError(f"Failed to start Lambda Labs instance: {e}")
-    
+            raise RuntimeError(f"Failed to start Lambda Labs instance: {e}") from e
+
     async def get_instance(self, instance_id: str) -> Instance | None:
         """Get Lambda Labs instance details."""
         try:
@@ -145,7 +145,7 @@ class LambdaLabsProvider(CloudProvider):
                 )
                 response.raise_for_status()
                 data = response.json()
-                
+
                 instance_data = data.get("data", {})
                 status_map = {
                     "pending": InstanceStatus.PENDING,
@@ -156,7 +156,7 @@ class LambdaLabsProvider(CloudProvider):
                     "shutting-down": InstanceStatus.STOPPING,
                     "terminated": InstanceStatus.ERROR,
                 }
-                
+
                 return Instance(
                     instance_id=instance_data.get("id", ""),
                     provider_type=self.provider_type,
@@ -170,7 +170,7 @@ class LambdaLabsProvider(CloudProvider):
                 )
         except Exception:
             return None
-    
+
     async def delete_instance(self, instance_id: str) -> bool:
         """Delete a Lambda Labs instance."""
         try:
@@ -184,12 +184,12 @@ class LambdaLabsProvider(CloudProvider):
                 return True
         except Exception:
             return False
-    
+
     async def get_cost_estimate(self, gpu_type_id: str, hours: int = 1) -> CostEstimate:
         """Get cost estimate for a GPU type."""
         gpus = await self.list_available_gpus()
         gpu = next((g for g in gpus if g.gpu_type == gpu_type_id), None)
-        
+
         if not gpu:
             return CostEstimate(
                 provider_type=self.provider_type,
@@ -198,7 +198,7 @@ class LambdaLabsProvider(CloudProvider):
                 price_per_hour=0,
                 estimated_monthly_cost=0,
             )
-        
+
         return CostEstimate(
             provider_type=self.provider_type,
             gpu_type=gpu_type_id,
@@ -206,7 +206,7 @@ class LambdaLabsProvider(CloudProvider):
             price_per_hour=gpu.price_per_hour,
             estimated_monthly_cost=gpu.price_per_hour * 24 * 30 * gpu.gpu_count,
         )
-    
+
     async def get_status(self) -> dict[str, Any]:
         """Get Lambda Labs API health status."""
         try:
@@ -220,11 +220,11 @@ class LambdaLabsProvider(CloudProvider):
                 return {"status": "healthy", "provider": self.provider_name}
         except Exception as e:
             return {"status": "unhealthy", "error": str(e), "provider": self.provider_name}
-    
+
     def supports_auto_scaling(self) -> bool:
         """Lambda Labs supports auto-scaling via API."""
         return True
-    
+
     def supports_spot_instances(self) -> bool:
         """Lambda Labs supports spot instances."""
         return True

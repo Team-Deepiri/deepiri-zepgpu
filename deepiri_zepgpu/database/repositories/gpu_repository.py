@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
-from typing import Sequence
 
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -51,7 +51,7 @@ class GPURepository:
             select(GPUDevice)
             .where(
                 GPUDevice.state == GPUState.IDLE,
-                GPUDevice.is_available == True,
+                GPUDevice.is_available.is_(True),
             )
             .order_by(GPUDevice.device_index)
         )
@@ -64,27 +64,27 @@ class GPURepository:
         gpu_type: str | None = None,
     ) -> Sequence[GPUDevice]:
         """List available GPUs for gang scheduling.
-        
+
         Args:
             num_gpus: Number of consecutive GPUs needed
             memory_per_gpu_mb: Memory required per GPU
             gpu_type: Optional GPU type filter
-            
+
         Returns:
             List of consecutive available GPUs that meet requirements
         """
         query = select(GPUDevice).where(
             GPUDevice.state == GPUState.IDLE,
-            GPUDevice.is_available == True,
+            GPUDevice.is_available.is_(True),
             GPUDevice.available_memory_mb >= memory_per_gpu_mb,
         ).order_by(GPUDevice.device_index)
-        
+
         if gpu_type:
             query = query.where(GPUDevice.gpu_type == gpu_type)
-        
+
         result = await self.session.execute(query)
         devices = result.scalars().all()
-        
+
         consecutive = []
         for device in devices:
             if len(consecutive) == 0:
@@ -97,17 +97,17 @@ class GPURepository:
                     if len(consecutive) >= num_gpus:
                         break
                     consecutive = [device]
-        
+
         if len(consecutive) >= num_gpus:
             return consecutive[:num_gpus]
         return []
 
     async def list_preemptible(self, min_priority: int = 3) -> Sequence[GPUDevice]:
         """List GPUs running tasks that can be preempted.
-        
+
         Args:
             min_priority: Minimum task priority to consider for preemption
-            
+
         Returns:
             List of GPUs with preemptible tasks
         """
@@ -128,7 +128,7 @@ class GPURepository:
     ) -> GPUDevice:
         """Update or create GPU device."""
         device = await self.get_by_device_index(device_index)
-        
+
         if device:
             for key, value in kwargs.items():
                 if hasattr(device, key):
@@ -141,7 +141,7 @@ class GPURepository:
                 **kwargs,
             )
             self.session.add(device)
-        
+
         await self.session.flush()
         return device
 
@@ -158,7 +158,7 @@ class GPURepository:
         device = await self.get_by_device_index(device_index)
         if not device:
             return None
-        
+
         if utilization_percent is not None:
             device.utilization_percent = utilization_percent
         if memory_utilization_percent is not None:
@@ -169,7 +169,7 @@ class GPURepository:
             device.power_draw_watts = power_draw_watts
         if available_memory_mb is not None:
             device.available_memory_mb = available_memory_mb
-        
+
         device.last_seen = datetime.utcnow()
         await self.session.flush()
         return device
@@ -185,7 +185,7 @@ class GPURepository:
             .where(
                 GPUDevice.device_index == device_index,
                 GPUDevice.state == GPUState.IDLE,
-                GPUDevice.is_available == True,
+                GPUDevice.is_available.is_(True),
             )
             .values(
                 state=GPUState.ALLOCATED,
@@ -209,7 +209,7 @@ class GPURepository:
             .where(
                 GPUDevice.device_index.in_(device_indices),
                 GPUDevice.state == GPUState.IDLE,
-                GPUDevice.is_available == True,
+                GPUDevice.is_available.is_(True),
             )
             .with_for_update()
         )
@@ -238,7 +238,7 @@ class GPURepository:
         device = await self.get_by_device_index(device_index)
         if not device:
             return None
-        
+
         device.state = GPUState.IDLE
         device.current_task_id = None
         await self.session.flush()
@@ -246,10 +246,10 @@ class GPURepository:
 
     async def release_gang(self, gang_task_id: str) -> list[GPUDevice]:
         """Release all GPUs allocated to a gang task.
-        
+
         Args:
             gang_task_id: The gang task ID to release
-            
+
         Returns:
             List of released GPU devices
         """
@@ -259,13 +259,13 @@ class GPURepository:
             )
         )
         devices = result.scalars().all()
-        
+
         released = []
         for device in devices:
             device.state = GPUState.IDLE
             device.current_task_id = None
             released.append(device)
-        
+
         await self.session.flush()
         return released
 
@@ -274,7 +274,7 @@ class GPURepository:
         device = await self.get_by_device_index(device_index)
         if not device:
             return None
-        
+
         device.state = GPUState.PREEMPTING
         await self.session.flush()
         return device
@@ -284,7 +284,7 @@ class GPURepository:
         device = await self.get_by_device_index(device_index)
         if not device:
             return None
-        
+
         device.state = GPUState.ERROR
         device.last_seen = datetime.utcnow()
         await self.session.flush()
@@ -295,7 +295,7 @@ class GPURepository:
         device = await self.get_by_device_index(device_index)
         if not device:
             return None
-        
+
         device.state = GPUState.UNAVAILABLE
         device.is_available = False
         await self.session.flush()
@@ -306,7 +306,7 @@ class GPURepository:
         device = await self.get_by_device_index(device_index)
         if not device:
             return None
-        
+
         device.state = GPUState.IDLE
         device.is_available = True
         device.current_task_id = None
@@ -318,22 +318,22 @@ class GPURepository:
         result = await self.session.execute(
             select(func.count(GPUDevice.id)).where(
                 GPUDevice.state == GPUState.IDLE,
-                GPUDevice.is_available == True,
+                GPUDevice.is_available.is_(True),
             )
         )
         return result.scalar() or 0
 
     async def count_available_for_gang(self, num_gpus: int) -> int:
         """Count available consecutive GPU blocks.
-        
+
         Args:
             num_gpus: Number of consecutive GPUs needed
-            
+
         Returns:
             Maximum number of gang tasks that can be scheduled
         """
         available = await self.list_available()
-        
+
         blocks = 0
         consecutive = 0
         for device in available:
@@ -347,10 +347,10 @@ class GPURepository:
                     if consecutive >= num_gpus:
                         blocks += 1
                     consecutive = 1
-        
+
         if consecutive >= num_gpus:
             blocks += 1
-        
+
         return blocks
 
     async def get_total_memory_mb(self) -> int:

@@ -4,34 +4,33 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Column, DateTime, Float, ForeignKey, Integer
+from sqlalchemy import DateTime, Float, ForeignKey, Integer
 from sqlalchemy.dialects.postgresql import NUMERIC, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from deepiri_zepgpu.database.models.base import Base
-
 from deepiri_zepgpu.database.models.user import User
 
 
 class UserQuota(Base):
     """User resource quota model."""
-    
+
     __tablename__ = "user_quotas"
-    
+
     user_id: Mapped[str] = mapped_column(
         UUID(as_uuid=False),
         ForeignKey("users.id", ondelete="CASCADE"),
         primary_key=True,
     )
-    
+
     max_tasks: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
     max_gpu_hours: Mapped[float] = mapped_column(Float, default=24.0, nullable=False)
     max_concurrent_tasks: Mapped[int] = mapped_column(Integer, default=4, nullable=False)
     max_gpu_memory_mb: Mapped[int] = mapped_column(Integer, default=16384, nullable=False)
     max_storage_gb: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
-    
+
     period_hours: Mapped[int] = mapped_column(Integer, default=24, nullable=False)
-    
+
     tasks_submitted: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     gpu_seconds_used: Mapped[float] = mapped_column(
         NUMERIC(15, 2),
@@ -44,13 +43,13 @@ class UserQuota(Base):
         default=0.0,
         nullable=False,
     )
-    
+
     period_start: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
     )
-    
-    user: Mapped["User"] = relationship("User", back_populates="quota")
+
+    user: Mapped[User] = relationship("User", back_populates="quota")
 
     @property
     def gpu_hours_used(self) -> float:

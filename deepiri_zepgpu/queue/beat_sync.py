@@ -101,7 +101,7 @@ class BeatSchedulerSync:
 
     def sync_all_schedules(self) -> int:
         """Sync all enabled schedules from database to Redis beat.
-        
+
         Returns:
             Number of schedules synced.
         """
@@ -110,17 +110,17 @@ class BeatSchedulerSync:
             return 0
 
         try:
-            from deepiri_zepgpu.database.session import get_db_context
+            from deepiri_zepgpu.database.models.scheduled_task import ScheduleType
             from deepiri_zepgpu.database.repositories import ScheduleRepository
-            from deepiri_zepgpu.database.models.scheduled_task import ScheduleType, ScheduleStatus
+            from deepiri_zepgpu.database.session import get_db_context
 
-            synced = 0
             schedules_to_remove = set(self.get_beat_schedule().keys())
 
             async def _sync():
                 async with get_db_context() as db:
                     repo = ScheduleRepository(db)
                     schedules = await repo.get_enabled_schedules()
+                    count = 0
 
                     for schedule in schedules:
                         schedules_to_remove.discard(schedule.id)
@@ -150,9 +150,9 @@ class BeatSchedulerSync:
                                 run_at=schedule.start_datetime,
                             )
 
-                        synced += 1
+                        count += 1
 
-                    return synced
+                    return count
 
             synced = asyncio_run(_sync())
 

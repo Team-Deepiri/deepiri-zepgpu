@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import os
+from collections.abc import AsyncGenerator, Generator
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator, Generator
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import NullPool
@@ -92,7 +92,7 @@ async def get_db_context() -> AsyncGenerator[AsyncSession, None]:
 async def init_db() -> None:
     """Initialize database tables."""
     from deepiri_zepgpu.database.models import Base
-    
+
     async with async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
@@ -104,15 +104,15 @@ async def close_db() -> None:
 
 class DatabaseManager:
     """Database connection manager."""
-    
+
     def __init__(self):
         self._engine = async_engine
         self._session_factory = AsyncSessionLocal
-    
+
     async def create_session(self) -> AsyncSession:
         """Create a new session."""
         return self._session_factory()
-    
+
     @asynccontextmanager
     async def session(self) -> AsyncGenerator[AsyncSession, None]:
         """Context manager for session."""
@@ -125,7 +125,7 @@ class DatabaseManager:
             raise
         finally:
             await session.close()
-    
+
     async def dispose(self) -> None:
         """Dispose engine."""
         await self._engine.dispose()

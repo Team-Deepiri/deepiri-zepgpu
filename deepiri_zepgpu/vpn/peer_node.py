@@ -7,7 +7,6 @@ import base64
 import pickle
 import time
 from datetime import datetime
-from typing import Optional
 
 import httpx
 from fastapi import FastAPI, HTTPException
@@ -20,13 +19,13 @@ app = FastAPI(title="ZepGPU Peer Node")
 
 class GpuInfo(BaseModel):
     device_index: int
-    name: Optional[str] = None
+    name: str | None = None
     total_memory_mb: int
     available_memory_mb: int
-    compute_capability: Optional[str] = None
+    compute_capability: str | None = None
     gpu_type: str = "nvidia"
     state: str = "idle"
-    utilization_percent: Optional[float] = None
+    utilization_percent: float | None = None
 
 
 class TaskPayload(BaseModel):
@@ -42,9 +41,9 @@ class TaskPayload(BaseModel):
 class TaskResult(BaseModel):
     task_id: str
     success: bool
-    result_encoded: Optional[str] = None
-    error: Optional[str] = None
-    traceback: Optional[str] = None
+    result_encoded: str | None = None
+    error: str | None = None
+    traceback: str | None = None
     execution_time: float = 0.0
 
 

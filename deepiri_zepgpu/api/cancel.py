@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
-from deepiri_zepgpu.core.task import Task
 from deepiri_zepgpu.core.scheduler import TaskScheduler
+from deepiri_zepgpu.core.task import TaskStatus
 
 
 class TaskCancellation:
@@ -25,11 +23,9 @@ class TaskCancellation:
     def cancel_user_tasks(
         self,
         user_id: str,
-        status: Optional[str] = None,
+        status: str | None = None,
     ) -> list[str]:
         """Cancel all tasks for a user."""
-        from deepiri_zepgpu.core.task import TaskStatus
-
         tasks = self._scheduler.list_tasks(user_id=user_id)
         if status:
             target_status = TaskStatus(status)
@@ -37,9 +33,8 @@ class TaskCancellation:
 
         cancelled = []
         for task in tasks:
-            if task.status in {TaskStatus.PENDING, TaskStatus.QUEUED, TaskStatus.SCHEDULED}:
-                if self.cancel(task.task_id):
-                    cancelled.append(task.task_id)
+            if task.status in {TaskStatus.PENDING, TaskStatus.QUEUED, TaskStatus.SCHEDULED} and self.cancel(task.task_id):
+                cancelled.append(task.task_id)
 
         return cancelled
 
@@ -55,7 +50,7 @@ class TaskCancellation:
 
         return cancelled
 
-    def get_cancel_status(self, task_id: str) -> Optional[str]:
+    def get_cancel_status(self, task_id: str) -> str | None:
         """Get the status of a cancellation request."""
         task = self._scheduler.get_task(task_id)
         if not task:

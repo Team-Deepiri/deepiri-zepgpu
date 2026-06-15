@@ -6,12 +6,18 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from deepiri_zepgpu.api.server.dependencies import get_current_user, get_db_session
-from deepiri_zepgpu.database.repositories import NamespaceRepository, NamespaceMemberRepository, TeamRepository, TeamMemberRepository, NamespaceQuotaRepository, NamespaceUsageRepository
-
+from deepiri_zepgpu.database.models.namespace import NamespaceMember
+from deepiri_zepgpu.database.repositories import (
+    NamespaceMemberRepository,
+    NamespaceQuotaRepository,
+    NamespaceRepository,
+    NamespaceUsageRepository,
+    TeamRepository,
+)
 
 router = APIRouter()
 
@@ -167,14 +173,14 @@ async def check_namespace_admin(namespace_id: str, user_id: str, db) -> bool:
     """Check if user is admin of namespace."""
     member_repo = NamespaceMemberRepository(db)
     namespace_repo = NamespaceRepository(db)
-    
+
     namespace = await namespace_repo.get_by_id(namespace_id)
     if not namespace:
         return False
-    
+
     if namespace.owner_id == user_id:
         return True
-    
+
     return await member_repo.is_admin(user_id, namespace_id)
 
 
@@ -186,13 +192,13 @@ async def create_namespace(
 ) -> NamespaceResponse:
     """Create a new namespace."""
     from deepiri_zepgpu.database.models import Namespace, NamespaceStatus
-    
+
     namespace_repo = NamespaceRepository(db)
-    
+
     existing = await namespace_repo.get_by_name(request.name)
     if existing:
         raise HTTPException(status_code=400, detail="Namespace name already exists")
-    
+
     namespace = Namespace(
         id=str(uuid.uuid4()),
         name=request.name,
@@ -204,12 +210,11 @@ async def create_namespace(
         max_gpus=request.max_gpus,
         max_storage_gb=request.max_storage_gb,
     )
-    
+
     db.add(namespace)
     await db.flush()
-    
+
     if current_user:
-        member_repo = NamespaceMemberRepository(db)
         member = NamespaceMember(
             id=str(uuid.uuid4()),
             namespace_id=namespace.id,
@@ -219,7 +224,7 @@ async def create_namespace(
         )
         db.add(member)
         await db.flush()
-    
+
     return NamespaceResponse(
         id=namespace.id,
         name=namespace.name,
@@ -240,12 +245,12 @@ async def list_namespaces(
 ) -> NamespaceListResponse:
     """List namespaces the user has access to."""
     namespace_repo = NamespaceRepository(db)
-    
+
     if current_user:
         namespaces = await namespace_repo.list_user_namespaces(str(current_user.id))
     else:
         namespaces = await namespace_repo.list_all()
-    
+
     return NamespaceListResponse(
         namespaces=[
             NamespaceResponse(
@@ -274,15 +279,15 @@ async def get_namespace(
     """Get namespace by ID."""
     namespace_repo = NamespaceRepository(db)
     namespace = await namespace_repo.get_by_id(namespace_id)
-    
+
     if not namespace:
         raise HTTPException(status_code=404, detail="Namespace not found")
-    
+
     if current_user:
         member_repo = NamespaceMemberRepository(db)
         if not await member_repo.is_member(str(current_user.id), namespace_id):
             raise HTTPException(status_code=403, detail="Access denied")
-    
+
     return NamespaceResponse(
         id=namespace.id,
         name=namespace.name,
@@ -306,15 +311,15 @@ async def update_namespace(
     """Update a namespace."""
     if not current_user:
         raise HTTPException(status_code=401, detail="Authentication required")
-    
+
     if not await check_namespace_admin(namespace_id, str(current_user.id), db):
         raise HTTPException(status_code=403, detail="Admin access required")
-    
+
     namespace_repo = NamespaceRepository(db)
     update_data = request.model_dump(exclude_unset=True)
-    
+
     namespace = await namespace_repo.update(namespace_id, **update_data)
-    
+
     return NamespaceResponse(
         id=namespace.id,
         name=namespace.name,
@@ -337,16 +342,16 @@ async def delete_namespace(
     """Delete a namespace."""
     if not current_user:
         raise HTTPException(status_code=401, detail="Authentication required")
-    
+
     namespace_repo = NamespaceRepository(db)
     namespace = await namespace_repo.get_by_id(namespace_id)
-    
+
     if not namespace:
         raise HTTPException(status_code=404, detail="Namespace not found")
-    
+
     if namespace.owner_id != current_user.id:
         raise HTTPException(status_code=403, detail="Only owner can delete namespace")
-    
+
     await namespace_repo.delete(namespace_id)
 
 
@@ -361,17 +366,17 @@ async def add_namespace_member(
     """Add a member to namespace."""
     if not current_user:
         raise HTTPException(status_code=401, detail="Authentication required")
-    
+
     if not await check_namespace_admin(namespace_id, str(current_user.id), db):
         raise HTTPException(status_code=403, detail="Admin access required")
-    
+
     from deepiri_zepgpu.database.models import NamespaceMember, TeamRole
-    
+
     member_repo = NamespaceMemberRepository(db)
     existing = await member_repo.get_by_user_namespace(user_id, namespace_id)
     if existing:
         raise HTTPException(status_code=400, detail="User is already a member")
-    
+
     member = NamespaceMember(
         id=str(uuid.uuid4()),
         namespace_id=namespace_id,
@@ -381,7 +386,7 @@ async def add_namespace_member(
     )
     db.add(member)
     await db.flush()
-    
+
     return NamespaceMemberResponse(
         id=member.id,
         namespace_id=member.namespace_id,
@@ -401,10 +406,10 @@ async def list_namespace_members(
     """List namespace members."""
     if not current_user:
         raise HTTPException(status_code=401, detail="Authentication required")
-    
+
     member_repo = NamespaceMemberRepository(db)
     members = await member_repo.list_by_namespace(namespace_id)
-    
+
     return [
         NamespaceMemberResponse(
             id=m.id,
@@ -428,16 +433,16 @@ async def remove_namespace_member(
     """Remove a member from namespace."""
     if not current_user:
         raise HTTPException(status_code=401, detail="Authentication required")
-    
+
     if not await check_namespace_admin(namespace_id, str(current_user.id), db):
         raise HTTPException(status_code=403, detail="Admin access required")
-    
+
     member_repo = NamespaceMemberRepository(db)
     member = await member_repo.get_by_id(member_id)
-    
+
     if not member or member.namespace_id != namespace_id:
         raise HTTPException(status_code=404, detail="Member not found")
-    
+
     await member_repo.delete(member_id)
 
 
@@ -451,17 +456,17 @@ async def create_team(
     """Create a team in namespace."""
     if not current_user:
         raise HTTPException(status_code=401, detail="Authentication required")
-    
+
     if not await check_namespace_admin(namespace_id, str(current_user.id), db):
         raise HTTPException(status_code=403, detail="Admin access required")
-    
+
     from deepiri_zepgpu.database.models import Team
-    
+
     team_repo = TeamRepository(db)
     existing = await team_repo.get_by_namespace_name(namespace_id, request.name)
     if existing:
         raise HTTPException(status_code=400, detail="Team name already exists in namespace")
-    
+
     team = Team(
         id=str(uuid.uuid4()),
         namespace_id=namespace_id,
@@ -471,7 +476,7 @@ async def create_team(
     )
     db.add(team)
     await db.flush()
-    
+
     return TeamResponse(
         id=team.id,
         namespace_id=team.namespace_id,
@@ -492,10 +497,10 @@ async def list_teams(
     """List teams in namespace."""
     if not current_user:
         raise HTTPException(status_code=401, detail="Authentication required")
-    
+
     team_repo = TeamRepository(db)
     teams = await team_repo.list_by_namespace(namespace_id)
-    
+
     return TeamListResponse(
         teams=[
             TeamResponse(
@@ -522,10 +527,10 @@ async def get_or_create_quota(
     """Get or create namespace quota."""
     if not current_user:
         raise HTTPException(status_code=401, detail="Authentication required")
-    
+
     quota_repo = NamespaceQuotaRepository(db)
     quota = await quota_repo.get_or_create(namespace_id)
-    
+
     return NamespaceQuotaResponse(
         namespace_id=quota.namespace_id,
         max_gpus=quota.max_gpus,
@@ -550,14 +555,14 @@ async def update_quota(
     """Update namespace quota."""
     if not current_user:
         raise HTTPException(status_code=401, detail="Authentication required")
-    
+
     if not await check_namespace_admin(namespace_id, str(current_user.id), db):
         raise HTTPException(status_code=403, detail="Admin access required")
-    
+
     quota_repo = NamespaceQuotaRepository(db)
     update_data = request.model_dump(exclude_unset=True)
     quota = await quota_repo.update(namespace_id, **update_data)
-    
+
     return NamespaceQuotaResponse(
         namespace_id=quota.namespace_id,
         max_gpus=quota.max_gpus,
@@ -581,10 +586,10 @@ async def get_usage(
     """Get namespace resource usage."""
     if not current_user:
         raise HTTPException(status_code=401, detail="Authentication required")
-    
+
     usage_repo = NamespaceUsageRepository(db)
     usage = await usage_repo.get_or_create(namespace_id)
-    
+
     return NamespaceUsageResponse(
         namespace_id=usage.namespace_id,
         current_gpus=usage.current_gpus,
@@ -606,10 +611,10 @@ async def get_my_namespaces(
     """Get namespaces for current user."""
     if not current_user:
         raise HTTPException(status_code=401, detail="Authentication required")
-    
+
     namespace_repo = NamespaceRepository(db)
     namespaces = await namespace_repo.list_user_namespaces(str(current_user.id))
-    
+
     return [
         NamespaceResponse(
             id=n.id,

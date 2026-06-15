@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Callable, Optional
+from typing import Any
+
 import cloudpickle
 
 
@@ -37,7 +39,7 @@ class TaskResources:
     gpu_memory_mb: int = 1024
     cpu_cores: int = 1
     timeout_seconds: int = 3600
-    gpu_type: Optional[str] = None
+    gpu_type: str | None = None
     allow_fallback_cpu: bool = True
 
 
@@ -49,22 +51,22 @@ class Task:
     kwargs: dict[str, Any] = field(default_factory=dict)
     resources: TaskResources = field(default_factory=TaskResources)
     priority: TaskPriority = TaskPriority.NORMAL
-    user_id: Optional[str] = None
+    user_id: str | None = None
     task_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    name: Optional[str] = None
+    name: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
     created_at: datetime = field(default_factory=datetime.utcnow)
     status: TaskStatus = TaskStatus.PENDING
-    result: Optional[Any] = None
-    error: Optional[str] = None
-    traceback: Optional[str] = None
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-    gpu_device_id: Optional[int] = None
-    remote_peer_vpn_ip: Optional[str] = None
-    remote_gpu_share_id: Optional[str] = None
-    container_id: Optional[str] = None
-    callback_url: Optional[str] = None
+    result: Any | None = None
+    error: str | None = None
+    traceback: str | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    gpu_device_id: int | None = None
+    remote_peer_vpn_ip: str | None = None
+    remote_gpu_share_id: str | None = None
+    container_id: str | None = None
+    callback_url: str | None = None
     tags: list[str] = field(default_factory=list)
 
     def __post_init__(self):
@@ -128,8 +130,8 @@ class TaskResult:
     """Result from a completed task."""
     task_id: str
     status: TaskStatus
-    result: Optional[Any] = None
-    error: Optional[str] = None
+    result: Any | None = None
+    error: str | None = None
     execution_time_seconds: float = 0.0
     gpu_memory_used_mb: float = 0.0
     metadata: dict[str, Any] = field(default_factory=dict)

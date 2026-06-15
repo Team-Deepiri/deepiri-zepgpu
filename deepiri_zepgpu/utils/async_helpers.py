@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import functools
-from typing import Any, Callable, Optional, TypeVar
+from collections.abc import Callable
+from typing import Any, TypeVar
 
 T = TypeVar("T")
 
@@ -49,7 +50,7 @@ async def retry_async(
 
 async def wait_for(
     coro: Any,
-    timeout: Optional[float] = None,
+    timeout: float | None = None,
     default: Any = None,
 ) -> Any:
     """Wait for coroutine with timeout, returning default on timeout."""
@@ -57,7 +58,7 @@ async def wait_for(
         if timeout:
             return await asyncio.wait_for(coro, timeout=timeout)
         return await coro
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return default
 
 
@@ -145,7 +146,7 @@ class AsyncCache:
         self._cache: dict[str, tuple[Any, float]] = {}
         self._ttl = ttl_seconds
 
-    async def get(self, key: str) -> Optional[Any]:
+    async def get(self, key: str) -> Any | None:
         """Get value from cache."""
         if key in self._cache:
             value, expiry = self._cache[key]
@@ -155,7 +156,7 @@ class AsyncCache:
             del self._cache[key]
         return None
 
-    async def set(self, key: str, value: Any, ttl: Optional[float] = None) -> None:
+    async def set(self, key: str, value: Any, ttl: float | None = None) -> None:
         """Set value in cache."""
         import time
         expiry = time.time() + (ttl or self._ttl)

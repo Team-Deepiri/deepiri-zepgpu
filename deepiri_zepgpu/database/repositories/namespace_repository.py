@@ -3,21 +3,21 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta
-from typing import Any, Sequence
+from collections.abc import Sequence
+from datetime import datetime
 
-from sqlalchemy import and_, func, select, update
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from deepiri_zepgpu.database.models.namespace import (
     Namespace,
-    NamespaceStatus,
     NamespaceMember,
-    TeamRole,
+    NamespaceQuota,
+    NamespaceStatus,
+    NamespaceUsage,
     Team,
     TeamMember,
-    NamespaceQuota,
-    NamespaceUsage,
+    TeamRole,
 )
 
 
@@ -77,7 +77,7 @@ class NamespaceRepository:
             .where(
                 and_(
                     NamespaceMember.user_id == user_id,
-                    NamespaceMember.is_active == True,
+                    NamespaceMember.is_active.is_(True),
                 )
             )
         )

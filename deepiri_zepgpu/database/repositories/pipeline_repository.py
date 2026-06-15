@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
-from typing import Any, Sequence
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -64,12 +65,12 @@ class PipelineRepository:
     ) -> Sequence[Pipeline]:
         """List pipelines for a user."""
         query = select(Pipeline).where(Pipeline.user_id == user_id)
-        
+
         if status:
             query = query.where(Pipeline.status == status)
-        
+
         query = query.order_by(Pipeline.created_at.desc()).limit(limit).offset(offset)
-        
+
         result = await self.session.execute(query)
         return result.scalars().all()
 
@@ -83,18 +84,18 @@ class PipelineRepository:
         pipeline = await self.get_by_id(pipeline_id)
         if not pipeline:
             return None
-        
+
         pipeline.status = status
-        
+
         if status == PipelineStatus.RUNNING:
             pipeline.started_at = datetime.utcnow()
         elif status in [PipelineStatus.COMPLETED, PipelineStatus.FAILED, PipelineStatus.CANCELLED]:
             pipeline.completed_at = datetime.utcnow()
-        
+
         for key, value in kwargs.items():
             if hasattr(pipeline, key):
                 setattr(pipeline, key, value)
-        
+
         await self.session.flush()
         return pipeline
 
@@ -109,22 +110,22 @@ class PipelineRepository:
         pipeline = await self.get_by_id(pipeline_id)
         if not pipeline:
             return None
-        
+
         if pipeline.stage_statuses is None:
             pipeline.stage_statuses = {}
-        
+
         pipeline.stage_statuses[stage_name] = stage_status
-        
+
         if result is not None:
             if pipeline.stage_results is None:
                 pipeline.stage_results = {}
             pipeline.stage_results[stage_name] = result
-        
+
         if stage_status == "completed":
             pipeline.completed_stages += 1
-        
+
         pipeline.current_stage = stage_name
-        
+
         await self.session.flush()
         return pipeline
 
@@ -157,7 +158,7 @@ class PipelineRepository:
         pipeline = await self.get_by_id(pipeline_id)
         if not pipeline:
             return False
-        
+
         await self.session.delete(pipeline)
         await self.session.flush()
         return True

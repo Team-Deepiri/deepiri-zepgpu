@@ -39,7 +39,7 @@ class VPNSettings(BaseSettings):
         return Path(self.wg_config_dir).expanduser()
 
 
-@lru_cache()
+@lru_cache
 def get_vpn_settings() -> VPNSettings:
     return VPNSettings()
 

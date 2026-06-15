@@ -2,27 +2,26 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
-from typing import Optional
 import secrets
+from datetime import datetime, timedelta
 
-from sqlalchemy import select, func, and_, or_
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from deepiri_zepgpu.database.models.vpn_models import (
-    VpnNetwork,
-    Peer,
-    GpuShare,
     Friendship,
     FriendshipStatus,
-    VpnInvite,
+    GpuShare,
     GpuShareQuota,
-    PeerOnlineStatus,
     GpuShareState,
+    Peer,
+    PeerOnlineStatus,
+    VpnInvite,
+    VpnNetwork,
 )
 from deepiri_zepgpu.vpn.config import vpn_settings
-from deepiri_zepgpu.vpn.crypto import encrypt_value, decrypt_value
+from deepiri_zepgpu.vpn.crypto import decrypt_value, encrypt_value
 
 
 def generate_invite_code(length: int = 8) -> str:
@@ -39,9 +38,9 @@ class VpnNetworkRepository:
         name: str,
         cidr: str = "10.8.0.0/24",
         listen_port: int = 51820,
-        relay_endpoint: Optional[str] = None,
-        relay_public_key: Optional[str] = None,
-        private_key_encrypted: Optional[str] = None,
+        relay_endpoint: str | None = None,
+        relay_public_key: str | None = None,
+        private_key_encrypted: str | None = None,
     ) -> VpnNetwork:
         network = VpnNetwork(
             name=name,
@@ -56,7 +55,7 @@ class VpnNetworkRepository:
         await self.db.refresh(network)
         return network
 
-    async def get_by_id(self, network_id: str) -> Optional[VpnNetwork]:
+    async def get_by_id(self, network_id: str) -> VpnNetwork | None:
         result = await self.db.execute(
             select(VpnNetwork).where(VpnNetwork.id == network_id)
         )
@@ -92,11 +91,11 @@ class PeerRepository:
         vpn_network_id: str,
         wireguard_public_key: str,
         vpn_ip: str,
-        private_key_encrypted: Optional[str] = None,
-        endpoint: Optional[str] = None,
+        private_key_encrypted: str | None = None,
+        endpoint: str | None = None,
         is_gpu_host: bool = False,
         is_relay: bool = False,
-        auth_token_encrypted: Optional[str] = None,
+        auth_token_encrypted: str | None = None,
     ) -> Peer:
         peer = Peer(
             user_id=user_id,
@@ -115,7 +114,7 @@ class PeerRepository:
         await self.db.refresh(peer)
         return peer
 
-    async def get_by_id(self, peer_id: str) -> Optional[Peer]:
+    async def get_by_id(self, peer_id: str) -> Peer | None:
         result = await self.db.execute(
             select(Peer)
             .options(joinedload(Peer.user), joinedload(Peer.gpu_shares))
@@ -123,7 +122,7 @@ class PeerRepository:
         )
         return result.unique().scalar_one_or_none()
 
-    async def get_by_public_key(self, public_key: str) -> Optional[Peer]:
+    async def get_by_public_key(self, public_key: str) -> Peer | None:
         result = await self.db.execute(
             select(Peer)
             .options(joinedload(Peer.user))
@@ -149,9 +148,9 @@ class PeerRepository:
         self,
         peer_id: str,
         is_online: bool = True,
-        endpoint: Optional[str] = None,
-        mark_gpu_host: Optional[bool] = None,
-    ) -> Optional[Peer]:
+        endpoint: str | None = None,
+        mark_gpu_host: bool | None = None,
+    ) -> Peer | None:
         result = await self.db.execute(select(Peer).where(Peer.id == peer_id))
         peer = result.scalar_one_or_none()
         if peer:
@@ -192,7 +191,7 @@ class PeerRepository:
             return True
         return False
 
-    async def get_auth_token(self, peer: Peer) -> Optional[str]:
+    async def get_auth_token(self, peer: Peer) -> str | None:
         if peer.auth_token_encrypted:
             return decrypt_value(peer.auth_token_encrypted)
         return None
@@ -201,7 +200,7 @@ class PeerRepository:
         peer.auth_token_encrypted = encrypt_value(token)
         await self.db.commit()
 
-    async def get_private_key(self, peer: Peer) -> Optional[str]:
+    async def get_private_key(self, peer: Peer) -> str | None:
         if peer.wireguard_private_key_encrypted:
             return decrypt_value(peer.wireguard_private_key_encrypted)
         return None
@@ -246,7 +245,7 @@ class GpuShareRepository:
             joinedload(GpuShare.peer).joinedload(Peer.user)
         ).where(GpuShare.vpn_network_id == network_id)
         if active_only:
-            query = query.where(GpuShare.is_active == True)
+            query = query.where(GpuShare.is_active.is_(True))
         result = await self.db.execute(query)
         return list(result.unique().scalars().all())
 
@@ -256,7 +255,7 @@ class GpuShareRepository:
         )
         return list(result.scalars().all())
 
-    async def get_by_id(self, share_id: str) -> Optional[GpuShare]:
+    async def get_by_id(self, share_id: str) -> GpuShare | None:
         result = await self.db.execute(select(GpuShare).where(GpuShare.id == share_id))
         return result.scalar_one_or_none()
 
@@ -264,8 +263,8 @@ class GpuShareRepository:
         self,
         share_id: str,
         state: GpuShareState,
-        current_task_id: Optional[str] = None,
-    ) -> Optional[GpuShare]:
+        current_task_id: str | None = None,
+    ) -> GpuShare | None:
         result = await self.db.execute(select(GpuShare).where(GpuShare.id == share_id))
         share = result.scalar_one_or_none()
         if share:
@@ -336,13 +335,13 @@ class FriendshipRepository:
         )
         return list(result.scalars().all())
 
-    async def get_by_id(self, friendship_id: str) -> Optional[Friendship]:
+    async def get_by_id(self, friendship_id: str) -> Friendship | None:
         result = await self.db.execute(
             select(Friendship).where(Friendship.id == friendship_id)
         )
         return result.scalar_one_or_none()
 
-    async def accept(self, friendship_id: str) -> Optional[Friendship]:
+    async def accept(self, friendship_id: str) -> Friendship | None:
         result = await self.db.execute(
             select(Friendship).where(Friendship.id == friendship_id)
         )
@@ -354,7 +353,7 @@ class FriendshipRepository:
             await self.db.refresh(friendship)
         return friendship
 
-    async def block(self, friendship_id: str) -> Optional[Friendship]:
+    async def block(self, friendship_id: str) -> Friendship | None:
         result = await self.db.execute(
             select(Friendship).where(Friendship.id == friendship_id)
         )
@@ -365,7 +364,7 @@ class FriendshipRepository:
             await self.db.refresh(friendship)
         return friendship
 
-    async def check_friendship(self, user_id: str, friend_id: str) -> Optional[Friendship]:
+    async def check_friendship(self, user_id: str, friend_id: str) -> Friendship | None:
         result = await self.db.execute(
             select(Friendship).where(
                 or_(
@@ -406,7 +405,7 @@ class VpnInviteRepository:
         await self.db.refresh(invite)
         return invite
 
-    async def get_by_code(self, code: str) -> Optional[VpnInvite]:
+    async def get_by_code(self, code: str) -> VpnInvite | None:
         result = await self.db.execute(
             select(VpnInvite).where(VpnInvite.code == code)
         )
@@ -480,7 +479,7 @@ class GpuShareQuotaRepository:
         await self.db.refresh(quota)
         return quota
 
-    async def get_by_peer(self, peer_id: str) -> Optional[GpuShareQuota]:
+    async def get_by_peer(self, peer_id: str) -> GpuShareQuota | None:
         result = await self.db.execute(
             select(GpuShareQuota).where(GpuShareQuota.peer_id == peer_id)
         )

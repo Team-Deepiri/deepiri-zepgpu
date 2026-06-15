@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import os
-import subprocess
 import threading
 from dataclasses import dataclass
-from typing import Any, Optional
 
 from deepiri_zepgpu.core.task import Task
 
@@ -31,7 +29,7 @@ class ContainerSandbox:
     def __init__(
         self,
         runtime: str = "docker",
-        default_config: Optional[ContainerConfig] = None,
+        default_config: ContainerConfig | None = None,
     ):
         self._runtime = runtime
         self._default_config = default_config or ContainerConfig()
@@ -83,7 +81,7 @@ class ContainerSandbox:
     async def execute(
         self,
         task: Task,
-        config: Optional[ContainerConfig] = None,
+        config: ContainerConfig | None = None,
     ) -> tuple[int, str, str]:
         """Execute task in isolated container."""
         config = config or self.get_container_config(task)

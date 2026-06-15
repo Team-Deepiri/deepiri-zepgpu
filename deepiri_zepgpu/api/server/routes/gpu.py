@@ -5,9 +5,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter
 from pydantic import BaseModel
-
 
 router = APIRouter()
 
@@ -55,12 +54,12 @@ class GPUMetricsResponse(BaseModel):
 async def list_gpu_devices() -> GPUListResponse:
     """List all GPU devices."""
     from deepiri_zepgpu.core.gpu_manager import GPUManager
-    
+
     gpu_manager = GPUManager(enable_nvml=False)
     await gpu_manager.initialize()
-    
+
     devices = gpu_manager.list_devices()
-    
+
     return GPUListResponse(
         devices=[
             GPUDeviceResponse(
@@ -90,16 +89,16 @@ async def list_gpu_devices() -> GPUListResponse:
 async def get_gpu_device(device_index: int) -> GPUDeviceResponse:
     """Get GPU device by index."""
     from deepiri_zepgpu.core.gpu_manager import GPUManager
-    
+
     gpu_manager = GPUManager(enable_nvml=False)
     await gpu_manager.initialize()
-    
+
     device = gpu_manager.get_device(device_index)
-    
+
     if not device:
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="GPU device not found")
-    
+
     return GPUDeviceResponse(
         id=device.device_id,
         device_index=device.device_id,
@@ -122,12 +121,12 @@ async def get_gpu_device(device_index: int) -> GPUDeviceResponse:
 async def get_gpu_metrics() -> list[GPUMetricsResponse]:
     """Get current GPU metrics."""
     from deepiri_zepgpu.core.gpu_manager import GPUManager
-    
+
     gpu_manager = GPUManager(enable_nvml=False)
     await gpu_manager.initialize()
-    
+
     devices = gpu_manager.list_devices()
-    
+
     return [
         GPUMetricsResponse(
             device_index=d.device_id,
@@ -146,15 +145,15 @@ async def get_gpu_metrics() -> list[GPUMetricsResponse]:
 async def get_gpu_stats() -> dict[str, Any]:
     """Get aggregated GPU statistics."""
     from deepiri_zepgpu.core.gpu_manager import GPUManager
-    
+
     gpu_manager = GPUManager(enable_nvml=False)
     await gpu_manager.initialize()
-    
+
     devices = gpu_manager.list_devices()
-    
+
     total_memory = sum(d.total_memory_mb for d in devices)
     available_memory = sum(d.available_memory_mb for d in devices)
-    
+
     return {
         "total_devices": len(devices),
         "available_devices": len([d for d in devices if d.state.value == "idle"]),

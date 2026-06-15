@@ -3,21 +3,20 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import contextlib
 import os
-import signal
-import subprocess
+import pickle
 import tempfile
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Callable, Optional
+from typing import Any
 
-import base64
-import pickle
-
+from deepiri_zepgpu.core.gpu_manager import GPUDevice, GPUManager
 from deepiri_zepgpu.core.task import Task, TaskStatus
-from deepiri_zepgpu.core.gpu_manager import GPUManager, GPUDevice
 from deepiri_zepgpu.vpn.task_router import TaskRouter
 
 
@@ -26,8 +25,8 @@ class ExecutionResult:
     """Result from task execution."""
     success: bool
     result: Any = None
-    error: Optional[str] = None
-    traceback: Optional[str] = None
+    error: str | None = None
+    traceback: str | None = None
     execution_time: float = 0.0
     gpu_memory_used_mb: float = 0.0
 
@@ -40,7 +39,7 @@ class TaskExecutor:
         gpu_manager: GPUManager,
         container_runtime: str = "docker",
         enable_isolation: bool = True,
-        work_dir: Optional[str] = None,
+        work_dir: str | None = None,
     ):
         self._gpu_manager = gpu_manager
         self._container_runtime = container_runtime
@@ -54,7 +53,7 @@ class TaskExecutor:
     async def execute_task(
         self,
         task: Task,
-        on_progress: Optional[Callable[[str, float], None]] = None,
+        on_progress: Callable[[str, float], None] | None = None,
     ) -> ExecutionResult:
         """Execute a single task on allocated GPU."""
         start_time = time.time()
@@ -159,8 +158,8 @@ class TaskExecutor:
     async def _run_task(
         self,
         task: Task,
-        gpu_device: Optional[GPUDevice],
-        on_progress: Optional[Callable[[str, float], None]] = None,
+        gpu_device: GPUDevice | None,
+        on_progress: Callable[[str, float], None] | None = None,
     ) -> Any:
         """Run the actual task logic."""
         func = task.func
@@ -226,9 +225,9 @@ class TaskExecutor:
                 execution_time=0.0,
             )
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             await self._kill_container(container_id)
-            raise TimeoutError(f"Task {task.task_id} timed out after {task.resources.timeout_seconds}s")
+            raise
 
         except Exception as e:
             import traceback
@@ -270,28 +269,24 @@ except Exception as e:
 """
         return code
 
-    async def _kill_container(self, container_id: Optional[str]) -> None:
+    async def _kill_container(self, container_id: str | None) -> None:
         """Kill a running container."""
         if container_id:
-            try:
+            with contextlib.suppress(Exception):
                 await asyncio.create_subprocess_exec(
                     self._container_runtime, "kill", container_id,
                     stdout=asyncio.subprocess.DEVNULL,
                     stderr=asyncio.subprocess.DEVNULL,
                 )
-            except Exception:
-                pass
 
     async def _cleanup_container(self, container_id: str) -> None:
         """Clean up container resources."""
-        try:
+        with contextlib.suppress(Exception):
             await asyncio.create_subprocess_exec(
                 self._container_runtime, "rm", "-f", container_id,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
             )
-        except Exception:
-            pass
         self._container_ids.pop(container_id, None)
 
     async def execute_batch(

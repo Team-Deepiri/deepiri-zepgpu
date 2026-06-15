@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-import psutil
+import contextlib
 import threading
-import time
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional
+
+import psutil
 
 try:
     import pynvml
@@ -49,7 +49,7 @@ class TaskMetrics:
     task_id: str
     gpu_device_id: int
     start_time: datetime
-    end_time: Optional[datetime] = None
+    end_time: datetime | None = None
     execution_time_seconds: float = 0.0
     peak_gpu_memory_mb: float = 0.0
     avg_gpu_utilization: float = 0.0
@@ -73,7 +73,7 @@ class MetricsCollector:
 
         self._lock = threading.RLock()
         self._collecting = False
-        self._collect_task: Optional[asyncio.Task] = None
+        self._collect_task: asyncio.Task | None = None
         self._nvml_initialized = False
 
         if PYNVML_AVAILABLE:
@@ -95,15 +95,11 @@ class MetricsCollector:
         self._collecting = False
         if self._collect_task:
             self._collect_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._collect_task
-            except asyncio.CancelledError:
-                pass
         if self._nvml_initialized:
-            try:
+            with contextlib.suppress(Exception):
                 pynvml.nvmlShutdown()
-            except Exception:
-                pass
 
     async def _collect_loop(self) -> None:
         """Main collection loop."""
@@ -214,14 +210,14 @@ class MetricsCollector:
         with self._lock:
             return list(self._system_metrics[-limit:])
 
-    def get_gpu_metrics(self, device_id: Optional[int] = None, limit: int = 100) -> list[GPUMetrics]:
+    def get_gpu_metrics(self, device_id: int | None = None, limit: int = 100) -> list[GPUMetrics]:
         """Get recent GPU metrics."""
         with self._lock:
             if device_id is not None:
                 return [m for m in self._gpu_metrics if m.device_id == device_id][-limit:]
             return list(self._gpu_metrics[-limit:])
 
-    def get_task_metrics(self, task_id: Optional[str] = None) -> dict[str, TaskMetrics]:
+    def get_task_metrics(self, task_id: str | None = None) -> dict[str, TaskMetrics]:
         """Get task metrics."""
         with self._lock:
             if task_id:
@@ -240,7 +236,7 @@ class MetricsCollector:
                     "memory_percent_avg": sum(m.memory_percent for m in recent_system) / len(recent_system) if recent_system else 0,
                 },
                 "gpu": {
-                    "device_count": len(set(m.device_id for m in recent_gpu)) if recent_gpu else 0,
+                    "device_count": len({m.device_id for m in recent_gpu}) if recent_gpu else 0,
                     "utilization_avg": sum(m.utilization_percent for m in recent_gpu) / len(recent_gpu) if recent_gpu else 0,
                     "memory_percent_avg": sum(m.memory_percent for m in recent_gpu) / len(recent_gpu) if recent_gpu else 0,
                 },

@@ -6,13 +6,12 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from deepiri_zepgpu.api.server.dependencies import get_current_user, get_db_session
-from deepiri_zepgpu.database.repositories import GangScheduleRepository, FairShareRepository
-from deepiri_zepgpu.queue.tasks import execute_gang_task, check_and_preempt
-
+from deepiri_zepgpu.database.repositories import FairShareRepository, GangScheduleRepository
+from deepiri_zepgpu.queue.tasks import check_and_preempt, execute_gang_task
 
 router = APIRouter()
 
@@ -21,24 +20,24 @@ class GangTaskCreateRequest(BaseModel):
     """Gang task creation request."""
     name: str = Field(..., min_length=1, max_length=255)
     description: str | None = None
-    
+
     num_gpus_required: int = Field(default=2, ge=2, le=16)
     gpu_memory_mb_per_gpu: int = Field(default=1024, ge=0)
     gpu_type: str | None = None
-    
+
     priority: int = Field(default=2, ge=1, le=5)
     allow_partial_allocation: bool = False
-    
+
     func_name: str | None = None
     serialized_func: str | None = None
     args: str | None = None
     kwargs: str | None = None
-    
+
     timeout_seconds: int = Field(default=7200, ge=1)
-    
+
     can_be_preempted: bool = False
     checkpoint_interval_seconds: int | None = None
-    
+
     callback_url: str | None = None
     tags: list[str] = []
     metadata: dict[str, Any] = {}
@@ -48,10 +47,10 @@ class GangTaskUpdateRequest(BaseModel):
     """Gang task update request."""
     name: str | None = Field(None, min_length=1, max_length=255)
     description: str | None = None
-    
+
     priority: int | None = Field(None, ge=1, le=5)
     can_be_preempted: bool | None = None
-    
+
     timeout_seconds: int | None = Field(None, ge=1)
 
 
@@ -121,8 +120,8 @@ async def create_gang_task(
     current_user=Depends(get_current_user),
 ) -> GangTaskResponse:
     """Create a new gang scheduled task requiring multiple GPUs."""
-    from deepiri_zepgpu.database.models import GangTask, GangStatus
-    
+    from deepiri_zepgpu.database.models import GangStatus, GangTask
+
     gang_task = GangTask(
         id=str(uuid.uuid4()),
         user_id=current_user.id if current_user else None,
@@ -145,12 +144,12 @@ async def create_gang_task(
         tags=request.tags,
         metadata_json=request.metadata,
     )
-    
+
     db.add(gang_task)
     await db.flush()
-    
+
     background_tasks.add_task(execute_gang_task.delay, gang_task.id)
-    
+
     return GangTaskResponse(
         id=gang_task.id,
         name=gang_task.name,
@@ -182,16 +181,16 @@ async def list_gang_tasks(
 ) -> GangTaskListResponse:
     """List gang tasks."""
     from deepiri_zepgpu.database.models import GangStatus as DBGangStatus
-    
+
     repo = GangScheduleRepository(db)
-    
+
     tasks = await repo.list_by_user(
         user_id=current_user.id if current_user else None,
         status=DBGangStatus(status_filter) if status_filter else None,
         limit=limit,
         offset=offset,
     )
-    
+
     return GangTaskListResponse(
         tasks=[
             GangTaskResponse(
@@ -230,13 +229,13 @@ async def get_gang_task(
     """Get a gang task by ID."""
     repo = GangScheduleRepository(db)
     task = await repo.get_by_id(gang_task_id)
-    
+
     if not task:
         raise HTTPException(status_code=404, detail="Gang task not found")
-    
+
     if current_user and task.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
-    
+
     return GangTaskResponse(
         id=task.id,
         name=task.name,
@@ -267,26 +266,26 @@ async def update_gang_task(
 ) -> GangTaskResponse:
     """Update a gang task."""
     from deepiri_zepgpu.database.models import GangStatus as DBGangStatus
-    
+
     repo = GangScheduleRepository(db)
     task = await repo.get_by_id(gang_task_id)
-    
+
     if not task:
         raise HTTPException(status_code=404, detail="Gang task not found")
-    
+
     if current_user and task.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
-    
+
     if task.status not in [DBGangStatus.PENDING, DBGangStatus.SCHEDULING]:
         raise HTTPException(status_code=400, detail="Cannot update task that is already running or completed")
-    
+
     update_data = request.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         if hasattr(task, key):
             setattr(task, key, value)
-    
+
     await db.flush()
-    
+
     return GangTaskResponse(
         id=task.id,
         name=task.name,
@@ -317,23 +316,23 @@ async def cancel_gang_task(
     """Cancel a gang task."""
     from deepiri_zepgpu.database.models import GangStatus as DBGangStatus
     from deepiri_zepgpu.database.repositories import GPURepository
-    
+
     repo = GangScheduleRepository(db)
     task = await repo.get_by_id(gang_task_id)
-    
+
     if not task:
         raise HTTPException(status_code=404, detail="Gang task not found")
-    
+
     if current_user and task.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
-    
+
     if task.status in [DBGangStatus.COMPLETED, DBGangStatus.FAILED, DBGangStatus.CANCELLED]:
         raise HTTPException(status_code=400, detail="Task already terminated")
-    
+
     if task.allocated_gpu_ids:
         gpu_repo = GPURepository(db)
         await gpu_repo.release_gang(gang_task_id)
-    
+
     await repo.mark_cancelled(gang_task_id)
 
 
@@ -346,25 +345,25 @@ async def retry_gang_task(
 ) -> GangTaskResponse:
     """Retry a failed gang task."""
     from deepiri_zepgpu.database.models import GangStatus as DBGangStatus
-    
+
     repo = GangScheduleRepository(db)
     task = await repo.get_by_id(gang_task_id)
-    
+
     if not task:
         raise HTTPException(status_code=404, detail="Gang task not found")
-    
+
     if current_user and task.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
-    
+
     if task.status not in [DBGangStatus.FAILED, DBGangStatus.CANCELLED, DBGangStatus.PARTIAL_FAILURE]:
         raise HTTPException(status_code=400, detail="Can only retry failed/cancelled/partial tasks")
-    
+
     await repo.update_status(gang_task_id, DBGangStatus.PENDING)
-    
+
     background_tasks.add_task(execute_gang_task.delay, gang_task_id)
-    
+
     task = await repo.get_by_id(gang_task_id)
-    
+
     return GangTaskResponse(
         id=task.id,
         name=task.name,
@@ -401,10 +400,10 @@ async def get_my_fair_share(
     """Get current user's fair share information."""
     if not current_user:
         raise HTTPException(status_code=401, detail="Authentication required")
-    
+
     repo = FairShareRepository(db)
     bucket = await repo.get_or_create_for_user(str(current_user.id))
-    
+
     return FairShareResponse(
         user_id=str(current_user.id),
         weight=bucket.weight,
@@ -426,20 +425,20 @@ async def update_my_fair_share(
     """Update current user's fair share settings."""
     if not current_user:
         raise HTTPException(status_code=401, detail="Authentication required")
-    
+
     repo = FairShareRepository(db)
-    
+
     if request.gpu_seconds_limit is not None:
         await repo.get_or_create_for_user(
             str(current_user.id),
             gpu_seconds_limit=request.gpu_seconds_limit,
         )
-    
+
     bucket = await repo.update_weight(str(current_user.id), request.weight)
-    
+
     if not bucket:
         bucket = await repo.get_or_create_for_user(str(current_user.id))
-    
+
     return FairShareResponse(
         user_id=str(current_user.id),
         weight=bucket.weight,
@@ -456,8 +455,8 @@ async def update_my_fair_share(
 async def get_all_fair_share_weights() -> dict[str, Any]:
     """Get fair share weights for all users (admin only)."""
     from deepiri_zepgpu.queue.tasks import get_fair_share_weights
-    
+
     result = get_fair_share_weights.delay()
     weights = result.get(timeout=10)
-    
+
     return weights

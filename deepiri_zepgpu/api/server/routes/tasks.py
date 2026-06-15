@@ -2,18 +2,17 @@
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from deepiri_zepgpu.api.server.dependencies import get_current_user, get_db_session
-from deepiri_zepgpu.database.models.task import TaskStatus as DBTaskStatus, TaskPriority as DBTaskPriority
+from deepiri_zepgpu.database.models.task import TaskPriority as DBTaskPriority
+from deepiri_zepgpu.database.models.task import TaskStatus as DBTaskStatus
 from deepiri_zepgpu.database.repositories import TaskRepository
-
 
 router = APIRouter()
 
@@ -107,7 +106,7 @@ def enqueue_task_to_celery(task_id: str) -> None:
 async def send_callback(callback_url: str, task_id: str, status: str, result: Any = None) -> None:
     """Send callback webhook notification."""
     import httpx
-    
+
     try:
         async with httpx.AsyncClient() as client:
             await client.post(
@@ -132,9 +131,9 @@ async def create_task(
 ) -> TaskResponse:
     """Create a new task and enqueue it for execution."""
     from deepiri_zepgpu.database.models import Task
-    
+
     _validate_task_callable(request.func_name, request.serialized_func)
-    
+
     task = Task(
         id=str(uuid.uuid4()),
         user_id=current_user.id if current_user else None,
@@ -154,12 +153,12 @@ async def create_task(
         callback_url=request.callback_url,
         status=DBTaskStatus.PENDING,
     )
-    
+
     db.add(task)
     await db.flush()
-    
+
     background_tasks.add_task(enqueue_task_to_celery, task.id)
-    
+
     return TaskResponse(
         id=str(task.id),
         name=task.name,
@@ -188,14 +187,14 @@ async def list_tasks(
 ) -> TaskListResponse:
     """List tasks."""
     repo = TaskRepository(db)
-    
+
     tasks = await repo.list_by_user(
         user_id=current_user.id,
         status=DBTaskStatus(status_filter) if status_filter else None,
         limit=limit,
         offset=offset,
     )
-    
+
     return TaskListResponse(
         tasks=[
             TaskResponse(
@@ -231,13 +230,13 @@ async def get_task(
     """Get task by ID."""
     repo = TaskRepository(db)
     task = await repo.get_by_id(task_id)
-    
+
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    
+
     if current_user and str(task.user_id) != str(current_user.id):
         raise HTTPException(status_code=403, detail="Access denied")
-    
+
     return TaskResponse(
         id=str(task.id),
         name=task.name,
@@ -265,16 +264,16 @@ async def cancel_task(
     """Cancel a task."""
     repo = TaskRepository(db)
     task = await repo.get_by_id(task_id)
-    
+
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    
+
     if current_user and str(task.user_id) != str(current_user.id):
         raise HTTPException(status_code=403, detail="Access denied")
-    
+
     if task.status in [DBTaskStatus.COMPLETED, DBTaskStatus.FAILED, DBTaskStatus.CANCELLED]:
         raise HTTPException(status_code=400, detail="Task already terminated")
-    
+
     await repo.mark_cancelled(task_id)
 
 
@@ -288,21 +287,21 @@ async def retry_task(
     """Retry a failed task."""
     repo = TaskRepository(db)
     task = await repo.get_by_id(task_id)
-    
+
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    
+
     if current_user and str(task.user_id) != str(current_user.id):
         raise HTTPException(status_code=403, detail="Access denied")
-    
+
     if task.status not in [DBTaskStatus.FAILED, DBTaskStatus.CANCELLED, DBTaskStatus.TIMEOUT]:
         raise HTTPException(status_code=400, detail="Can only retry failed/cancelled/timed out tasks")
-    
+
     await repo.update_status(task_id, DBTaskStatus.PENDING)
     background_tasks.add_task(enqueue_task_to_celery, task_id)
-    
+
     task = await repo.get_by_id(task_id)
-    
+
     return TaskResponse(
         id=str(task.id),
         name=task.name,
@@ -329,19 +328,19 @@ async def get_task_result(
 ) -> TaskResultResponse:
     """Get task result."""
     from deepiri_zepgpu.storage.result_store import ResultStore
-    
+
     repo = TaskRepository(db)
     task = await repo.get_by_id(task_id)
-    
+
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    
+
     if current_user and str(task.user_id) != str(current_user.id):
         raise HTTPException(status_code=403, detail="Access denied")
-    
+
     result_data = None
     presigned_url = None
-    
+
     if task.result_ref:
         result_store = ResultStore()
         result_bytes = await result_store.retrieve_result(task_id, "redis", task.result_ref)
@@ -349,7 +348,7 @@ async def get_task_result(
             import pickle
             result_data = pickle.loads(result_bytes)
         presigned_url = await result_store.get_presigned_url(task_id)
-    
+
     return TaskResultResponse(
         task_id=task_id,
         status=task.status.value,

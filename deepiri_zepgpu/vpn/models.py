@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 from pydantic import BaseModel, Field
 
 
 class PeerBase(BaseModel):
     wireguard_public_key: str
-    endpoint: Optional[str] = None
+    endpoint: str | None = None
     is_gpu_host: bool = False
 
 
@@ -21,20 +20,20 @@ class PeerRegisterRequest(PeerBase):
 
 class PeerHeartbeatRequest(BaseModel):
     peer_id: str
-    gpu_status: list["GpuStatusPayload"] = Field(default_factory=list)
+    gpu_status: list[GpuStatusPayload] = Field(default_factory=list)
     is_online: bool = True
-    endpoint: Optional[str] = None
+    endpoint: str | None = None
 
 
 class GpuStatusPayload(BaseModel):
     device_index: int
-    name: Optional[str] = None
+    name: str | None = None
     total_memory_mb: int
     available_memory_mb: int
-    compute_capability: Optional[str] = None
+    compute_capability: str | None = None
     gpu_type: str = "nvidia"
     state: str = "idle"
-    utilization_percent: Optional[float] = None
+    utilization_percent: float | None = None
 
 
 class PeerResponse(BaseModel):
@@ -57,13 +56,13 @@ class GpuShareResponse(BaseModel):
     peer_id: str
     username: str
     device_index: int
-    name: Optional[str]
+    name: str | None
     total_memory_mb: int
     available_memory_mb: int
-    compute_capability: Optional[str]
+    compute_capability: str | None
     gpu_type: str
     state: str
-    utilization_percent: Optional[float]
+    utilization_percent: float | None
     is_active: bool
     last_updated: datetime
 
@@ -84,7 +83,7 @@ class VpnNetworkCreate(BaseModel):
     name: str
     cidr: str = "10.8.0.0/24"
     listen_port: int = 51820
-    relay_endpoint: Optional[str] = None
+    relay_endpoint: str | None = None
 
 
 class VpnNetworkResponse(BaseModel):
@@ -92,7 +91,7 @@ class VpnNetworkResponse(BaseModel):
     name: str
     cidr: str
     listen_port: int
-    relay_endpoint: Optional[str]
+    relay_endpoint: str | None
     is_active: bool
     peer_count: int
     created_at: datetime
@@ -121,7 +120,7 @@ class InviteResponse(BaseModel):
     vpn_network_name: str
     max_uses: int
     used_count: int
-    expires_at: Optional[datetime]
+    expires_at: datetime | None
     is_revoked: bool
     created_at: datetime
 
@@ -131,7 +130,7 @@ class InviteResponse(BaseModel):
 
 class JoinNetworkRequest(BaseModel):
     invite_code: str
-    wireguard_public_key: Optional[str] = None
+    wireguard_public_key: str | None = None
     is_gpu_host: bool = False
 
 
@@ -146,7 +145,7 @@ class FriendResponse(BaseModel):
     email: str
     status: str
     created_at: datetime
-    accepted_at: Optional[datetime]
+    accepted_at: datetime | None
 
     class Config:
         from_attributes = True
@@ -171,10 +170,9 @@ class TaskExecutionRequest(BaseModel):
 class TaskExecutionResponse(BaseModel):
     task_id: str
     success: bool
-    result_encoded: Optional[str] = None
-    error: Optional[str] = None
-    traceback: Optional[str] = None
+    result_encoded: str | None = None
+    error: str | None = None
+    traceback: str | None = None
     execution_time: float = 0.0
 
 
-from pydantic import ConfigDict

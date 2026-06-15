@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Optional
-import threading
 
 try:
     import pynvml
@@ -43,7 +43,7 @@ class GPUDevice:
     compute_capability: tuple[int, int] = (0, 0)
     max_cuda_cores: int = 0
     state: GPUState = GPUState.IDLE
-    current_task_id: Optional[str] = None
+    current_task_id: str | None = None
     utilization_percent: float = 0.0
     temperature_celsius: float = 0.0
     power_draw_watts: float = 0.0
@@ -103,7 +103,7 @@ class GPUManager:
         self._enable_nvml = enable_nvml and PYNVML_AVAILABLE
         self._memory_overhead_mb = memory_overhead_mb
         self._reserve_memory_mb = reserve_memory_mb
-        self._monitoring_task: Optional[asyncio.Task] = None
+        self._monitoring_task: asyncio.Task | None = None
 
     async def initialize(self) -> None:
         """Initialize GPU manager and discover devices."""
@@ -198,10 +198,8 @@ class GPUManager:
         """Stop GPU monitoring."""
         if self._monitoring_task:
             self._monitoring_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._monitoring_task
-            except asyncio.CancelledError:
-                pass
             self._monitoring_task = None
 
     async def _update_gpu_metrics(self) -> None:
@@ -230,8 +228,8 @@ class GPUManager:
     def get_available_device(
         self,
         required_memory_mb: int = 1024,
-        gpu_type: Optional[str] = None,
-    ) -> Optional[GPUDevice]:
+        gpu_type: str | None = None,
+    ) -> GPUDevice | None:
         """Find an available GPU that meets requirements."""
         with self._lock:
             for device in self._devices.values():
@@ -257,7 +255,7 @@ class GPUManager:
             if device:
                 device.release()
 
-    def get_device(self, device_id: int) -> Optional[GPUDevice]:
+    def get_device(self, device_id: int) -> GPUDevice | None:
         """Get device by ID."""
         return self._devices.get(device_id)
 
@@ -278,7 +276,5 @@ class GPUManager:
         if self._monitoring_task:
             asyncio.create_task(self.stop_monitoring())
         if self._nvml_initialized:
-            try:
+            with contextlib.suppress(Exception):
                 pynvml.nvmlShutdown()
-            except Exception:
-                pass

@@ -9,7 +9,6 @@ from pydantic import BaseModel
 
 from deepiri_zepgpu.queue.redis_queue import queue
 
-
 router = APIRouter()
 
 
@@ -26,7 +25,7 @@ class HealthResponse(BaseModel):
 async def health_check() -> HealthResponse:
     """Check API health."""
     redis_healthy = await queue.health_check() if hasattr(queue, '_redis') and queue._redis else False
-    
+
     return HealthResponse(
         status="healthy",
         timestamp=datetime.utcnow(),

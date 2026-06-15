@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import datetime, timedelta
-from typing import Any, Sequence
+from typing import Any
 
 from sqlalchemy import and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from deepiri_zepgpu.database.models.task import Task, TaskPriority, TaskStatus
+from deepiri_zepgpu.database.models.task import Task, TaskStatus
 
 
 class TaskRepository:
@@ -51,12 +52,12 @@ class TaskRepository:
     ) -> Sequence[Task]:
         """List tasks for a user."""
         query = select(Task).where(Task.user_id == user_id)
-        
+
         if status:
             query = query.where(Task.status == status)
-        
+
         query = query.order_by(Task.created_at.desc()).limit(limit).offset(offset)
-        
+
         result = await self.session.execute(query)
         return result.scalars().all()
 
@@ -96,18 +97,18 @@ class TaskRepository:
         task = await self.get_by_id(task_id)
         if not task:
             return None
-        
+
         task.status = status
-        
+
         if status == TaskStatus.RUNNING:
             task.started_at = datetime.utcnow()
         elif status in [TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED, TaskStatus.TIMEOUT]:
             task.completed_at = datetime.utcnow()
-        
+
         for key, value in kwargs.items():
             if hasattr(task, key):
                 setattr(task, key, value)
-        
+
         await self.session.flush()
         return task
 
@@ -185,17 +186,17 @@ class TaskRepository:
             .where(Task.user_id == user_id)
             .group_by(Task.status)
         )
-        
+
         stats = {status.value: 0 for status in TaskStatus}
         for row in result:
             stats[row.status.value] = row.count
-        
+
         return stats
 
     async def delete_old_completed(self, days: int = 7) -> int:
         """Delete old completed tasks."""
         cutoff = datetime.utcnow() - timedelta(days=days)
-        
+
         result = await self.session.execute(
             update(Task)
             .where(

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,20 +13,20 @@ from deepiri_zepgpu.database.models.vpn_models import GpuShare, Peer, PeerOnline
 if TYPE_CHECKING:
     from deepiri_zepgpu.vpn.gpu_pool import GpuPoolAggregator
 
-_registered_pool: Optional["GpuPoolAggregator"] = None
+_registered_pool: GpuPoolAggregator | None = None
 
 
-def register_gpu_pool(pool: "GpuPoolAggregator") -> None:
+def register_gpu_pool(pool: GpuPoolAggregator) -> None:
     """Called when TaskSubmitter starts so API/lifespan can refresh the same pool."""
     global _registered_pool
     _registered_pool = pool
 
 
-def get_registered_gpu_pool() -> Optional["GpuPoolAggregator"]:
+def get_registered_gpu_pool() -> GpuPoolAggregator | None:
     return _registered_pool
 
 
-async def refresh_gpu_pool_from_db(db: AsyncSession, pool: "GpuPoolAggregator") -> int:
+async def refresh_gpu_pool_from_db(db: AsyncSession, pool: GpuPoolAggregator) -> int:
     """Load active GPU shares from online peers into the aggregator. Returns count synced."""
     result = await db.execute(
         select(GpuShare)

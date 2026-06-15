@@ -4,12 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from deepiri_zepgpu.api.server.dependencies import get_current_user
 from deepiri_zepgpu.cloud.manager import cloud_manager
-
 
 router = APIRouter()
 
@@ -74,7 +73,7 @@ async def list_providers() -> list[ProviderStatusResponse]:
     """List all configured cloud providers and their status."""
     status_info = await cloud_manager.get_health_status()
     providers = cloud_manager.list_providers()
-    
+
     result = []
     for p in providers:
         name = p["name"]
@@ -86,7 +85,7 @@ async def list_providers() -> list[ProviderStatusResponse]:
             status=p_status.get("status", "unknown"),
             error=p_status.get("error"),
         ))
-    
+
     return result
 
 
@@ -99,7 +98,7 @@ async def list_available_gpus(
         p = cloud_manager.get_provider(provider)
         if not p:
             raise HTTPException(status_code=404, detail=f"Provider '{provider}' not found")
-        
+
         gpus = await p.list_available_gpus()
         return [
             GPUInfoResponse(
@@ -114,7 +113,7 @@ async def list_available_gpus(
             for g in gpus
             if g.available
         ]
-    
+
     all_gpus = await cloud_manager.list_all_available_gpus()
     result = []
     for p_name, gpus in all_gpus.items():
@@ -129,7 +128,7 @@ async def list_available_gpus(
                     price_per_hour=g.price_per_hour,
                     available=g.available,
                 ))
-    
+
     result.sort(key=lambda x: x.price_per_hour)
     return result
 
@@ -140,18 +139,18 @@ async def launch_instance(
     current_user=Depends(get_current_user),
 ) -> InstanceResponse:
     """Launch a cloud GPU instance.
-    
+
     If provider is specified, launches on that provider.
     Otherwise, launches on the cheapest available option.
     """
     if current_user is None:
         raise HTTPException(status_code=401, detail="Authentication required")
-    
+
     if request.provider:
         p = cloud_manager.get_provider(request.provider)
         if not p:
             raise HTTPException(status_code=404, detail=f"Provider '{request.provider}' not found")
-        
+
         from deepiri_zepgpu.cloud.providers.base import LaunchConfig
         config = LaunchConfig(
             name=request.name,
@@ -161,12 +160,12 @@ async def launch_instance(
             image=request.image,
             env=request.env,
         )
-        
+
         try:
             instance = await p.launch_instance(config)
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to launch instance: {str(e)}")
-        
+            raise HTTPException(status_code=500, detail=f"Failed to launch instance: {str(e)}") from e
+
         return InstanceResponse(
             instance_id=instance.instance_id,
             provider=request.provider,
@@ -179,17 +178,17 @@ async def launch_instance(
             endpoint=instance.endpoint,
             created_at=instance.created_at.isoformat(),
         )
-    
+
     result = await cloud_manager.launch_on_cheapest(
         gpu_type=request.gpu_type,
         count=request.gpu_count,
         max_price=request.max_price_per_hour,
         name=request.name,
     )
-    
+
     if not result:
         raise HTTPException(status_code=500, detail="Failed to launch instance on any provider")
-    
+
     provider_name, instance = result
     return InstanceResponse(
         instance_id=instance.instance_id,
@@ -214,11 +213,11 @@ async def get_instance(
     p = cloud_manager.get_provider(provider)
     if not p:
         raise HTTPException(status_code=404, detail=f"Provider '{provider}' not found")
-    
+
     instance = await p.get_instance(instance_id)
     if not instance:
         raise HTTPException(status_code=404, detail="Instance not found")
-    
+
     return InstanceResponse(
         instance_id=instance.instance_id,
         provider=provider,
@@ -242,11 +241,11 @@ async def stop_instance(
     p = cloud_manager.get_provider(provider)
     if not p:
         raise HTTPException(status_code=404, detail=f"Provider '{provider}' not found")
-    
+
     success = await p.stop_instance(instance_id)
     if not success:
         raise HTTPException(status_code=500, detail="Failed to stop instance")
-    
+
     return {"status": "stopped", "provider": provider, "instance_id": instance_id}
 
 
@@ -259,12 +258,12 @@ async def start_instance(
     p = cloud_manager.get_provider(provider)
     if not p:
         raise HTTPException(status_code=404, detail=f"Provider '{provider}' not found")
-    
-    try:
-        instance = await p.start_instance(instance_id)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    
+
+        try:
+            instance = await p.start_instance(instance_id)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e)) from e
+
     return InstanceResponse(
         instance_id=instance.instance_id,
         provider=provider,
@@ -288,11 +287,11 @@ async def delete_instance(
     p = cloud_manager.get_provider(provider)
     if not p:
         raise HTTPException(status_code=404, detail=f"Provider '{provider}' not found")
-    
+
     success = await p.delete_instance(instance_id)
     if not success:
         raise HTTPException(status_code=500, detail="Failed to delete instance")
-    
+
     return {"status": "deleted", "provider": provider, "instance_id": instance_id}
 
 
@@ -303,7 +302,7 @@ async def compare_costs(
 ) -> list[CostEstimateResponse]:
     """Compare costs for a GPU type across all providers."""
     estimates = await cloud_manager.compare_costs(gpu_type, hours)
-    
+
     return [
         CostEstimateResponse(
             provider=e.provider_type.value,
@@ -321,9 +320,9 @@ async def compare_costs(
 async def health_check() -> dict[str, Any]:
     """Check health of all cloud providers."""
     status = await cloud_manager.get_health_status()
-    
+
     all_healthy = all(s.get("status") == "healthy" for s in status.values())
-    
+
     return {
         "status": "healthy" if all_healthy else "degraded",
         "providers": status,

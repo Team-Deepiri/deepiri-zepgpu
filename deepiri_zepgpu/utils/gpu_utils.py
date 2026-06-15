@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import os
 import subprocess
-from typing import Any, Optional
+from typing import Any
 
 try:
     import pynvml
@@ -19,7 +18,7 @@ except ImportError:
     TORCH_AVAILABLE = False
 
 try:
-    import cupy as cp
+    import cupy as cp  # noqa: F401
     CUPY_AVAILABLE = True
 except ImportError:
     CUPY_AVAILABLE = False
@@ -96,7 +95,7 @@ def format_memory(bytes: int) -> str:
     return f"{bytes:.2f}PB"
 
 
-def check_cuda_version() -> Optional[str]:
+def check_cuda_version() -> str | None:
     """Check CUDA version."""
     try:
         result = subprocess.run(
@@ -113,7 +112,7 @@ def check_cuda_version() -> Optional[str]:
     return None
 
 
-def check_nvidia_driver() -> Optional[str]:
+def check_nvidia_driver() -> str | None:
     """Check NVIDIA driver version."""
     if not PYNVML_AVAILABLE:
         return None
@@ -154,7 +153,7 @@ class GPUContext:
         self._device_id = device_id
         self._previous_device = None
 
-    def __enter__(self) -> "GPUContext":
+    def __enter__(self) -> GPUContext:
         if TORCH_AVAILABLE and torch.cuda.is_available():
             self._previous_device = torch.cuda.current_device()
             torch.cuda.set_device(self._device_id)
@@ -166,7 +165,7 @@ class GPUContext:
             self._previous_device = None
 
 
-def detect_gpu_architecture() -> Optional[str]:
+def detect_gpu_architecture() -> str | None:
     """Detect GPU architecture."""
     if not TORCH_AVAILABLE or not torch.cuda.is_available():
         return None

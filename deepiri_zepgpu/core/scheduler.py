@@ -5,16 +5,15 @@ from __future__ import annotations
 import asyncio
 import heapq
 import threading
-import time
-import uuid
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Callable, Optional
+from typing import Any
 
-from deepiri_zepgpu.core.task import Task, TaskPriority, TaskResources, TaskStatus
-from deepiri_zepgpu.core.gpu_manager import GPUManager, GPUDevice
+from deepiri_zepgpu.core.gpu_manager import GPUManager
+from deepiri_zepgpu.core.task import Task, TaskStatus
 
 try:
     from deepiri_zepgpu.vpn.gpu_pool import GpuPoolAggregator, RemoteGPUDevice
@@ -63,7 +62,7 @@ class TaskScheduler:
         policy: SchedulingPolicy = SchedulingPolicy.PRIORITY,
         max_concurrent_tasks: int = 10,
         enable_preemption: bool = False,
-        gpu_pool: Optional["GpuPoolAggregator"] = None,
+        gpu_pool: GpuPoolAggregator | None = None,
     ):
         self._gpu_manager = gpu_manager
         self._gpu_pool = gpu_pool
@@ -85,7 +84,7 @@ class TaskScheduler:
         )
 
         self._lock = threading.RLock()
-        self._scheduler_task: Optional[asyncio.Task] = None
+        self._scheduler_task: asyncio.Task | None = None
         self._stop_event = asyncio.Event()
         self._stats = QueueStats()
 
@@ -131,7 +130,7 @@ class TaskScheduler:
 
         return task_id
 
-    def _check_user_quota(self, user_id: Optional[str]) -> bool:
+    def _check_user_quota(self, user_id: str | None) -> bool:
         """Check if user is within their quota."""
         uid = user_id or "default"
         usage = self._user_usage[uid]
@@ -177,7 +176,7 @@ class TaskScheduler:
 
         return False
 
-    def get_task(self, task_id: str) -> Optional[Task]:
+    def get_task(self, task_id: str) -> Task | None:
         """Get task by ID."""
         with self._lock:
             for item in self._pending_queue:
@@ -191,8 +190,8 @@ class TaskScheduler:
 
     def list_tasks(
         self,
-        user_id: Optional[str] = None,
-        status: Optional[TaskStatus] = None,
+        user_id: str | None = None,
+        status: TaskStatus | None = None,
     ) -> list[Task]:
         """List tasks with optional filtering."""
         with self._lock:
@@ -320,7 +319,7 @@ class TaskScheduler:
         self,
         task_id: str,
         error: str,
-        traceback: Optional[str] = None,
+        traceback: str | None = None,
     ) -> None:
         """Mark task as failed."""
         with self._lock:

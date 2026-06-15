@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any, Optional
+from typing import Any
 
 import redis.asyncio as redis
 
@@ -24,8 +24,8 @@ class RedisQueue:
     SESSION_DATA = "deepiri:session"
 
     def __init__(self):
-        self._redis: Optional[redis.Redis] = None
-        self._pubsub: Optional[redis.client.PubSub] = None
+        self._redis: redis.Redis | None = None
+        self._pubsub: redis.client.PubSub | None = None
 
     async def connect(self, retries: int = 5, delay_seconds: float = 2.0) -> None:
         """Connect to Redis with retry handling for local/container startup."""
@@ -71,28 +71,28 @@ class RedisQueue:
         """Add task to queue."""
         priority = task_data.get("priority", 2)
         queue_key = f"{self.TASK_QUEUE}:{priority}"
-        
+
         await self._redis.rpush(queue_key, json.dumps({
             "task_id": task_id,
             **task_data,
         }))
 
-    async def dequeue_task(self, timeout: int = 0) -> Optional[dict[str, Any]]:
+    async def dequeue_task(self, timeout: int = 0) -> dict[str, Any] | None:
         """Get task from queue."""
         for priority in range(5, 0, -1):
             queue_key = f"{self.TASK_QUEUE}:{priority}"
             result = await self._redis.lpop(queue_key)
-            
+
             if result:
                 return json.loads(result)
-        
+
         if timeout > 0:
             for priority in range(5, 0, -1):
                 queue_key = f"{self.TASK_QUEUE}:{priority}"
                 result = await self._redis.blpop(queue_key, timeout=timeout)
                 if result:
                     return json.loads(result[1])
-        
+
         return None
 
     async def set_task_result(
@@ -105,7 +105,7 @@ class RedisQueue:
         key = f"{self.TASK_RESULTS}:{task_id}"
         await self._redis.setex(key, ttl, json.dumps(result))
 
-    async def get_task_result(self, task_id: str) -> Optional[dict[str, Any]]:
+    async def get_task_result(self, task_id: str) -> dict[str, Any] | None:
         """Get task result."""
         key = f"{self.TASK_RESULTS}:{task_id}"
         result = await self._redis.get(key)
@@ -138,7 +138,7 @@ class RedisQueue:
         })
         await self._redis.expire(key, 300)
 
-    async def get_gpu_status(self, device_id: int) -> Optional[dict[str, Any]]:
+    async def get_gpu_status(self, device_id: int) -> dict[str, Any] | None:
         """Get GPU device status."""
         key = f"{self.GPU_DEVICES}:{device_id}"
         status = await self._redis.hget(key, "status")
@@ -161,7 +161,7 @@ class RedisQueue:
         """Subscribe to channel."""
         await self._pubsub.subscribe(channel)
 
-    async def get_message(self) -> Optional[dict[str, Any]]:
+    async def get_message(self) -> dict[str, Any] | None:
         """Get message from subscribed channels."""
         message = await self._pubsub.get_message(ignore_subscribe_messages=True)
         if message and message.get("type") == "message":
@@ -173,7 +173,7 @@ class RedisQueue:
         key = f"{self.SESSION_DATA}:{session_id}"
         await self._redis.setex(key, ttl, json.dumps(data))
 
-    async def get_session(self, session_id: str) -> Optional[dict[str, Any]]:
+    async def get_session(self, session_id: str) -> dict[str, Any] | None:
         """Get session data."""
         key = f"{self.SESSION_DATA}:{session_id}"
         data = await self._redis.get(key)

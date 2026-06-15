@@ -6,7 +6,6 @@ import base64
 import os
 import secrets
 import subprocess
-from pathlib import Path
 
 
 class WireGuardKeyGen:

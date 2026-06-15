@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
-from typing import Any, Optional
 from collections import defaultdict
+from typing import Any
 
-from fastapi import WebSocket, WebSocketDisconnect
+from fastapi import WebSocket
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +50,7 @@ class ConnectionManager:
         """Broadcast message to all connected clients."""
         async with self._lock:
             all_connections = []
-            for user_id, connections in self._connections.items():
+            for _user_id, connections in self._connections.items():
                 all_connections.extend(connections)
 
         for connection in all_connections:

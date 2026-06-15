@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import datetime, timedelta
-from typing import Any, Sequence
+from typing import Any
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -64,12 +65,12 @@ class AuditRepository:
     ) -> Sequence[AuditLog]:
         """List audit logs for a user."""
         query = select(AuditLog).where(AuditLog.user_id == user_id)
-        
+
         if action:
             query = query.where(AuditLog.action == action)
-        
+
         query = query.order_by(AuditLog.created_at.desc()).limit(limit).offset(offset)
-        
+
         result = await self.session.execute(query)
         return result.scalars().all()
 
@@ -132,10 +133,10 @@ class AuditRepository:
     ) -> int:
         """Count audit logs by action."""
         query = select(func.count(AuditLog.id)).where(AuditLog.action == action)
-        
+
         if since:
             query = query.where(AuditLog.created_at >= since)
-        
+
         result = await self.session.execute(query)
         return result.scalar() or 0
 
@@ -146,17 +147,17 @@ class AuditRepository:
     ) -> int:
         """Count audit logs for a user."""
         query = select(func.count(AuditLog.id)).where(AuditLog.user_id == user_id)
-        
+
         if since:
             query = query.where(AuditLog.created_at >= since)
-        
+
         result = await self.session.execute(query)
         return result.scalar() or 0
 
     async def delete_old(self, days: int = 90) -> int:
         """Delete old audit logs."""
         cutoff = datetime.utcnow() - timedelta(days=days)
-        
+
         from sqlalchemy import delete
         result = await self.session.execute(
             delete(AuditLog).where(AuditLog.created_at < cutoff)

@@ -3,7 +3,6 @@
 
 import asyncio
 import sys
-from typing import Optional
 
 try:
     import click
@@ -41,12 +40,12 @@ def basic_cli():
         from deepiri_zepgpu.cli import serve
         asyncio.run(serve())
     elif command == "gpu":
-        from deepiri_zepgpu.utils.gpu_utils import get_gpu_info
         import json
+
+        from deepiri_zepgpu.utils.gpu_utils import get_gpu_info
         info = get_gpu_info()
         print(json.dumps(info, indent=2))
     elif command == "vpn":
-        from deepiri_zepgpu.vpn import cli as vpn_cli
         if len(sys.argv) < 3:
             print("Usage: deepiri-gpu vpn <subcommand>")
             print("  join     Join a VPN network")
@@ -111,8 +110,9 @@ if HAS_CLICK:
     @cli.command()
     def gpu():
         """Show GPU information."""
-        from deepiri_zepgpu.utils.gpu_utils import get_gpu_info
         import json
+
+        from deepiri_zepgpu.utils.gpu_utils import get_gpu_info
         info = get_gpu_info()
         print(json.dumps(info, indent=2))
 
@@ -193,10 +193,11 @@ if HAS_CLICK:
     @click.option("--priority", default=2, help="Task priority (1-5)")
     def gang_create(num_gpus, name, priority):
         """Create a new gang scheduled task."""
-        from deepiri_zepgpu.queue.tasks import execute_gang_task
         import uuid
+
+        from deepiri_zepgpu.queue.tasks import execute_gang_task
         gang_id = str(uuid.uuid4())
-        result = execute_gang_task.delay(gang_id)
+        execute_gang_task.delay(gang_id)
         print(f"Created gang task {gang_id} with name '{name}', {num_gpus} GPUs")
 
     @cli.command()
@@ -221,8 +222,15 @@ if HAS_CLICK:
         for user_id, data in weights.get("weights", {}).items():
             print(f"  {user_id}: weight={data['weight']:.2f}, used={data['gpu_seconds_used']:.0f}s")
 
-    from deepiri_zepgpu.vpn import cli as vpn_cli_module
-    from deepiri_zepgpu.vpn.cli import check_wireguard_installed, install_wireguard, apply_wireguard_config, get_vpn_ip, remove_wireguard_config, get_config_dir, vpn_settings
+    from deepiri_zepgpu.vpn.cli import (
+        apply_wireguard_config,
+        check_wireguard_installed,
+        get_config_dir,
+        get_vpn_ip,
+        install_wireguard,
+        remove_wireguard_config,
+        vpn_settings,
+    )
 
     @cli.group()
     def vpn():
@@ -235,7 +243,6 @@ if HAS_CLICK:
     @click.option("--interface", default="wg0", help="WireGuard interface name")
     def vpn_join(config, relay_url, interface):
         """Join a VPN network."""
-        from deepiri_zepgpu.vpn.cli import check_wireguard_installed, install_wireguard
         if not check_wireguard_installed():
             print("WireGuard is not installed.")
             install_wireguard()
@@ -281,6 +288,7 @@ if HAS_CLICK:
     def gpu_pool(relay_url, api_token):
         """List GPUs available in the network pool."""
         import httpx
+
         from deepiri_zepgpu.vpn.cli import vpn_api_url
 
         if not api_token:
@@ -294,7 +302,7 @@ if HAS_CLICK:
             )
             response.raise_for_status()
             data = response.json()
-            click.echo(f"GPU Pool:")
+            click.echo("GPU Pool:")
             click.echo(f"  Total GPUs: {data['total_gpus']}")
             click.echo(f"  Total Memory: {data['total_memory_mb'] // 1024}GB")
             click.echo(f"  Available Memory: {data['available_memory_mb'] // 1024}GB")
@@ -311,11 +319,10 @@ if HAS_CLICK:
     def advertise(relay_url, interface, peer_id):
         """Advertise local GPUs to the relay server."""
         from deepiri_zepgpu.vpn.cli import (
-            check_wireguard_installed,
-            install_wireguard,
             get_vpn_ip,
-            vpn_api_url,
+            install_wireguard,
             load_peer_id,
+            vpn_api_url,
         )
         if not check_wireguard_installed():
             click.echo("WireGuard is not installed.")
@@ -332,8 +339,9 @@ if HAS_CLICK:
         click.echo(f"Advertising GPUs to {relay_url}... (Ctrl+C to stop)")
 
         async def advertise_loop():
-            from deepiri_zepgpu.vpn.peer_node import discover_local_gpus
             import httpx
+
+            from deepiri_zepgpu.vpn.peer_node import discover_local_gpus
             while True:
                 gpus = discover_local_gpus()
                 if gpus:

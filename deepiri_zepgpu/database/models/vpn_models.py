@@ -4,9 +4,20 @@ from __future__ import annotations
 
 import enum
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, Boolean, Column, DateTime, Enum, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    Enum,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -45,9 +56,9 @@ class VpnNetwork(UUIDMixin, TimestampMixin, Base):
     private_key_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
-    peers: Mapped[list["Peer"]] = relationship("Peer", back_populates="vpn_network", lazy="dynamic")
-    invites: Mapped[list["VpnInvite"]] = relationship("VpnInvite", back_populates="vpn_network", lazy="dynamic")
-    gpu_shares: Mapped[list["GpuShare"]] = relationship("GpuShare", back_populates="vpn_network", lazy="dynamic")
+    peers: Mapped[list[Peer]] = relationship("Peer", back_populates="vpn_network", lazy="dynamic")
+    invites: Mapped[list[VpnInvite]] = relationship("VpnInvite", back_populates="vpn_network", lazy="dynamic")
+    gpu_shares: Mapped[list[GpuShare]] = relationship("GpuShare", back_populates="vpn_network", lazy="dynamic")
 
 
 class Peer(UUIDMixin, TimestampMixin, Base):
@@ -75,10 +86,10 @@ class Peer(UUIDMixin, TimestampMixin, Base):
 
     auth_token_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    user: Mapped["User"] = relationship("User", back_populates="vpn_peers", lazy="joined")
-    vpn_network: Mapped["VpnNetwork"] = relationship("VpnNetwork", back_populates="peers")
-    gpu_shares: Mapped[list["GpuShare"]] = relationship("GpuShare", back_populates="peer", lazy="dynamic")
-    quota: Mapped["GpuShareQuota"] = relationship("GpuShareQuota", back_populates="peer", uselist=False)
+    user: Mapped[User] = relationship("User", back_populates="vpn_peers", lazy="joined")
+    vpn_network: Mapped[VpnNetwork] = relationship("VpnNetwork", back_populates="peers")
+    gpu_shares: Mapped[list[GpuShare]] = relationship("GpuShare", back_populates="peer", lazy="dynamic")
+    quota: Mapped[GpuShareQuota] = relationship("GpuShareQuota", back_populates="peer", uselist=False)
 
 
 class GpuShare(UUIDMixin, TimestampMixin, Base):
@@ -106,8 +117,8 @@ class GpuShare(UUIDMixin, TimestampMixin, Base):
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
-    peer: Mapped["Peer"] = relationship("Peer", back_populates="gpu_shares")
-    vpn_network: Mapped["VpnNetwork"] = relationship("VpnNetwork", back_populates="gpu_shares")
+    peer: Mapped[Peer] = relationship("Peer", back_populates="gpu_shares")
+    vpn_network: Mapped[VpnNetwork] = relationship("VpnNetwork", back_populates="gpu_shares")
 
 
 class Friendship(UUIDMixin, TimestampMixin, Base):
@@ -125,10 +136,10 @@ class Friendship(UUIDMixin, TimestampMixin, Base):
     )
     accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    user: Mapped["User"] = relationship(
+    user: Mapped[User] = relationship(
         "User", foreign_keys=[user_id], back_populates="friendships_initiated", lazy="joined"
     )
-    friend: Mapped["User"] = relationship(
+    friend: Mapped[User] = relationship(
         "User", foreign_keys=[friend_id], back_populates="friendships_received", lazy="joined"
     )
 
@@ -153,8 +164,8 @@ class VpnInvite(UUIDMixin, TimestampMixin, Base):
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     is_revoked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
-    creator: Mapped["User"] = relationship("User", back_populates="vpn_invites_created", lazy="joined")
-    vpn_network: Mapped["VpnNetwork"] = relationship("VpnNetwork", back_populates="invites")
+    creator: Mapped[User] = relationship("User", back_populates="vpn_invites_created", lazy="joined")
+    vpn_network: Mapped[VpnNetwork] = relationship("VpnNetwork", back_populates="invites")
 
 
 class GpuShareQuota(UUIDMixin, TimestampMixin, Base):
@@ -169,4 +180,4 @@ class GpuShareQuota(UUIDMixin, TimestampMixin, Base):
     priority_boost: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     current_usage_hours: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
 
-    peer: Mapped["Peer"] = relationship("Peer", back_populates="quota")
+    peer: Mapped[Peer] = relationship("Peer", back_populates="quota")

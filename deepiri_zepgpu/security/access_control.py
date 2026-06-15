@@ -6,7 +6,6 @@ import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Optional
 
 from deepiri_zepgpu.core.task import Task
 
@@ -54,7 +53,7 @@ class AccessControl:
 
     def __init__(
         self,
-        default_quota: Optional[Quota] = None,
+        default_quota: Quota | None = None,
         period_hours: int = 24,
     ):
         self._default_quota = default_quota or Quota()

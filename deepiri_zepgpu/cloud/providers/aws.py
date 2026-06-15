@@ -10,14 +10,13 @@ from botocore.exceptions import ClientError
 from deepiri_zepgpu.cloud.providers.base import (
     CloudProvider,
     CloudProviderType,
+    CostEstimate,
     GPUInfo,
     Instance,
     InstanceStatus,
     LaunchConfig,
-    CostEstimate,
     register_provider,
 )
-
 
 AWS_GPU_INSTANCE_TYPES = {
     "g4dn.xlarge": {"name": "NVIDIA T4", "gpu_count": 1, "memory_gb": 16},
@@ -41,36 +40,35 @@ AWS_GPU_INSTANCE_TYPES = {
 @register_provider(CloudProviderType.AWS)
 class AWSProvider(CloudProvider):
     """AWS EC2 GPU provider."""
-    
+
     provider_type = CloudProviderType.AWS
     provider_name = "AWS EC2"
-    
+
     def __init__(self, config: dict[str, Any]):
         super().__init__(config)
         self.region = config.get("region", "us-east-1")
         self.access_key = config.get("aws_access_key_id", "")
         self.secret_key = config.get("aws_secret_access_key", "")
-        
+
         session_kwargs = {"region_name": self.region}
         if self.access_key and self.secret_key:
             session_kwargs["aws_access_key_id"] = self.access_key
             session_kwargs["aws_secret_access_key"] = self.secret_key
-        
+
         self.ec2 = boto3.client("ec2", **session_kwargs)
         self.ec2_resource = boto3.resource("ec2", **session_kwargs)
-    
+
     async def list_available_gpus(self) -> list[GPUInfo]:
         """List available GPU instance types from AWS."""
         gpus = []
-        
+
         for instance_type, specs in AWS_GPU_INSTANCE_TYPES.items():
             try:
-                response = self.ec2.describe_instance_types(
+                self.ec2.describe_instance_types(
                     InstanceTypes=[instance_type]
                 )
-                instance_data = response.get("InstanceTypes", [{}])[0]
                 price = self._get_instance_price(instance_type)
-                
+
                 gpus.append(GPUInfo(
                     provider_instance_id=instance_type,
                     name=f"{specs['name']} ({instance_type})",
@@ -82,9 +80,9 @@ class AWSProvider(CloudProvider):
                 ))
             except Exception:
                 continue
-        
+
         return gpus
-    
+
     def _get_instance_price(self, instance_type: str) -> float:
         """Get on-demand price for instance type."""
         try:
@@ -99,13 +97,13 @@ class AWSProvider(CloudProvider):
         except Exception:
             pass
         return 0.0
-    
+
     async def launch_instance(self, config: LaunchConfig) -> Instance:
         """Launch an AWS GPU instance."""
         try:
             instance_type = config.gpu_type_id
             specs = AWS_GPU_INSTANCE_TYPES.get(instance_type, {})
-            
+
             instance_params = {
                 "ImageId": config.env.get("ami_id", "ami-0c55b159cbfafe1f0") if config.env else "ami-0c55b159cbfafe1f0",
                 "InstanceType": instance_type,
@@ -116,7 +114,7 @@ class AWSProvider(CloudProvider):
                     {"ResourceType": "instance", "Tags": [{"Key": "Name", "Value": config.name}]}
                 ],
             }
-            
+
             if config.max_price_per_hour:
                 instance_params["InstanceMarketOptions"] = {
                     "MarketType": "spot",
@@ -125,13 +123,13 @@ class AWSProvider(CloudProvider):
                         "InstanceInterruptionBehavior": "terminate",
                     },
                 }
-            
+
             response = self.ec2.run_instances(**instance_params)
             instances = response.get("Instances", [])
-            
+
             if not instances:
                 raise RuntimeError("Failed to launch instance")
-            
+
             instance_data = instances[0]
             return Instance(
                 instance_id=instance_data.get("InstanceId", ""),
@@ -145,8 +143,8 @@ class AWSProvider(CloudProvider):
                 endpoint=instance_data.get("PublicIpAddress"),
             )
         except ClientError as e:
-            raise RuntimeError(f"Failed to launch AWS instance: {e}")
-    
+            raise RuntimeError(f"Failed to launch AWS instance: {e}") from e
+
     async def stop_instance(self, instance_id: str) -> bool:
         """Stop an AWS instance."""
         try:
@@ -154,7 +152,7 @@ class AWSProvider(CloudProvider):
             return True
         except ClientError:
             return False
-    
+
     async def start_instance(self, instance_id: str) -> Instance:
         """Start a stopped AWS instance."""
         try:
@@ -169,26 +167,26 @@ class AWSProvider(CloudProvider):
                 memory_gb=0,
                 price_per_hour=0,
             )
-        except ClientError:
-            raise RuntimeError(f"Failed to start instance {instance_id}")
-    
+        except ClientError as e:
+            raise RuntimeError(f"Failed to start instance {instance_id}") from e
+
     async def get_instance(self, instance_id: str) -> Instance | None:
         """Get AWS instance details."""
         try:
             response = self.ec2.describe_instances(InstanceIds=[instance_id])
             reservations = response.get("Reservations", [])
-            
+
             if not reservations:
                 return None
-            
+
             instances = reservations[0].get("Instances", [])
             if not instances:
                 return None
-            
+
             instance_data = instances[0]
             instance_type = instance_data.get("InstanceType", "")
             specs = AWS_GPU_INSTANCE_TYPES.get(instance_type, {})
-            
+
             status_map = {
                 "pending": InstanceStatus.PENDING,
                 "running": InstanceStatus.RUNNING,
@@ -196,7 +194,7 @@ class AWSProvider(CloudProvider):
                 "stopped": InstanceStatus.STOPPED,
                 "stopping": InstanceStatus.STOPPING,
             }
-            
+
             return Instance(
                 instance_id=instance_data.get("InstanceId", ""),
                 provider_type=self.provider_type,
@@ -211,7 +209,7 @@ class AWSProvider(CloudProvider):
             )
         except ClientError:
             return None
-    
+
     async def delete_instance(self, instance_id: str) -> bool:
         """Delete an AWS instance."""
         try:
@@ -219,12 +217,12 @@ class AWSProvider(CloudProvider):
             return True
         except ClientError:
             return False
-    
+
     async def get_cost_estimate(self, gpu_type_id: str, hours: int = 1) -> CostEstimate:
         """Get cost estimate for an instance type."""
         specs = AWS_GPU_INSTANCE_TYPES.get(gpu_type_id, {})
         price_per_hour = self._get_instance_price(gpu_type_id)
-        
+
         return CostEstimate(
             provider_type=self.provider_type,
             gpu_type=gpu_type_id,
@@ -232,7 +230,7 @@ class AWSProvider(CloudProvider):
             price_per_hour=price_per_hour,
             estimated_monthly_cost=price_per_hour * 24 * 30 * specs.get("gpu_count", 1),
         )
-    
+
     async def get_status(self) -> dict[str, Any]:
         """Get AWS EC2 health status."""
         try:
@@ -240,11 +238,11 @@ class AWSProvider(CloudProvider):
             return {"status": "healthy", "provider": self.provider_name, "region": self.region}
         except Exception as e:
             return {"status": "unhealthy", "error": str(e), "provider": self.provider_name}
-    
+
     def supports_auto_scaling(self) -> bool:
         """AWS supports auto-scaling."""
         return True
-    
+
     def supports_spot_instances(self) -> bool:
         """AWS supports spot instances."""
         return True

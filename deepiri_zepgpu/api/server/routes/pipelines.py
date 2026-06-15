@@ -13,7 +13,6 @@ from deepiri_zepgpu.database.models import Pipeline
 from deepiri_zepgpu.database.models.pipeline import PipelineStatus as DBPipelineStatus
 from deepiri_zepgpu.database.repositories import PipelineRepository
 
-
 router = APIRouter()
 
 

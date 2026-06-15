@@ -3,16 +3,12 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field
 
 from deepiri_zepgpu.api.server.dependencies import get_current_user, get_db_session
-from deepiri_zepgpu.database.models import User
 from deepiri_zepgpu.database.repositories import UserRepository
-from deepiri_zepgpu.database.models.user import UserRole
-
 
 router = APIRouter()
 
@@ -89,7 +85,7 @@ def hash_password(password: str) -> str:
 def verify_password(password: str, password_hash: str) -> bool:
     """Verify a password."""
     import hashlib
-    
+
     try:
         hash_value, salt = password_hash.rsplit(":", 1)
         computed_hash = hashlib.pbkdf2_hmac(
@@ -110,15 +106,15 @@ async def register(
 ) -> UserResponse:
     """Register a new user."""
     repo = UserRepository(db)
-    
+
     if await repo.exists_by_username(request.username):
         raise HTTPException(status_code=400, detail="Username already exists")
-    
+
     if await repo.exists_by_email(request.email):
         raise HTTPException(status_code=400, detail="Email already exists")
-    
+
     password_hash = hash_password(request.password)
-    
+
     user = await repo.create(
         username=request.username,
         email=request.email,
@@ -126,7 +122,7 @@ async def register(
         first_name=request.first_name,
         last_name=request.last_name,
     )
-    
+
     return UserResponse(
         id=user.id,
         username=user.username,
@@ -148,20 +144,20 @@ async def login(
 ) -> TokenResponse:
     """Login and get access token."""
     import jwt
-    
+
     from deepiri_zepgpu.config import settings
-    
+
     repo = UserRepository(db)
     user = await repo.get_by_username(request.username)
-    
+
     if not user or not verify_password(request.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    
+
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Account is inactive")
-    
+
     await repo.update_last_login(user.id)
-    
+
     token = jwt.encode(
         {
             "sub": user.id,
@@ -172,7 +168,7 @@ async def login(
         settings.auth.secret_key,
         algorithm=settings.auth.algorithm,
     )
-    
+
     return TokenResponse(
         access_token=token,
         expires_in=settings.auth.access_token_expire_minutes * 60,
@@ -206,7 +202,7 @@ async def update_current_user(
 ) -> UserResponse:
     """Update current user information."""
     repo = UserRepository(db)
-    
+
     update_data = {}
     if request.first_name is not None:
         update_data["first_name"] = request.first_name
@@ -216,9 +212,9 @@ async def update_current_user(
         if await repo.exists_by_email(request.email):
             raise HTTPException(status_code=400, detail="Email already exists")
         update_data["email"] = request.email
-    
+
     user = await repo.update(current_user.id, **update_data)
-    
+
     return UserResponse(
         id=user.id,
         username=user.username,
@@ -240,7 +236,7 @@ async def get_user_quota(
 ) -> QuotaResponse:
     """Get user quota information."""
     from deepiri_zepgpu.database.models.user_quota import UserQuota
-    
+
     if not current_user.quota:
         quota = UserQuota(
             user_id=current_user.id,
@@ -251,7 +247,7 @@ async def get_user_quota(
         q = quota
     else:
         q = current_user.quota
-    
+
     return QuotaResponse(
         max_tasks=q.max_tasks,
         max_gpu_hours=q.max_gpu_hours,

@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import datetime, timedelta
-from typing import Any, Sequence
+from typing import Any
 
 from sqlalchemy import and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from deepiri_zepgpu.database.models.scheduled_task import ScheduledTask, ScheduleStatus, ScheduleType
+from deepiri_zepgpu.database.models.scheduled_task import (
+    ScheduledTask,
+    ScheduleStatus,
+    ScheduleType,
+)
 from deepiri_zepgpu.database.models.scheduled_task_run import ScheduledTaskRun, ScheduleRunStatus
 
 
@@ -72,7 +77,7 @@ class ScheduleRepository:
             select(ScheduledTask)
             .where(
                 and_(
-                    ScheduledTask.is_enabled == True,
+                    ScheduledTask.is_enabled.is_(True),
                     ScheduledTask.status == ScheduleStatus.ACTIVE,
                 )
             )
@@ -89,7 +94,7 @@ class ScheduleRepository:
             select(ScheduledTask)
             .where(
                 and_(
-                    ScheduledTask.is_enabled == True,
+                    ScheduledTask.is_enabled.is_(True),
                     ScheduledTask.status == ScheduleStatus.ACTIVE,
                     ScheduledTask.next_run_at <= before_time,
                 )
