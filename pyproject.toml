@@ -57,7 +57,7 @@ cryptography = ">=41.0.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=8,<10"
-pytest-asyncio = "^0.23.0"
+pytest-asyncio = ">=0.25.0"
 pytest-cov = "^4.1.0"
 black = ">=24,<27"
 ruff = "^0.2.0"
