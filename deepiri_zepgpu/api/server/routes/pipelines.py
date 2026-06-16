@@ -8,8 +8,10 @@ from typing import Any
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from deepiri_zepgpu.api.server.dependencies import get_current_user, get_db_session
-from deepiri_zepgpu.database.models import Pipeline
+from deepiri_zepgpu.database.models import Pipeline, User
 from deepiri_zepgpu.database.models.pipeline import PipelineStatus as DBPipelineStatus
 from deepiri_zepgpu.database.repositories import PipelineRepository
 
@@ -116,8 +118,8 @@ def enqueue_pipeline_to_celery(pipeline_id: str) -> None:
 @router.post("", response_model=PipelineResponse, status_code=status.HTTP_201_CREATED)
 async def create_pipeline(
     request: PipelineCreateRequest,
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_current_user),
 ) -> PipelineResponse:
     """Create a new pipeline."""
 
@@ -154,8 +156,8 @@ async def create_pipeline(
 
 @router.get("", response_model=PipelineListResponse)
 async def list_pipelines(
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_current_user),
     status_filter: str | None = Query(None, alias="status"),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
@@ -164,6 +166,7 @@ async def list_pipelines(
 
     repo = PipelineRepository(db)
 
+    assert current_user is not None
     pipelines = await repo.list_by_user(
         user_id=current_user.id,
         status=DBPipelineStatus(status_filter) if status_filter else None,
@@ -182,8 +185,8 @@ async def list_pipelines(
 @router.get("/{pipeline_id}", response_model=PipelineResponse)
 async def get_pipeline(
     pipeline_id: str,
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_current_user),
 ) -> PipelineResponse:
     """Get pipeline by ID."""
 
@@ -203,8 +206,8 @@ async def get_pipeline(
 async def run_pipeline(
     pipeline_id: str,
     background_tasks: BackgroundTasks,
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_current_user),
 ) -> dict[str, str]:
     """Run a pipeline."""
 
@@ -229,8 +232,8 @@ async def run_pipeline(
 @router.delete("/{pipeline_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_pipeline(
     pipeline_id: str,
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_current_user),
 ) -> None:
     """Delete a pipeline."""
 

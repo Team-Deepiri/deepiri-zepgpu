@@ -9,8 +9,10 @@ from typing import Any
 from croniter import croniter
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from deepiri_zepgpu.api.server.dependencies import get_current_user, get_db_session
+from deepiri_zepgpu.database.models import User
 from deepiri_zepgpu.database.models.task import TaskPriority as DBTaskPriority
 from deepiri_zepgpu.database.repositories import ScheduleRepository, ScheduleRunRepository
 from deepiri_zepgpu.queue.beat_sync import beat_scheduler_sync
@@ -266,8 +268,8 @@ def _calculate_next_run(
 async def create_schedule(
     request: ScheduleCreateRequest,
     background_tasks: BackgroundTasks,
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_current_user),
 ) -> ScheduleResponse:
     """Create a new scheduled task."""
     from deepiri_zepgpu.database.models import ScheduledTask
@@ -343,8 +345,8 @@ async def create_schedule(
 
 @router.get("", response_model=ScheduleListResponse)
 async def list_schedules(
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_current_user),
     is_enabled: bool | None = Query(None),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
@@ -394,8 +396,8 @@ async def list_schedules(
 @router.get("/{schedule_id}", response_model=ScheduleResponse)
 async def get_schedule(
     schedule_id: str,
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_current_user),
 ) -> ScheduleResponse:
     """Get a scheduled task by ID."""
     repo = ScheduleRepository(db)
@@ -436,8 +438,8 @@ async def update_schedule(
     schedule_id: str,
     request: ScheduleUpdateRequest,
     background_tasks: BackgroundTasks,
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_current_user),
 ) -> ScheduleResponse:
     """Update a scheduled task."""
 
@@ -501,8 +503,8 @@ async def update_schedule(
 @router.delete("/{schedule_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_schedule(
     schedule_id: str,
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_current_user),
 ) -> None:
     """Delete a scheduled task."""
     repo = ScheduleRepository(db)
@@ -522,8 +524,8 @@ async def delete_schedule(
 async def enable_schedule(
     schedule_id: str,
     background_tasks: BackgroundTasks,
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_current_user),
 ) -> ScheduleResponse:
     """Enable a scheduled task."""
     repo = ScheduleRepository(db)
@@ -539,6 +541,7 @@ async def enable_schedule(
     background_tasks.add_task(_sync_schedule_to_beat, schedule_id)
 
     schedule = await repo.get_by_id(schedule_id)
+    assert schedule is not None
 
     return ScheduleResponse(
         id=schedule.id,
@@ -568,8 +571,8 @@ async def enable_schedule(
 async def disable_schedule(
     schedule_id: str,
     background_tasks: BackgroundTasks,
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_current_user),
 ) -> ScheduleResponse:
     """Disable a scheduled task."""
     repo = ScheduleRepository(db)
@@ -585,6 +588,7 @@ async def disable_schedule(
     beat_scheduler_sync.remove_schedule(schedule_id)
 
     schedule = await repo.get_by_id(schedule_id)
+    assert schedule is not None
 
     return ScheduleResponse(
         id=schedule.id,
@@ -614,8 +618,8 @@ async def disable_schedule(
 async def trigger_schedule(
     schedule_id: str,
     background_tasks: BackgroundTasks,
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_current_user),
 ) -> ScheduleResponse:
     """Trigger a scheduled task to run immediately."""
     repo = ScheduleRepository(db)
@@ -656,8 +660,8 @@ async def trigger_schedule(
 @router.get("/{schedule_id}/runs", response_model=ScheduleRunListResponse)
 async def list_schedule_runs(
     schedule_id: str,
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_current_user),
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ) -> ScheduleRunListResponse:
@@ -702,12 +706,12 @@ async def list_schedule_runs(
 @router.post("/delayed", response_model=DelayedTaskResponse, status_code=status.HTTP_201_CREATED)
 async def create_delayed_task(
     request: DelayedTaskRequest,
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_current_user),
 ) -> DelayedTaskResponse:
     """Create a task that executes at a specified time."""
     from deepiri_zepgpu.database.models import Task
-    from deepiri_zepgpu.database.models import TaskStatus as DBTaskStatus
+    from deepiri_zepgpu.database.models import TaskStatus as DBTaskStatus  # type: ignore[attr-defined]
 
     if request.execute_at <= datetime.utcnow():
         raise HTTPException(status_code=400, detail="execute_at must be in the future")

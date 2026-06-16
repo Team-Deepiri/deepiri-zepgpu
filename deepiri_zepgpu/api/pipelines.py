@@ -136,7 +136,7 @@ class PipelineExecutor:
             user_id=user_id,
         )
         await self._manager.run_pipeline(pipeline_id, initial_inputs)
-        return pipeline_id
+        return pipeline_id  # type: ignore[no-any-return]
 
     async def run_and_wait(
         self,
@@ -161,7 +161,7 @@ class PipelineExecutor:
         while True:
             status = self._manager.get_pipeline_status(pipeline_id)
             if status["status"] in {"completed", "failed"}:
-                return status
+                return status  # type: ignore[no-any-return]
             await asyncio.sleep(poll_interval)
 
 
@@ -226,7 +226,7 @@ def create_simulation_pipeline(
     builder.add_stage(name="init", func=init_fn)
 
     for i in range(num_steps):
-        builder.add_stage(
+        builder.add_stage(  # type: ignore[call-arg]
             name=f"step_{i}",
             func=step_fn,
             depends_on=[f"step_{i-1}" if i > 0 else "init"],

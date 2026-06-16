@@ -6,8 +6,10 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from deepiri_zepgpu.api.server.dependencies import get_current_user, get_db_session
+from deepiri_zepgpu.database.models import User
 from deepiri_zepgpu.database.repositories import UserRepository
 
 router = APIRouter()
@@ -113,7 +115,7 @@ def verify_password(password: str, password_hash: str) -> bool:
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def register(
     request: UserRegisterRequest,
-    db=Depends(get_db_session),
+    db: AsyncSession = Depends(get_db_session),
 ) -> UserResponse:
     """Register a new user."""
     repo = UserRepository(db)
@@ -151,7 +153,7 @@ async def register(
 @router.post("/login", response_model=TokenResponse)
 async def login(
     request: UserLoginRequest,
-    db=Depends(get_db_session),
+    db: AsyncSession = Depends(get_db_session),
 ) -> TokenResponse:
     """Login and get access token."""
     import jwt
@@ -188,7 +190,7 @@ async def login(
 
 @router.get("/me", response_model=UserResponse)
 async def get_current_user_info(
-    current_user=Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> UserResponse:
     """Get current user information."""
     return UserResponse(
@@ -208,8 +210,8 @@ async def get_current_user_info(
 @router.put("/me", response_model=UserResponse)
 async def update_current_user(
     request: UserUpdateRequest,
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(get_current_user),
 ) -> UserResponse:
     """Update current user information."""
     repo = UserRepository(db)
@@ -225,6 +227,7 @@ async def update_current_user(
         update_data["email"] = request.email
 
     user = await repo.update(current_user.id, **update_data)
+    assert user is not None
 
     return UserResponse(
         id=user.id,
@@ -242,8 +245,8 @@ async def update_current_user(
 
 @router.get("/me/quota", response_model=QuotaResponse)
 async def get_user_quota(
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(get_current_user),
 ) -> QuotaResponse:
     """Get user quota information."""
     from deepiri_zepgpu.database.models.user_quota import UserQuota

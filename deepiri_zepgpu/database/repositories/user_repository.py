@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,7 +18,7 @@ from deepiri_zepgpu.database.models.user_quota import UserQuota
 class UserRepository:
     """Repository for User database operations."""
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
     async def create(
@@ -26,7 +27,7 @@ class UserRepository:
         email: str,
         password_hash: str,
         role: UserRole = UserRole.USER,
-        **kwargs,
+        **kwargs: Any,
     ) -> User:
         """Create a new user."""
         user = User(
@@ -81,7 +82,7 @@ class UserRepository:
     async def update(
         self,
         user_id: str,
-        **kwargs,
+        **kwargs: Any,
     ) -> User | None:
         """Update user."""
         user = await self.get_by_id(user_id)

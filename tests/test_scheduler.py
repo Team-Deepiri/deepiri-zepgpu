@@ -1,6 +1,7 @@
 """Tests for scheduler module."""
 
 import asyncio
+from typing import AsyncGenerator
 import pytest
 
 from deepiri_zepgpu.core.scheduler import TaskScheduler, SchedulingPolicy
@@ -9,7 +10,7 @@ from deepiri_zepgpu.core.gpu_manager import GPUManager
 
 
 @pytest.fixture
-async def scheduler():
+async def scheduler() -> AsyncGenerator[TaskScheduler, None]:
     """Create a test scheduler."""
     gpu_manager = GPUManager(enable_nvml=False)
     scheduler = TaskScheduler(gpu_manager, policy=SchedulingPolicy.PRIORITY)
@@ -19,9 +20,9 @@ async def scheduler():
 
 
 @pytest.fixture
-def sample_task():
+def sample_task() -> Task:
     """Create a sample task."""
-    def dummy_func():
+    def dummy_func() -> int:
         return 42
     return Task(
         func=dummy_func,
@@ -35,14 +36,14 @@ class TestTaskScheduler:
     """Test cases for TaskScheduler."""
 
     @pytest.mark.asyncio
-    async def test_submit_task(self, scheduler, sample_task):
+    async def test_submit_task(self, scheduler: TaskScheduler, sample_task: Task) -> None:
         """Test task submission."""
         task_id = await scheduler.submit_task(sample_task)
         assert task_id is not None
         assert len(task_id) > 0
 
     @pytest.mark.asyncio
-    async def test_get_task(self, scheduler, sample_task):
+    async def test_get_task(self, scheduler: TaskScheduler, sample_task: Task) -> None:
         """Test getting task by ID."""
         task_id = await scheduler.submit_task(sample_task)
         task = scheduler.get_task(task_id)
@@ -50,14 +51,14 @@ class TestTaskScheduler:
         assert task.task_id == task_id
 
     @pytest.mark.asyncio
-    async def test_cancel_task(self, scheduler, sample_task):
+    async def test_cancel_task(self, scheduler: TaskScheduler, sample_task: Task) -> None:
         """Test task cancellation."""
         task_id = await scheduler.submit_task(sample_task)
         result = scheduler.cancel_task(task_id)
         assert result is True
 
     @pytest.mark.asyncio
-    async def test_list_tasks(self, scheduler, sample_task):
+    async def test_list_tasks(self, scheduler: TaskScheduler, sample_task: Task) -> None:
         """Test listing tasks."""
         await scheduler.submit_task(sample_task)
         await scheduler.submit_task(sample_task)
@@ -65,11 +66,11 @@ class TestTaskScheduler:
         assert len(tasks) >= 2
 
     @pytest.mark.asyncio
-    async def test_user_quota(self, scheduler):
+    async def test_user_quota(self, scheduler: TaskScheduler) -> None:
         """Test user quota enforcement."""
         scheduler.set_user_quota("quota_user", max_tasks=2, max_gpu_hours=1)
 
-        def dummy():
+        def dummy() -> int:
             return 1
 
         for i in range(2):
@@ -81,7 +82,7 @@ class TestTaskScheduler:
             await scheduler.submit_task(task)
 
     @pytest.mark.asyncio
-    async def test_get_stats(self, scheduler, sample_task):
+    async def test_get_stats(self, scheduler: TaskScheduler, sample_task: Task) -> None:
         """Test queue statistics."""
         await scheduler.submit_task(sample_task)
         stats = scheduler.get_stats()

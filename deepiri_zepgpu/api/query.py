@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Callable
 
 from deepiri_zepgpu.core.scheduler import TaskScheduler
 from deepiri_zepgpu.core.task import Task, TaskStatus
@@ -27,7 +27,7 @@ class TaskQuery:
     def is_complete(self, task_id: str) -> bool:
         """Check if task is complete (success or failure)."""
         task = self.get_task(task_id)
-        return task.status in {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED}
+        return task is not None and task.status in {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED}
 
     def is_success(self, task_id: str) -> bool:
         """Check if task completed successfully."""
@@ -130,14 +130,14 @@ class TaskWatcher:
     def __init__(self, query: TaskQuery, poll_interval: float = 0.5):
         self._query = query
         self._poll_interval = poll_interval
-        self._callbacks: dict[str, list[callable]] = {}
+        self._callbacks: dict[str, list[tuple[str, Callable]]] = {}
 
     def watch(
         self,
         task_id: str,
-        on_complete: callable | None = None,
-        on_error: callable | None = None,
-        on_progress: callable | None = None,
+        on_complete: Callable | None = None,
+        on_error: Callable | None = None,
+        on_progress: Callable | None = None,
     ) -> None:
         """Register callbacks for task events."""
         if task_id not in self._callbacks:

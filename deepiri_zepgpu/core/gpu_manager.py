@@ -97,7 +97,7 @@ class GPUManager:
         enable_nvml: bool = True,
         memory_overhead_mb: int = 512,
         reserve_memory_mb: int = 1024,
-    ):
+    ) -> None:
         self._devices: dict[int, GPUDevice] = {}
         self._lock = threading.RLock()
         self._nvml_initialized = False
@@ -188,7 +188,7 @@ class GPUManager:
         if self._monitoring_task is not None:
             return
 
-        async def monitor_loop():
+        async def monitor_loop() -> None:
             while True:
                 await self._update_gpu_metrics()
                 await asyncio.sleep(interval_seconds)

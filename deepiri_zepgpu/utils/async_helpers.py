@@ -45,7 +45,7 @@ async def retry_async(
                 await asyncio.sleep(current_delay)
                 current_delay *= backoff
 
-    raise last_exception
+    raise last_exception  # type: ignore[misc]
 
 
 async def wait_for(
@@ -84,7 +84,7 @@ class AsyncBatchProcessor:
         batch_size: int = 10,
         max_concurrent: int = 4,
         delay_between_batches: float = 0.1,
-    ):
+    ) -> None:
         self._batch_size = batch_size
         self._max_concurrent = max_concurrent
         self._delay = delay_between_batches
@@ -115,7 +115,7 @@ class AsyncBatchProcessor:
 class AsyncEventBus:
     """Simple async event bus."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._subscribers: dict[str, list[Callable[[Any], None]]] = {}
 
     def subscribe(self, event: str, handler: Callable[[Any], None]) -> None:
@@ -142,7 +142,7 @@ class AsyncEventBus:
 class AsyncCache:
     """Simple async cache with TTL."""
 
-    def __init__(self, ttl_seconds: float = 60.0):
+    def __init__(self, ttl_seconds: float = 60.0) -> None:
         self._cache: dict[str, tuple[Any, float]] = {}
         self._ttl = ttl_seconds
 

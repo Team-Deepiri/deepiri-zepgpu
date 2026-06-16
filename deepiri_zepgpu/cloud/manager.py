@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 class CloudGPUManager:
     """Manager for cloud GPU resources across multiple providers."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._providers: dict[str, CloudProvider] = {}
         self._initialized = False
 
@@ -131,12 +131,12 @@ class CloudGPUManager:
                 except Exception:
                     continue
 
-        gpus = await self.get_cheapest_gpus(count)
-        for provider_name, gpu in gpus:
+        gpus = await self.get_cheapest_gpus(count)  # type: ignore[assignment]
+        for provider_name, gpu in gpus:  # type: ignore[misc]
             if max_price and gpu.price_per_hour > max_price:
                 continue
 
-            provider = self._providers[provider_name]
+            provider = self._providers[provider_name]  # type: ignore[has-type]
             config = LaunchConfig(
                 name=name,
                 gpu_type_id=gpu.gpu_type,
@@ -145,9 +145,9 @@ class CloudGPUManager:
             )
             try:
                 instance = await provider.launch_instance(config)
-                return provider_name, instance
+                return provider_name, instance  # type: ignore[has-type]
             except Exception as e:
-                logger.warning(f"Failed to launch on {provider_name}: {e}")
+                logger.warning(f"Failed to launch on {provider_name}: {e}")  # type: ignore[has-type]
                 continue
 
         return None
@@ -172,7 +172,7 @@ class CloudGPUManager:
 
     async def get_all_instances(self) -> dict[str, list[Instance]]:
         """Get all instances from all providers."""
-        results = {}
+        results: dict[str, Any] = {}
         for name, provider in self._providers.items():
             try:
                 status = await provider.get_status()

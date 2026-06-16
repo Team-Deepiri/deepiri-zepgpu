@@ -85,7 +85,7 @@ class UserManager:
                 username=username,
                 email=email,
                 role=role,
-                quota=quota,
+                quota=quota,  # type: ignore[arg-type]
             )
 
             self._users[user_id] = user

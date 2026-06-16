@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from deepiri_zepgpu.api.server.dependencies import get_current_user
 from deepiri_zepgpu.cloud.manager import cloud_manager
+from deepiri_zepgpu.database.models import User
 
 router = APIRouter()
 
@@ -149,7 +150,7 @@ async def list_available_gpus(
 @router.post("/launch", response_model=InstanceResponse)
 async def launch_instance(
     request: LaunchInstanceRequest,
-    current_user=Depends(get_current_user),
+    current_user: User | None = Depends(get_current_user),
 ) -> InstanceResponse:
     """Launch a cloud GPU instance.
 
@@ -276,7 +277,7 @@ async def start_instance(
         raise HTTPException(status_code=404, detail=f"Provider '{provider}' not found")
 
         try:
-            instance = await p.start_instance(instance_id)
+            instance: Any = await p.start_instance(instance_id)
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e)) from e
 

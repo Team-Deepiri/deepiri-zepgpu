@@ -10,14 +10,14 @@ from deepiri_zepgpu.core.task import Task, TaskResources
 class TestAccessControl:
     """Test cases for AccessControl."""
 
-    def test_default_quota(self):
+    def test_default_quota(self) -> None:
         """Test default quota values."""
         access = AccessControl()
         quota = access.get_quota("any_user")
         assert quota.max_tasks == 100
         assert quota.max_gpu_hours == 24
 
-    def test_set_quota(self):
+    def test_set_quota(self) -> None:
         """Test setting custom quota."""
         access = AccessControl()
         custom_quota = Quota(max_tasks=50, max_gpu_hours=10)
@@ -25,11 +25,11 @@ class TestAccessControl:
         quota = access.get_quota("user1")
         assert quota.max_tasks == 50
 
-    def test_check_task_submission(self):
+    def test_check_task_submission(self) -> None:
         """Test task submission quota check."""
         access = AccessControl(default_quota=Quota(max_tasks=2, max_concurrent_tasks=1))
 
-        def dummy():
+        def dummy() -> int:
             return 1
 
         task = Task(func=dummy, user_id="user1")
@@ -41,7 +41,7 @@ class TestAccessControl:
         can_submit, _ = access.check_task_submission("user1", task)
         assert can_submit is False
 
-    def test_record_task_end(self):
+    def test_record_task_end(self) -> None:
         """Test recording task end."""
         access = AccessControl()
         access.record_task_start("user1", 1024)
@@ -54,7 +54,7 @@ class TestAccessControl:
 class TestUserManager:
     """Test cases for UserManager."""
 
-    def test_create_user(self):
+    def test_create_user(self) -> None:
         """Test user creation."""
         users = UserManager()
         user = users.create_user(
@@ -62,17 +62,20 @@ class TestUserManager:
             email="test@example.com",
             role=UserRole.RESEARCHER,
         )
+        assert user is not None
         assert user.username == "testuser"
         assert user.role == UserRole.RESEARCHER
 
-    def test_get_user(self):
+    def test_get_user(self) -> None:
         """Test getting user by ID."""
         users = UserManager()
         created = users.create_user("testuser", "test@example.com")
+        assert created is not None
         retrieved = users.get_user(created.user_id)
+        assert retrieved is not None
         assert retrieved.user_id == created.user_id
 
-    def test_authenticate(self):
+    def test_authenticate(self) -> None:
         """Test user authentication."""
         users = UserManager()
         users.create_user("testuser", "test@example.com")
@@ -82,7 +85,7 @@ class TestUserManager:
         user_id = users.verify_token(token)
         assert user_id is not None
 
-    def test_list_users(self):
+    def test_list_users(self) -> None:
         """Test listing users."""
         users = UserManager()
         users.create_user("user1", "user1@example.com")

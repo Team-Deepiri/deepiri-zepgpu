@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager, suppress
+from typing import Any, Awaitable, Callable
 
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -58,7 +60,7 @@ QUEUE_LENGTH = Gauge(
 )
 
 
-async def _vpn_registry_maintenance_loop(stop: asyncio.Event):
+async def _vpn_registry_maintenance_loop(stop: asyncio.Event) -> None:
     """Mark stale VPN peers and refresh in-process GPU pool from DB."""
     interval = max(15, vpn_settings.heartbeat_interval_seconds)
     while not stop.is_set():
@@ -78,7 +80,7 @@ async def _vpn_registry_maintenance_loop(stop: asyncio.Event):
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan events."""
     await init_db()
     await queue.connect()
@@ -120,7 +122,7 @@ app.add_middleware(
 
 
 @app.middleware("http")
-async def metrics_middleware(request: Request, call_next):
+async def metrics_middleware(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
     """Middleware to collect metrics."""
     start_time = time.time()
 
@@ -153,7 +155,7 @@ app.include_router(websocket.router, prefix="/api/v1", tags=["WebSocket"])
 
 
 @app.get("/", tags=["Root"])
-async def root():
+async def root() -> dict[str, str]:
     """Root endpoint."""
     return {
         "name": settings.api.title,
@@ -163,7 +165,7 @@ async def root():
 
 
 @app.get("/metrics", tags=["Monitoring"])
-async def metrics():
+async def metrics() -> Response:
     """Prometheus metrics endpoint."""
     return Response(
         content=generate_latest(),
@@ -172,7 +174,7 @@ async def metrics():
 
 
 @app.get("/api/v1/stats", tags=["System"])
-async def get_stats():
+async def get_stats() -> dict[str, Any]:
     """Get system statistics."""
     import psutil
 
@@ -209,7 +211,7 @@ async def get_stats():
 
 
 @app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
+async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """Global exception handler."""
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

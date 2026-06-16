@@ -1,7 +1,7 @@
 """Multi-task pipeline example."""
 
 import numpy as np
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Tuple
 
 
 def preprocess_data(raw_data: np.ndarray) -> np.ndarray:
@@ -135,8 +135,8 @@ def ensemble_predict(
 class Pipeline:
     """Simple pipeline for chaining tasks."""
 
-    def __init__(self):
-        self._stages: List[Callable] = []
+    def __init__(self) -> None:
+        self._stages: List[Tuple[str, Callable, Dict[str, Any]]] = []
         self._results: Dict[str, Any] = {}
 
     def add_stage(self, name: str, func: Callable, **kwargs: Any) -> "Pipeline":

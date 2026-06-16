@@ -109,7 +109,7 @@ async def close_db() -> None:
 class DatabaseManager:
     """Database connection manager."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._engine = async_engine
         self._session_factory = AsyncSessionLocal
 
@@ -120,7 +120,7 @@ class DatabaseManager:
     @asynccontextmanager
     async def session(self) -> AsyncGenerator[AsyncSession, None]:
         """Context manager for session."""
-        session = await self._session_factory()
+        session = await self._session_factory()  # type: ignore[misc]
         try:
             yield session
             await session.commit()

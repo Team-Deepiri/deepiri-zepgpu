@@ -30,7 +30,7 @@ async def authenticate_websocket(token: str | None) -> str | None:
             algorithms=[settings.auth.algorithm],
         )
         return payload.get("sub")
-    except jwt.JWTError:
+    except jwt.JWTError:  # type: ignore[attr-defined]
         return None
 
 
@@ -65,7 +65,7 @@ async def task_updates_websocket(  # noqa: C901
 
             try:
                 message = asyncio.get_event_loop().run_in_executor(
-                    None, lambda d=data: __import__("json").loads(d)
+                    None, lambda d=data: __import__("json").loads(d)  # type: ignore[misc]
                 )
                 msg = await message
 
@@ -147,7 +147,7 @@ async def gpu_updates_websocket(
             }
         )
 
-        async def send_gpu_updates():
+        async def send_gpu_updates() -> None:
             """Send periodic GPU updates."""
             while True:
                 try:
@@ -222,7 +222,7 @@ async def metrics_websocket(  # noqa: C901
             }
         )
 
-        async def send_metrics():
+        async def send_metrics() -> None:
             """Send periodic system metrics."""
             import psutil
 

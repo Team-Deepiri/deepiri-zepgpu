@@ -7,6 +7,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from collections.abc import Callable
 from typing import Any
 
 
@@ -101,7 +102,7 @@ class CloudProvider(ABC):
     provider_type: CloudProviderType
     provider_name: str
 
-    def __init__(self, config: dict[str, Any]):
+    def __init__(self, config: dict[str, Any]) -> None:
         self.config = config
 
     @abstractmethod
@@ -194,7 +195,7 @@ class CloudProviderRegistry:
         cls._instances.pop(instance_id, None)
 
 
-def register_provider(provider_type: CloudProviderType):
+def register_provider(provider_type: CloudProviderType) -> Callable[[type[CloudProvider]], type[CloudProvider]]:
     """Decorator to register a cloud provider."""
 
     def decorator(cls: type[CloudProvider]) -> type[CloudProvider]:
