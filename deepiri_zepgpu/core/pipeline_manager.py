@@ -4,16 +4,16 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Callable, Optional
-
-from deepiri_zepgpu.core.task import Task, TaskStatus
+from typing import Any
 
 
 class PipelineStageStatus(Enum):
     """Status of a pipeline stage."""
+
     PENDING = "pending"
     WAITING = "waiting"
     RUNNING = "running"
@@ -25,24 +25,26 @@ class PipelineStageStatus(Enum):
 @dataclass
 class PipelineStage:
     """Single stage in a pipeline."""
+
     name: str
     func: Callable[..., Any]
     args_template: dict[str, Any] = field(default_factory=dict)
     depends_on: list[str] = field(default_factory=list)
-    resources: Optional[Any] = None
+    resources: Any | None = None
     retry_count: int = 0
     max_retries: int = 3
     timeout_seconds: int = 3600
-    on_error: Optional[Callable[[Exception], Any]] = None
+    on_error: Callable[[Exception], Any] | None = None
 
 
 @dataclass
 class Pipeline:
     """Represents a multi-stage GPU compute pipeline."""
+
     name: str
     stages: list[PipelineStage]
     pipeline_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    user_id: Optional[str] = None
+    user_id: str | None = None
     created_at: datetime = field(default_factory=datetime.utcnow)
     status: PipelineStageStatus = PipelineStageStatus.PENDING
     stage_results: dict[str, Any] = field(default_factory=dict)
@@ -76,7 +78,7 @@ class PipelineManager:
         self,
         name: str,
         stages: list[PipelineStage],
-        user_id: Optional[str] = None,
+        user_id: str | None = None,
     ) -> str:
         """Create a new pipeline."""
         pipeline = Pipeline(name=name, stages=stages, user_id=user_id)
@@ -87,7 +89,7 @@ class PipelineManager:
     async def run_pipeline(
         self,
         pipeline_id: str,
-        initial_inputs: Optional[dict[str, Any]] = None,
+        initial_inputs: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Execute a pipeline."""
         pipeline = self._pipelines.get(pipeline_id)
@@ -102,11 +104,11 @@ class PipelineManager:
             pipeline.status = PipelineStageStatus.COMPLETED
             return results
 
-        except Exception as e:
+        except Exception:
             pipeline.status = PipelineStageStatus.FAILED
             raise
 
-    async def _execute_stages(
+    async def _execute_stages(  # noqa: C901
         self,
         pipeline: Pipeline,
         initial_inputs: dict[str, Any],
@@ -119,17 +121,13 @@ class PipelineManager:
         stage_tasks: dict[str, asyncio.Task] = {}
 
         while len(completed) + len(failed_stages) < len(pipeline.stages):
-            ready_stages = self._get_ready_stages(
-                pipeline, completed, failed_stages, context
-            )
+            ready_stages = self._get_ready_stages(pipeline, completed, failed_stages, context)
 
             if not ready_stages and len(stage_tasks) == 0:
                 break
 
-            for stage in ready_stages[:self._max_concurrent_stages - len(stage_tasks)]:
-                task = asyncio.create_task(
-                    self._execute_stage(pipeline, stage, context)
-                )
+            for stage in ready_stages[: self._max_concurrent_stages - len(stage_tasks)]:
+                task = asyncio.create_task(self._execute_stage(pipeline, stage, context))
                 stage_tasks[stage.name] = task
 
             if stage_tasks:
@@ -232,7 +230,7 @@ class PipelineManager:
                 resolved[key] = value
         return resolved
 
-    def get_pipeline(self, pipeline_id: str) -> Optional[Pipeline]:
+    def get_pipeline(self, pipeline_id: str) -> Pipeline | None:
         """Get pipeline by ID."""
         return self._pipelines.get(pipeline_id)
 
@@ -246,10 +244,7 @@ class PipelineManager:
             "pipeline_id": pipeline.pipeline_id,
             "name": pipeline.name,
             "status": pipeline.status.value,
-            "stages": {
-                name: status.value
-                for name, status in pipeline.stage_statuses.items()
-            },
+            "stages": {name: status.value for name, status in pipeline.stage_statuses.items()},
             "completed_stages": pipeline.completed_stages,
             "total_stages": len(pipeline.stages),
             "errors": pipeline.errors,
@@ -265,8 +260,8 @@ class PipelineManager:
 
     def list_pipelines(
         self,
-        user_id: Optional[str] = None,
-        status: Optional[PipelineStageStatus] = None,
+        user_id: str | None = None,
+        status: PipelineStageStatus | None = None,
     ) -> list[Pipeline]:
         """List pipelines with optional filtering."""
         pipelines = list(self._pipelines.values())

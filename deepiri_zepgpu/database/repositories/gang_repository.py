@@ -3,17 +3,17 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import datetime, timedelta
-from typing import Any, Sequence
 
-from sqlalchemy import and_, func, select, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from deepiri_zepgpu.database.models.gang_scheduling import (
-    GangTask,
-    GangStatus,
-    PreemptionRecord,
     FairShareBucket,
+    GangStatus,
+    GangTask,
+    PreemptionRecord,
 )
 
 
@@ -32,9 +32,7 @@ class GangScheduleRepository:
 
     async def get_by_id(self, gang_task_id: str) -> GangTask | None:
         """Get gang task by ID."""
-        result = await self.session.execute(
-            select(GangTask).where(GangTask.id == gang_task_id)
-        )
+        result = await self.session.execute(select(GangTask).where(GangTask.id == gang_task_id))
         return result.scalar_one_or_none()
 
     async def list_by_user(
@@ -52,7 +50,11 @@ class GangScheduleRepository:
         if status is not None:
             query = query.where(GangTask.status == status)
 
-        query = query.order_by(GangTask.priority.desc(), GangTask.created_at.asc()).limit(limit).offset(offset)
+        query = (
+            query.order_by(GangTask.priority.desc(), GangTask.created_at.asc())
+            .limit(limit)
+            .offset(offset)
+        )
 
         result = await self.session.execute(query)
         return result.scalars().all()
@@ -110,7 +112,9 @@ class GangScheduleRepository:
         """Mark gang task as completed."""
         return await self.update_status(gang_task_id, GangStatus.COMPLETED)
 
-    async def mark_failed(self, gang_task_id: str, error: str, traceback: str | None = None) -> GangTask | None:
+    async def mark_failed(
+        self, gang_task_id: str, error: str, traceback: str | None = None
+    ) -> GangTask | None:
         """Mark gang task as failed."""
         return await self.update_status(
             gang_task_id,
@@ -227,7 +231,7 @@ class FairShareRepository:
     ) -> FairShareBucket:
         """Get or create fair share bucket for user."""
         bucket = await self.get_by_user(user_id)
-        
+
         if bucket:
             if self._is_period_expired(bucket):
                 bucket.gpu_seconds_used = 0
@@ -237,7 +241,7 @@ class FairShareRepository:
                 bucket.period_start = datetime.utcnow()
                 await self.session.flush()
             return bucket
-        
+
         return await self.create(
             user_id=user_id,
             weight=weight,
@@ -308,7 +312,7 @@ class FairShareRepository:
 
     async def get_scheduling_weight(self, user_id: str) -> float:
         """Get the effective scheduling weight for a user.
-        
+
         This considers both the user's base weight and their usage.
         Users over their quota get reduced weight.
         """
@@ -323,7 +327,7 @@ class FairShareRepository:
             return bucket.weight
 
         usage_ratio = bucket.gpu_seconds_used / bucket.gpu_seconds_limit
-        
+
         if usage_ratio >= 1.0:
             return 0.0
         elif usage_ratio >= 0.8:
@@ -332,14 +336,14 @@ class FairShareRepository:
             return bucket.weight * 0.5
         elif usage_ratio >= 0.4:
             return bucket.weight * 0.75
-        
+
         return bucket.weight
 
     async def list_all(self, limit: int = 100) -> Sequence[FairShareBucket]:
         """List all fair share buckets."""
         result = await self.session.execute(
             select(FairShareBucket)
-            .where(FairShareBucket.is_active == True)
+            .where(FairShareBucket.is_active.is_(True))
             .order_by(FairShareBucket.gpu_seconds_used.desc())
             .limit(limit)
         )

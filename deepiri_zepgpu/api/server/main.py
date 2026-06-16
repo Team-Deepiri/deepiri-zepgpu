@@ -4,26 +4,24 @@ from __future__ import annotations
 
 import asyncio
 import time
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from prometheus_client import Counter, Gauge, Histogram, generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
 from starlette.responses import Response
 
-from deepiri_zepgpu.api.server.routes import api_router
-from deepiri_zepgpu.api.server.routes import websocket
+from deepiri_zepgpu.api.server.routes import api_router, websocket
 from deepiri_zepgpu.api.server.websocket_manager import manager
 from deepiri_zepgpu.config import settings
-from deepiri_zepgpu.database import init_db, close_db
+from deepiri_zepgpu.database import close_db, init_db
 from deepiri_zepgpu.database.session import get_db_context
 from deepiri_zepgpu.queue.redis_queue import queue
 from deepiri_zepgpu.storage.result_store import result_store
 from deepiri_zepgpu.vpn.config import vpn_settings
 from deepiri_zepgpu.vpn.peer_manager import mark_stale_peers_offline
 from deepiri_zepgpu.vpn.pool_sync import get_registered_gpu_pool, refresh_gpu_pool_from_db
-
 
 REQUEST_COUNT = Counter(
     "zepgpu_http_requests_total",
@@ -67,7 +65,7 @@ async def _vpn_registry_maintenance_loop(stop: asyncio.Event):
         try:
             await asyncio.wait_for(stop.wait(), timeout=interval)
             break
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass
         try:
             async with get_db_context() as db:
@@ -88,6 +86,7 @@ async def lifespan(app: FastAPI):
         await result_store.initialize()
     except Exception as exc:
         import logging
+
         logging.getLogger(__name__).warning(
             "Result store initialization failed; continuing without result storage: %s",
             exc,
@@ -98,10 +97,8 @@ async def lifespan(app: FastAPI):
     yield
     vpn_stop.set()
     vpn_task.cancel()
-    try:
+    with suppress(asyncio.CancelledError):
         await vpn_task
-    except asyncio.CancelledError:
-        pass
     await close_db()
     await queue.disconnect()
 
@@ -126,28 +123,28 @@ app.add_middleware(
 async def metrics_middleware(request: Request, call_next):
     """Middleware to collect metrics."""
     start_time = time.time()
-    
+
     response = await call_next(request)
-    
+
     duration = time.time() - start_time
-    
+
     endpoint = request.url.path
     if endpoint.startswith("/api/v1"):
         endpoint = "/api/v1" + endpoint.split("/")[2] if len(endpoint.split("/")) > 2 else "/api/v1"
     else:
         endpoint = endpoint
-    
+
     REQUEST_COUNT.labels(
         method=request.method,
         endpoint=endpoint,
         status=response.status_code,
     ).inc()
-    
+
     REQUEST_LATENCY.labels(
         method=request.method,
         endpoint=endpoint,
     ).observe(duration)
-    
+
     return response
 
 
@@ -178,14 +175,15 @@ async def metrics():
 async def get_stats():
     """Get system statistics."""
     import psutil
-    from deepiri_zepgpu.database.session import get_db_context
-    from deepiri_zepgpu.database.repositories import TaskRepository, GPURepository
+
     from deepiri_zepgpu.database.models.task import TaskStatus
-    
+    from deepiri_zepgpu.database.repositories import GPURepository, TaskRepository
+    from deepiri_zepgpu.database.session import get_db_context
+
     async with get_db_context() as db:
         task_repo = TaskRepository(db)
         gpu_repo = GPURepository(db)
-        
+
         stats = {
             "queue": {
                 "pending_tasks": await task_repo.count_by_status(TaskStatus.PENDING),
@@ -206,7 +204,7 @@ async def get_stats():
                 "memory_percent": psutil.virtual_memory().percent,
             },
         }
-    
+
     return stats
 
 
@@ -229,6 +227,7 @@ def create_app() -> FastAPI:
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(
         "deepiri_zepgpu.api.server.main:app",
         host=settings.api.host,

@@ -33,62 +33,139 @@ _Made by Deepiri_
 
 ## Quick Start
 
+The fastest way to run ZepGPU locally is Docker Compose. It starts the API, UI, PostgreSQL, Redis, Celery workers, and observability stack in one command.
+
 ### Prerequisites
 
-- Python 3.11+
-- Docker & Docker Compose
-- NVIDIA Docker (for GPU support)
-- PostgreSQL 15
-- Redis 7
+- [Docker](https://docs.docker.com/get-docker/) and Docker Compose v2 (`docker compose`)
+- [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) (optional, only needed for GPU task execution on the host)
 
-### Installation
+Poetry and a local Python install are only required if you want to run the backend outside Docker (see [Development](#development)).
+
+### Start the stack
 
 ```bash
-# Clone the repository
 git clone https://github.com/Team-Deepiri/deepiri-zepgpu.git
 cd deepiri-zepgpu
 
-# Install dependencies
-poetry install
+docker compose -f docker/docker-compose.yml up -d --build
+```
 
-# Start with Docker Compose
-cd docker
-docker-compose up -d
+First startup builds the backend and UI images and may take several minutes.
 
-# Or run directly
+Check that services are running:
+
+```bash
+docker compose -f docker/docker-compose.yml ps
+```
+
+Wait until the `zepgpu` container reports healthy, then verify the API:
+
+```bash
+curl http://localhost:8000/api/v1/health
+```
+
+### Services and ports
+
+| Service | Container | URL / port |
+|---------|-----------|------------|
+| API + Swagger | `zepgpu` | http://localhost:8000 — OpenAPI at `/docs` |
+| Web UI | `zepgpu-ui` | http://localhost:3000 |
+| PostgreSQL | `zepgpu-db` | `localhost:5432` |
+| Redis | `redis` | `localhost:6379` |
+| Prometheus | `prometheus` | http://localhost:9090 |
+| Grafana | `grafana` | http://localhost:3001 (login `admin` / `admin`) |
+
+Celery processes started by compose:
+
+- `celery-beat` — scheduled jobs
+- `celery-worker-schedules` — `schedules` and default `celery` task queue
+- `celery-worker-gang` — gang scheduling queue
+- `celery-worker-preemption` — preemption queue
+
+The API container runs database initialization on startup (`init_db`). No separate migration step is required for the default local stack.
+
+### Verify auth and task execution
+
+Register a user, log in, and submit a lightweight no-op task. Setting `gpu_memory_mb: 0` skips GPU allocation, so this works on a machine without NVIDIA drivers.
+
+```bash
+# Register
+curl -s -X POST http://localhost:8000/api/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"username":"demo","email":"demo@example.com","password":"password123"}'
+
+# Login (JSON body) and save the token
+export TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"demo","password":"password123"}' \
+  | python3 -c "import sys, json; print(json.load(sys.stdin)['access_token'])")
+
+# Create a no-op task. random.seed takes no required args and returns None,
+# which the worker records as a completed task with no stored result.
+curl -s -X POST http://localhost:8000/api/v1/tasks \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Smoke test","func_name":"random.seed","gpu_memory_mb":0}'
+
+# Poll task status (replace TASK_ID with the id from the create response)
+curl -s http://localhost:8000/api/v1/tasks/TASK_ID \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Within a few seconds the task status moves from `pending` to `completed`. The result
+endpoint returns `null` for this no-op because the function returns no value:
+
+```bash
+curl -s http://localhost:8000/api/v1/tasks/TASK_ID/result \
+  -H "Authorization: Bearer $TOKEN"
+# {"task_id":"...","status":"completed","result":null,"presigned_url":null}
+```
+
+> **Note:** In the default local stack, tasks whose function returns a value require the
+> result store (Redis-backed) to be reachable from the worker. See the
+> [deployment troubleshooting guide](docs/deployment_troubleshooting.md) if a task ends
+> in `failed` with a `set_task_result` error.
+
+For the complete, verified HTTP API walkthrough (auth, tasks, pipelines, callbacks, and
+WebSockets), see the **[API reference](docs/api_reference.md#http--rest-api)**.
+
+### Web UI
+
+Open http://localhost:3000 to create and manage tasks, view pipelines, and monitor GPU utilization.
+
+### Stop the stack
+
+```bash
+docker compose -f docker/docker-compose.yml down
+```
+
+Add `-v` to remove named volumes (PostgreSQL and Redis data).
+
+### Python API (optional)
+
+If you run the backend with Poetry instead of Docker, install dependencies first (`poetry install`), ensure PostgreSQL and Redis are reachable, then start the server:
+
+```bash
 poetry run uvicorn deepiri_zepgpu.api.server.main:app --reload
 ```
 
-### Python API
-
 ```python
 from deepiri_zepgpu.api.submit import submit_task
-import cloudpickle
 
-# Define your GPU function
 def matrix_multiply(a, b):
     import cupy as cp
     return cp.dot(a, b)
 
-# Submit for execution
-task = submit_task(
+task_id = submit_task(
     func=matrix_multiply,
     args=([1, 2, 3], [4, 5, 6]),
     gpu_memory_mb=2048,
-    priority=3
+    priority=3,
 )
 
-print(f"Task submitted: {task.task_id}")
+print(f"Task submitted: {task_id}")
 ```
-
-### Web UI
-
-Access the dashboard at `http://localhost:3000`:
-
-- Create and manage tasks
-- Monitor GPU utilization
-- View pipeline execution
-- Track task history
 
 ---
 
@@ -132,10 +209,13 @@ Access the dashboard at `http://localhost:3000`:
 
 ## Documentation
 
+- **[API reference](docs/api_reference.md)** — the [HTTP/REST + WebSocket API](docs/api_reference.md#http--rest-api) (auth, tasks, pipelines, callbacks) and the [Python SDK](docs/api_reference.md#python-sdk).
+- **[Deployment & troubleshooting guide](docs/deployment_troubleshooting.md)** — Docker, Postgres, Redis, Celery, MinIO/S3, and GPU/NVIDIA issues.
+
 ### Project Structure
 
 ```
-zepgpu/
+deepiri-zepgpu/
 ├── deepiri_zepgpu/       # Python backend
 │   ├── api/server/       # FastAPI routes
 │   ├── core/             # Task scheduler, GPU manager
@@ -150,20 +230,28 @@ zepgpu/
 
 ### Environment Variables
 
+Docker Compose sets connection URLs for PostgreSQL, Redis, and Celery automatically. For local non-Docker development, configure at minimum:
+
 ```bash
-# Required
 DATABASE_URL=postgresql+asyncpg://zepgpu:zepgpu@localhost:5432/zepgpu
 REDIS_URL=redis://localhost:6379/0
-JWT_SECRET_KEY=your-secret-key
-
-# Optional
-API_PORT=8000
-GPU_MEMORY_RESERVE_MB=1024
+CELERY_BROKER_URL=redis://localhost:6379/1
+CELERY_RESULT_BACKEND=redis://localhost:6379/2
 ```
+
+Optional S3/MinIO settings (`S3_*` / endpoint URL) enable large result storage; the stack runs without MinIO and degrades gracefully when object storage is unavailable.
+
+Auth defaults to `changeme-in-production` for the JWT secret in local development — override via application settings before deploying publicly.
 
 ---
 
 ## API Reference
+
+This section is a quick reference. For the full, verified walkthrough with request/response
+examples, see the **[API reference](docs/api_reference.md#http--rest-api)**.
+
+All routes are served under `/api/v1`. Authentication endpoints are mounted at both
+`/api/v1/auth/*` and `/api/v1/users/*` (same router).
 
 ### Authentication
 
@@ -173,19 +261,20 @@ curl -X POST http://localhost:8000/api/v1/auth/register \
   -H "Content-Type: application/json" \
   -d '{"username":"user","email":"user@example.com","password":"password123"}'
 
-# Login
+# Login — JSON body (NOT form-encoded). Returns an access_token.
 curl -X POST http://localhost:8000/api/v1/auth/login \
-  -d "username=user&password=password123"
+  -H "Content-Type: application/json" \
+  -d '{"username":"user","password":"password123"}'
 ```
 
 ### Tasks
 
 ```bash
-# Submit task
+# Submit task. Provide a dotted func_name; gpu_memory_mb=0 runs without a GPU.
 curl -X POST http://localhost:8000/api/v1/tasks \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"name":"My GPU Task","func_name":"numpy.matmul","gpu_memory_mb":1024}'
+  -d '{"name":"My Task","func_name":"random.seed","gpu_memory_mb":0}'
 
 # List tasks
 curl http://localhost:8000/api/v1/tasks \
@@ -195,23 +284,43 @@ curl http://localhost:8000/api/v1/tasks \
 curl http://localhost:8000/api/v1/tasks/{task_id} \
   -H "Authorization: Bearer $TOKEN"
 
-# Cancel task
+# Get task result
+curl http://localhost:8000/api/v1/tasks/{task_id}/result \
+  -H "Authorization: Bearer $TOKEN"
+
+# Cancel task (only while pending/queued/running)
 curl -X DELETE http://localhost:8000/api/v1/tasks/{task_id} \
   -H "Authorization: Bearer $TOKEN"
+```
+
+### Callbacks
+
+Include a `callback_url` when creating a task. On completion or failure, the worker POSTs a
+JSON payload to that URL:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/tasks \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"With callback","func_name":"random.seed","gpu_memory_mb":0,
+       "callback_url":"https://example.com/hook"}'
+
+# Webhook body delivered to callback_url:
+# {"task_id":"<uuid>","status":"completed","user_id":"<uuid>"}
 ```
 
 ### Pipelines
 
 ```bash
-# Create pipeline
+# Create a pipeline with ordered stages
 curl -X POST http://localhost:8000/api/v1/pipelines \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "name": "ML Training Pipeline",
+    "name": "Demo Pipeline",
     "stages": [
-      {"name": "preprocess", "task_id": "uuid-1"},
-      {"name": "train", "task_id": "uuid-2", "depends_on": ["preprocess"]}
+      {"name": "preprocess", "func_name": "random.seed"},
+      {"name": "train", "func_name": "random.seed", "depends_on": ["preprocess"]}
     ]
   }'
 
@@ -222,22 +331,22 @@ curl -X POST http://localhost:8000/api/v1/pipelines/{pipeline_id}/run \
 
 ### WebSocket
 
+Three authenticated streams are available; pass the JWT as a `token` query parameter:
+`/api/v1/ws/tasks`, `/api/v1/ws/gpus`, `/api/v1/ws/metrics`.
+
 ```javascript
-// Connect to task updates
 const ws = new WebSocket('ws://localhost:8000/api/v1/ws/tasks?token=JWT_TOKEN');
+
+ws.onopen = () => ws.send(JSON.stringify({ type: 'ping' }));
 
 ws.onmessage = (event) => {
   const data = JSON.parse(event.data);
-  if (data.type === 'task_update') {
-    console.log(`Task ${data.task_id} status: ${data.status}`);
-  }
+  // { "type": "connected", ... } on connect, { "type": "pong" } in reply to ping
+  console.log(data);
 };
 
-// Subscribe to specific task
-ws.send(JSON.stringify({
-  type: 'subscribe_task',
-  task_id: 'task-uuid'
-}));
+// Subscribe to a specific task's updates
+ws.send(JSON.stringify({ type: 'subscribe_task', task_id: 'task-uuid' }));
 ```
 
 ---
@@ -277,16 +386,20 @@ poetry run alembic downgrade -1
 ### Docker
 
 ```bash
-# Build images
-docker build -t zepgpu:latest -f docker/Dockerfile .
-docker build -t zepgpu-ui:latest -f zepgpu-ui/Dockerfile .
+# Build and run the full local stack (from repo root)
+docker compose -f docker/docker-compose.yml up -d --build
 
-# Run stack
-docker-compose -f docker/docker-compose.yml up -d
+# Rebuild a single service after code changes
+docker compose -f docker/docker-compose.yml up -d --build zepgpu
 
-# Run with GPU support
-docker-compose -f docker/docker-compose.yml up -d --profile gpu
+# View logs
+docker compose -f docker/docker-compose.yml logs -f zepgpu celery-worker-schedules
+
+# Stop and remove containers
+docker compose -f docker/docker-compose.yml down
 ```
+
+The backend image is CUDA-based. GPU task execution inside workers requires the NVIDIA Container Toolkit on the host and appropriate device passthrough configuration.
 
 ---
 
@@ -316,10 +429,10 @@ Access at `http://localhost:8000/metrics`:
 
 ### Grafana Dashboards
 
-Import dashboards from `docker/grafana/provisioning/`:
+Grafana runs at http://localhost:3001 when using Docker Compose (default login `admin` / `admin`). Dashboards are provisioned from `docker/grafana/provisioning/`:
 
 - Task Overview
-- GPU Utilization  
+- GPU Utilization
 - System Health
 - Queue Statistics
 

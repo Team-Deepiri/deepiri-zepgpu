@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import asyncio
-import time
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
-from deepiri_zepgpu.core.task import Task, TaskResources, TaskPriority, TaskStatus
-from deepiri_zepgpu.core.scheduler import TaskScheduler
-from deepiri_zepgpu.core.gpu_manager import GPUManager
 from deepiri_zepgpu.core.executor import TaskExecutor
+from deepiri_zepgpu.core.gpu_manager import GPUManager
+from deepiri_zepgpu.core.scheduler import TaskScheduler
+from deepiri_zepgpu.core.task import Task, TaskPriority, TaskResources, TaskStatus
 from deepiri_zepgpu.vpn.gpu_pool import GpuPoolAggregator
 from deepiri_zepgpu.vpn.pool_sync import register_gpu_pool
 from deepiri_zepgpu.vpn.remote_gpu_lock import RemoteGpuLock
@@ -20,9 +20,9 @@ class TaskSubmitter:
 
     def __init__(
         self,
-        scheduler: Optional[TaskScheduler] = None,
-        gpu_manager: Optional[GPUManager] = None,
-        executor: Optional[TaskExecutor] = None,
+        scheduler: TaskScheduler | None = None,
+        gpu_manager: GPUManager | None = None,
+        executor: TaskExecutor | None = None,
         auto_start: bool = True,
     ):
         self._gpu_manager = gpu_manager or GPUManager()
@@ -54,11 +54,11 @@ class TaskSubmitter:
         self,
         func: Callable[..., Any],
         *args: Any,
-        user_id: Optional[str] = None,
+        user_id: str | None = None,
         priority: TaskPriority = TaskPriority.NORMAL,
         gpu_memory_mb: int = 1024,
         timeout_seconds: int = 3600,
-        gpu_type: Optional[str] = None,
+        gpu_type: str | None = None,
         allow_fallback_cpu: bool = True,
         **kwargs: Any,
     ) -> str:
@@ -111,11 +111,11 @@ class TaskSubmitter:
         except Exception as e:
             self._scheduler.mark_task_failed(task.task_id, str(e))
 
-    def get_task(self, task_id: str) -> Optional[Task]:
+    def get_task(self, task_id: str) -> Task | None:
         """Get task by ID."""
         return self._scheduler.get_task(task_id)
 
-    def get_task_status(self, task_id: str) -> Optional[str]:
+    def get_task_status(self, task_id: str) -> str | None:
         """Get task status as string."""
         task = self.get_task(task_id)
         return task.status.value if task else None
@@ -127,8 +127,8 @@ class TaskSubmitter:
 
     def list_tasks(
         self,
-        user_id: Optional[str] = None,
-        status: Optional[TaskStatus] = None,
+        user_id: str | None = None,
+        status: TaskStatus | None = None,
     ) -> list[Task]:
         """List tasks."""
         return self._scheduler.list_tasks(user_id, status)
@@ -141,11 +141,11 @@ class TaskSubmitter:
 async def submit_task(
     func: Callable[..., Any],
     *args: Any,
-    user_id: Optional[str] = None,
+    user_id: str | None = None,
     priority: TaskPriority = TaskPriority.NORMAL,
     gpu_memory_mb: int = 1024,
     timeout_seconds: int = 3600,
-    gpu_type: Optional[str] = None,
+    gpu_type: str | None = None,
     allow_fallback_cpu: bool = True,
     wait: bool = False,
     **kwargs: Any,
@@ -179,7 +179,7 @@ async def submit_task(
     await submitter.start()
 
     task_id = await submitter.submit(
-        func=func,
+        func,
         *args,
         user_id=user_id,
         priority=priority,

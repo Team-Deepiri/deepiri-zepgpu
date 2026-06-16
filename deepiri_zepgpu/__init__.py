@@ -8,9 +8,9 @@ and simulation workloads.
 __version__ = "0.1.0"
 __author__ = "DeepIRI Team"
 
-from deepiri_zepgpu.core.task import Task, TaskStatus, TaskResult
-from deepiri_zepgpu.core.gpu_manager import GPUManager, GPUDevice
-from deepiri_zepgpu.api.submit import submit_task, TaskSubmitter
+from deepiri_zepgpu.api.submit import TaskSubmitter, submit_task
+from deepiri_zepgpu.core.gpu_manager import GPUDevice, GPUManager
+from deepiri_zepgpu.core.task import Task, TaskResult, TaskStatus
 
 __all__ = [
     "Task",

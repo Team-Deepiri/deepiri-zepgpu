@@ -3,10 +3,6 @@
 from __future__ import annotations
 
 import base64
-import pickle
-from typing import Any, Optional
-
-from deepiri_zepgpu.config import settings
 
 
 class ResultStore:
@@ -23,13 +19,15 @@ class ResultStore:
     async def initialize(self) -> None:
         """Initialize storage backends."""
         from deepiri_zepgpu.storage.s3_client import storage
+
         storage.connect()
         self._s3_client = storage
-        
+
         from deepiri_zepgpu.queue.redis_queue import RedisQueue
+
         self._redis_client = RedisQueue()
         await self._redis_client.connect()
-        
+
         self._initialized = True
 
     async def store_result(
@@ -37,7 +35,7 @@ class ResultStore:
         task_id: str,
         result: bytes,
         store_in_s3: bool = True,
-    ) -> tuple[str, Optional[str], int]:
+    ) -> tuple[str, str | None, int]:
         """Store task result.
 
         Returns:
@@ -49,10 +47,13 @@ class ResultStore:
         size_bytes = len(result)
 
         if size_bytes <= self.SMALL_RESULT_THRESHOLD:
-            await self._redis_client.set_task_result(task_id, {
-                "result": result.hex(),
-                "size": size_bytes,
-            })
+            await self._redis_client.set_task_result(
+                task_id,
+                {
+                    "result": result.hex(),
+                    "size": size_bytes,
+                },
+            )
             return "redis", task_id, size_bytes
 
         elif store_in_s3 and size_bytes <= self.LARGE_RESULT_THRESHOLD:
@@ -66,8 +67,8 @@ class ResultStore:
         self,
         task_id: str,
         storage_type: str,
-        storage_ref: Optional[str] = None,
-    ) -> Optional[bytes]:
+        storage_ref: str | None = None,
+    ) -> bytes | None:
         """Retrieve task result."""
         if storage_type == "redis":
             result_data = await self._redis_client.get_task_result(task_id)
@@ -98,7 +99,7 @@ class ResultStore:
         elif storage_type == "s3":
             self._s3_client.delete_result(task_id)
 
-    async def get_presigned_url(self, task_id: str, expiry: Optional[int] = None) -> Optional[str]:
+    async def get_presigned_url(self, task_id: str, expiry: int | None = None) -> str | None:
         """Get presigned URL for result download."""
         return self._s3_client.generate_presigned_url(task_id, expiry)
 
@@ -112,7 +113,7 @@ class ResultStore:
             return True
         return False
 
-    async def get_result_size(self, task_id: str) -> Optional[int]:
+    async def get_result_size(self, task_id: str) -> int | None:
         """Get result size."""
         if self._redis_client:
             redis_result = await self._redis_client.get_task_result(task_id)

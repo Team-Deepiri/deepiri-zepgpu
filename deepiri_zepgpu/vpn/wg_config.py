@@ -5,9 +5,6 @@ from __future__ import annotations
 import ipaddress
 import os
 from pathlib import Path
-from typing import Optional
-
-from deepiri_zepgpu.vpn.config import vpn_settings
 
 
 class WireGuardConfigGenerator:
@@ -31,16 +28,18 @@ class WireGuardConfigGenerator:
     def add_peer(
         self,
         public_key: str,
-        endpoint: Optional[str] = None,
+        endpoint: str | None = None,
         allowed_ips: str = "0.0.0.0/0, ::/0",
         persistent_keepalive: int = 25,
-    ) -> "WireGuardConfigGenerator":
-        self._peers.append({
-            "public_key": public_key,
-            "endpoint": endpoint,
-            "allowed_ips": allowed_ips,
-            "persistent_keepalive": persistent_keepalive,
-        })
+    ) -> WireGuardConfigGenerator:
+        self._peers.append(
+            {
+                "public_key": public_key,
+                "endpoint": endpoint,
+                "allowed_ips": allowed_ips,
+                "persistent_keepalive": persistent_keepalive,
+            }
+        )
         return self
 
     def generate(self) -> str:
@@ -72,7 +71,7 @@ class WireGuardConfigGenerator:
         os.chmod(path, 0o600)
 
 
-def allocate_vpn_ip(cidr: str = "10.8.0.0/24", used_ips: Optional[set[str]] = None) -> str:
+def allocate_vpn_ip(cidr: str = "10.8.0.0/24", used_ips: set[str] | None = None) -> str:
     """Allocate the next available VPN IP in the CIDR range."""
     used = used_ips or set()
     net = ipaddress.ip_network(cidr)

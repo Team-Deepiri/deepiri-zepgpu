@@ -7,7 +7,6 @@ import base64
 import pickle
 import time
 from datetime import datetime
-from typing import Optional
 
 import httpx
 from fastapi import FastAPI, HTTPException
@@ -20,13 +19,13 @@ app = FastAPI(title="ZepGPU Peer Node")
 
 class GpuInfo(BaseModel):
     device_index: int
-    name: Optional[str] = None
+    name: str | None = None
     total_memory_mb: int
     available_memory_mb: int
-    compute_capability: Optional[str] = None
+    compute_capability: str | None = None
     gpu_type: str = "nvidia"
     state: str = "idle"
-    utilization_percent: Optional[float] = None
+    utilization_percent: float | None = None
 
 
 class TaskPayload(BaseModel):
@@ -42,9 +41,9 @@ class TaskPayload(BaseModel):
 class TaskResult(BaseModel):
     task_id: str
     success: bool
-    result_encoded: Optional[str] = None
-    error: Optional[str] = None
-    traceback: Optional[str] = None
+    result_encoded: str | None = None
+    error: str | None = None
+    traceback: str | None = None
     execution_time: float = 0.0
 
 
@@ -57,6 +56,7 @@ _vpn_ip: str = ""
 
 try:
     import pynvml
+
     PYNVML_AVAILABLE = True
 except ImportError:
     PYNVML_AVAILABLE = False
@@ -84,13 +84,15 @@ def discover_local_gpus() -> list[GpuInfo]:
             except Exception:
                 cc_str = "0.0"
 
-            gpus.append(GpuInfo(
-                device_index=i,
-                name=name,
-                total_memory_mb=total_mb,
-                available_memory_mb=free_mb,
-                compute_capability=cc_str,
-            ))
+            gpus.append(
+                GpuInfo(
+                    device_index=i,
+                    name=name,
+                    total_memory_mb=total_mb,
+                    available_memory_mb=free_mb,
+                    compute_capability=cc_str,
+                )
+            )
         pynvml.nvmlShutdown()
     except Exception:
         pass
@@ -117,6 +119,7 @@ async def execute_task(payload: TaskPayload):
         kwargs = pickle.loads(base64.b64decode(payload.kwargs_encoded))
 
         import os
+
         old_cuda = os.environ.get("CUDA_VISIBLE_DEVICES")
         os.environ["CUDA_VISIBLE_DEVICES"] = str(payload.gpu_device_id)
 
@@ -142,6 +145,7 @@ async def execute_task(payload: TaskPayload):
         )
     except Exception as e:
         import traceback
+
         execution_time = time.time() - start_time
         task_result = TaskResult(
             task_id=payload.task_id,
@@ -195,6 +199,9 @@ async def start_peer_server(relay_url: str, peer_id: str, vpn_ip: str):
     _vpn_ip = vpn_ip
 
     import uvicorn
-    config = uvicorn.Config(app, host=vpn_ip, port=vpn_settings.peer_server_port, log_level="warning")
+
+    config = uvicorn.Config(
+        app, host=vpn_ip, port=vpn_settings.peer_server_port, log_level="warning"
+    )
     server = uvicorn.Server(config)
     await server.serve()

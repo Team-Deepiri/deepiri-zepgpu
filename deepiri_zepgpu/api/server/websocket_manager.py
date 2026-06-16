@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
-from typing import Any, Optional
 from collections import defaultdict
+from typing import Any
 
-from fastapi import WebSocket, WebSocketDisconnect
+from fastapi import WebSocket
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +50,7 @@ class ConnectionManager:
         """Broadcast message to all connected clients."""
         async with self._lock:
             all_connections = []
-            for user_id, connections in self._connections.items():
+            for _user_id, connections in self._connections.items():
                 all_connections.extend(connections)
 
         for connection in all_connections:
@@ -60,7 +59,9 @@ class ConnectionManager:
             except Exception as e:
                 logger.error(f"Error broadcasting message: {e}")
 
-    async def broadcast_task_update(self, task_id: str, status: str, user_id: str, data: dict[str, Any] | None = None) -> None:
+    async def broadcast_task_update(
+        self, task_id: str, status: str, user_id: str, data: dict[str, Any] | None = None
+    ) -> None:
         """Broadcast task status update."""
         message = {
             "type": "task_update",

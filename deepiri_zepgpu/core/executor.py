@@ -3,31 +3,31 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import contextlib
 import os
-import signal
-import subprocess
+import pickle
 import tempfile
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Callable, Optional
+from typing import Any
 
-import base64
-import pickle
-
+from deepiri_zepgpu.core.gpu_manager import GPUDevice, GPUManager
 from deepiri_zepgpu.core.task import Task, TaskStatus
-from deepiri_zepgpu.core.gpu_manager import GPUManager, GPUDevice
 from deepiri_zepgpu.vpn.task_router import TaskRouter
 
 
 @dataclass
 class ExecutionResult:
     """Result from task execution."""
+
     success: bool
     result: Any = None
-    error: Optional[str] = None
-    traceback: Optional[str] = None
+    error: str | None = None
+    traceback: str | None = None
     execution_time: float = 0.0
     gpu_memory_used_mb: float = 0.0
 
@@ -40,7 +40,7 @@ class TaskExecutor:
         gpu_manager: GPUManager,
         container_runtime: str = "docker",
         enable_isolation: bool = True,
-        work_dir: Optional[str] = None,
+        work_dir: str | None = None,
     ):
         self._gpu_manager = gpu_manager
         self._container_runtime = container_runtime
@@ -54,7 +54,7 @@ class TaskExecutor:
     async def execute_task(
         self,
         task: Task,
-        on_progress: Optional[Callable[[str, float], None]] = None,
+        on_progress: Callable[[str, float], None] | None = None,
     ) -> ExecutionResult:
         """Execute a single task on allocated GPU."""
         start_time = time.time()
@@ -90,6 +90,7 @@ class TaskExecutor:
         except Exception as e:
             execution_time = time.time() - start_time
             import traceback
+
             tb = traceback.format_exc()
             task.status = TaskStatus.FAILED
             task.error = str(e)
@@ -143,6 +144,7 @@ class TaskExecutor:
             )
         except Exception as e:
             import traceback as tb
+
             execution_time = time.time() - start_time
             task.status = TaskStatus.FAILED
             task.error = str(e)
@@ -159,8 +161,8 @@ class TaskExecutor:
     async def _run_task(
         self,
         task: Task,
-        gpu_device: Optional[GPUDevice],
-        on_progress: Optional[Callable[[str, float], None]] = None,
+        gpu_device: GPUDevice | None,
+        on_progress: Callable[[str, float], None] | None = None,
     ) -> Any:
         """Run the actual task logic."""
         func = task.func
@@ -171,8 +173,7 @@ class TaskExecutor:
             result = await func(*args, **kwargs)
         else:
             result = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: func(*args, **kwargs)
+                None, lambda: func(*args, **kwargs)
             )
 
         return result
@@ -189,17 +190,27 @@ class TaskExecutor:
             env["CUDA_VISIBLE_DEVICES"] = str(task.gpu_device_id or 0)
 
             docker_cmd = [
-                self._container_runtime, "run",
+                self._container_runtime,
+                "run",
                 "--rm",
-                "--gpus", f'"device={task.gpu_device_id or 0}"',
-                "-e", f"TASK_ID={task.task_id}",
-                "-e", f"CUDA_VISIBLE_DEVICES={task.gpu_device_id or 0}",
-                "--memory", f"{task.resources.gpu_memory_mb}m",
-                "--cpus", str(task.resources.cpu_cores),
-                "-v", f"{self._work_dir}:/workspace",
-                "-w", "/workspace",
+                "--gpus",
+                f'"device={task.gpu_device_id or 0}"',
+                "-e",
+                f"TASK_ID={task.task_id}",
+                "-e",
+                f"CUDA_VISIBLE_DEVICES={task.gpu_device_id or 0}",
+                "--memory",
+                f"{task.resources.gpu_memory_mb}m",
+                "--cpus",
+                str(task.resources.cpu_cores),
+                "-v",
+                f"{self._work_dir}:/workspace",
+                "-w",
+                "/workspace",
                 image,
-                "python", "-c", self._generate_task_code(task),
+                "python",
+                "-c",
+                self._generate_task_code(task),
             ]
 
             process = await asyncio.create_subprocess_exec(
@@ -226,12 +237,13 @@ class TaskExecutor:
                 execution_time=0.0,
             )
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             await self._kill_container(container_id)
-            raise TimeoutError(f"Task {task.task_id} timed out after {task.resources.timeout_seconds}s")
+            raise
 
         except Exception as e:
             import traceback
+
             return ExecutionResult(
                 success=False,
                 error=str(e),
@@ -270,28 +282,29 @@ except Exception as e:
 """
         return code
 
-    async def _kill_container(self, container_id: Optional[str]) -> None:
+    async def _kill_container(self, container_id: str | None) -> None:
         """Kill a running container."""
         if container_id:
-            try:
+            with contextlib.suppress(Exception):
                 await asyncio.create_subprocess_exec(
-                    self._container_runtime, "kill", container_id,
+                    self._container_runtime,
+                    "kill",
+                    container_id,
                     stdout=asyncio.subprocess.DEVNULL,
                     stderr=asyncio.subprocess.DEVNULL,
                 )
-            except Exception:
-                pass
 
     async def _cleanup_container(self, container_id: str) -> None:
         """Clean up container resources."""
-        try:
+        with contextlib.suppress(Exception):
             await asyncio.create_subprocess_exec(
-                self._container_runtime, "rm", "-f", container_id,
+                self._container_runtime,
+                "rm",
+                "-f",
+                container_id,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
             )
-        except Exception:
-            pass
         self._container_ids.pop(container_id, None)
 
     async def execute_batch(
@@ -302,7 +315,7 @@ except Exception as e:
         """Execute multiple tasks in parallel with batching."""
         results = []
         for i in range(0, len(tasks), batch_size):
-            batch = tasks[i:i + batch_size]
+            batch = tasks[i : i + batch_size]
             batch_results = await asyncio.gather(
                 *[self.execute_task(task) for task in batch],
                 return_exceptions=True,

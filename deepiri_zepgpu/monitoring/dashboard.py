@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import threading
-from dataclasses import asdict
 from datetime import datetime
-from typing import Any, Callable, Optional
+from typing import Any
 
 try:
     import websockets
+
     WEBSOCKETS_AVAILABLE = True
 except ImportError:
     WEBSOCKETS_AVAILABLE = False
@@ -18,6 +19,7 @@ except ImportError:
 
 class DashboardEvent:
     """Dashboard event types."""
+
     TASK_SUBMITTED = "task_submitted"
     TASK_STARTED = "task_started"
     TASK_COMPLETED = "task_completed"
@@ -35,13 +37,13 @@ class MonitoringDashboard:
         self,
         host: str = "localhost",
         port: int = 8765,
-        metrics_collector: Optional[Any] = None,
+        metrics_collector: Any | None = None,
     ):
         self._host = host
         self._port = port
         self._collector = metrics_collector
         self._clients: set[Any] = set()
-        self._server_task: Optional[asyncio.Task] = None
+        self._server_task: asyncio.Task | None = None
         self._running = False
         self._lock = threading.Lock()
 
@@ -58,10 +60,8 @@ class MonitoringDashboard:
         self._running = False
         if self._server_task:
             self._server_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._server_task
-            except asyncio.CancelledError:
-                pass
 
     async def _run_server(self) -> None:
         """Run WebSocket server."""
@@ -75,11 +75,15 @@ class MonitoringDashboard:
             self._clients.add(websocket)
 
         try:
-            await websocket.send(json.dumps({
-                "type": "connected",
-                "timestamp": datetime.utcnow().isoformat(),
-                "message": "Connected to DeepIRI GPU Monitor",
-            }))
+            await websocket.send(
+                json.dumps(
+                    {
+                        "type": "connected",
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "message": "Connected to DeepIRI GPU Monitor",
+                    }
+                )
+            )
 
             async for message in websocket:
                 try:
@@ -100,25 +104,37 @@ class MonitoringDashboard:
 
         if command == "subscribe":
             event_types = data.get("events", [])
-            await websocket.send(json.dumps({
-                "type": "subscribed",
-                "events": event_types,
-            }))
+            await websocket.send(
+                json.dumps(
+                    {
+                        "type": "subscribed",
+                        "events": event_types,
+                    }
+                )
+            )
 
         elif command == "get_status":
             status = self._get_system_status()
-            await websocket.send(json.dumps({
-                "type": "status",
-                "data": status,
-            }))
+            await websocket.send(
+                json.dumps(
+                    {
+                        "type": "status",
+                        "data": status,
+                    }
+                )
+            )
 
         elif command == "get_metrics":
             if self._collector:
                 summary = self._collector.get_summary()
-                await websocket.send(json.dumps({
-                    "type": "metrics",
-                    "data": summary,
-                }))
+                await websocket.send(
+                    json.dumps(
+                        {
+                            "type": "metrics",
+                            "data": summary,
+                        }
+                    )
+                )
 
     def _get_system_status(self) -> dict[str, Any]:
         """Get current system status."""
@@ -133,11 +149,13 @@ class MonitoringDashboard:
         data: dict[str, Any],
     ) -> None:
         """Broadcast event to all connected clients."""
-        message = json.dumps({
-            "type": event_type,
-            "timestamp": datetime.utcnow().isoformat(),
-            "data": data,
-        })
+        message = json.dumps(
+            {
+                "type": event_type,
+                "timestamp": datetime.utcnow().isoformat(),
+                "data": data,
+            }
+        )
 
         with self._lock:
             clients = list(self._clients)
@@ -162,11 +180,14 @@ class MonitoringDashboard:
             "failed": DashboardEvent.TASK_FAILED,
         }.get(status, DashboardEvent.QUEUE_UPDATE)
 
-        await self.broadcast_event(event_type, {
-            "task_id": task_id,
-            "status": status,
-            **kwargs,
-        })
+        await self.broadcast_event(
+            event_type,
+            {
+                "task_id": task_id,
+                "status": status,
+                **kwargs,
+            },
+        )
 
     async def broadcast_gpu_metrics(self, metrics: dict[str, Any]) -> None:
         """Broadcast GPU metrics update."""
@@ -178,11 +199,14 @@ class MonitoringDashboard:
 
     async def broadcast_alert(self, alert_type: str, message: str, **kwargs: Any) -> None:
         """Broadcast alert."""
-        await self.broadcast_event(DashboardEvent.ALERT, {
-            "alert_type": alert_type,
-            "message": message,
-            **kwargs,
-        })
+        await self.broadcast_event(
+            DashboardEvent.ALERT,
+            {
+                "alert_type": alert_type,
+                "message": message,
+                **kwargs,
+            },
+        )
 
 
 class PrometheusExporter:
@@ -192,13 +216,15 @@ class PrometheusExporter:
         self._metrics: dict[str, float] = {}
         self._lock = threading.Lock()
 
-    def set_gauge(self, name: str, value: float, labels: Optional[dict[str, str]] = None) -> None:
+    def set_gauge(self, name: str, value: float, labels: dict[str, str] | None = None) -> None:
         """Set a gauge metric."""
         with self._lock:
             key = self._make_key(name, labels)
             self._metrics[key] = value
 
-    def increment_counter(self, name: str, value: float = 1.0, labels: Optional[dict[str, str]] = None) -> None:
+    def increment_counter(
+        self, name: str, value: float = 1.0, labels: dict[str, str] | None = None
+    ) -> None:
         """Increment a counter metric."""
         with self._lock:
             key = self._make_key(name, labels)
@@ -208,7 +234,7 @@ class PrometheusExporter:
         self,
         name: str,
         value: float,
-        labels: Optional[dict[str, str]] = None,
+        labels: dict[str, str] | None = None,
     ) -> None:
         """Record a histogram value."""
         hist_key = self._make_key(f"{name}_sum", labels)
@@ -218,7 +244,7 @@ class PrometheusExporter:
             self._metrics[hist_key] = self._metrics.get(hist_key, 0) + value
             self._metrics[count_key] = self._metrics.get(count_key, 0) + 1
 
-    def _make_key(self, name: str, labels: Optional[dict[str, str]] = None) -> str:
+    def _make_key(self, name: str, labels: dict[str, str] | None = None) -> str:
         """Create metric key."""
         if not labels:
             return name

@@ -3,16 +3,16 @@
 from __future__ import annotations
 
 import hashlib
-import importlib
 import os
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any
 
 try:
     import cupy as cp
+
     CUPY_AVAILABLE = True
 except ImportError:
     CUPY_AVAILABLE = False
@@ -21,10 +21,11 @@ except ImportError:
 @dataclass
 class KernelMetadata:
     """Metadata for a compiled kernel."""
+
     name: str
     source_hash: str
     compiled_at: datetime = field(default_factory=datetime.utcnow)
-    source_file: Optional[str] = None
+    source_file: str | None = None
     usage_count: int = 0
 
 
@@ -33,7 +34,7 @@ class KernelCache:
 
     def __init__(
         self,
-        cache_dir: Optional[str] = None,
+        cache_dir: str | None = None,
         max_kernels: int = 100,
     ):
         self._cache_dir = cache_dir or os.path.expanduser("~/.deepiri/kernel_cache")
@@ -49,7 +50,7 @@ class KernelCache:
         self,
         name: str,
         source: str,
-        options: Optional[list[str]] = None,
+        options: list[str] | None = None,
     ) -> Any:
         """Compile a CUDA kernel and cache it."""
         if not CUPY_AVAILABLE:
@@ -83,7 +84,7 @@ class KernelCache:
 
             return kernel
 
-    def get(self, name: str) -> Optional[Any]:
+    def get(self, name: str) -> Any | None:
         """Get a cached kernel."""
         with self._lock:
             if name not in self._kernels:
@@ -151,6 +152,7 @@ class KernelCache:
 @dataclass
 class KernelTemplate:
     """Template for generating CUDA kernels."""
+
     name: str
     source_template: str
     param_types: dict[str, str]
@@ -166,20 +168,20 @@ class KernelBuilder:
     @staticmethod
     def matrix_mult_template(block_size: int = 16) -> KernelTemplate:
         """Generate matrix multiplication kernel template."""
-        source = f"""
+        source = """
 __global__ void matrixMul(const float* A, const float* B, float* C,
-                           int M, int N, int K) {{
+                           int M, int N, int K) {
     int row = blockIdx.y * blockDim.y + threadIdx.y;
     int col = blockIdx.x * blockDim.x + threadIdx.x;
 
-    if (row < M && col < N) {{
+    if (row < M && col < N) {
         float sum = 0.0f;
-        for (int k = 0; k < K; ++k) {{
+        for (int k = 0; k < K; ++k) {
             sum += A[row * K + k] * B[k * N + col];
-        }}
+        }
         C[row * N + col] = sum;
-    }}
-}}
+    }
+}
 """
         return KernelTemplate(
             name="matrixMul",

@@ -8,10 +8,11 @@ import sys
 import threading
 from datetime import datetime
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
 try:
     import structlog
+
     STRUCTLOG_AVAILABLE = True
 except ImportError:
     STRUCTLOG_AVAILABLE = False
@@ -19,6 +20,7 @@ except ImportError:
 
 class LogLevel(Enum):
     """Log levels."""
+
     DEBUG = "debug"
     INFO = "info"
     WARNING = "warning"
@@ -34,7 +36,7 @@ class StructuredLogger:
         name: str = "deepiri",
         level: LogLevel = LogLevel.INFO,
         json_output: bool = False,
-        log_file: Optional[str] = None,
+        log_file: str | None = None,
     ):
         self._name = name
         self._level = level
@@ -93,13 +95,15 @@ class StructuredLogger:
         ctx.update(kwargs)
 
         if self._json_output:
-            return json.dumps({
-                "timestamp": datetime.utcnow().isoformat(),
-                "level": level,
-                "logger": self._name,
-                "message": message,
-                **ctx,
-            })
+            return json.dumps(
+                {
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "level": level,
+                    "logger": self._name,
+                    "message": message,
+                    **ctx,
+                }
+            )
         else:
             ctx_str = " ".join(f"{k}={v}" for k, v in ctx.items())
             return f"[{self._name}] {level.upper()}: {message} {ctx_str}".strip()
@@ -153,7 +157,7 @@ class StructuredLogger:
         )
 
 
-_default_logger: Optional[StructuredLogger] = None
+_default_logger: StructuredLogger | None = None
 
 
 def get_logger(name: str = "deepiri") -> StructuredLogger:
@@ -167,7 +171,7 @@ def get_logger(name: str = "deepiri") -> StructuredLogger:
 def configure_logger(
     level: LogLevel = LogLevel.INFO,
     json_output: bool = False,
-    log_file: Optional[str] = None,
+    log_file: str | None = None,
 ) -> StructuredLogger:
     """Configure the default logger."""
     global _default_logger

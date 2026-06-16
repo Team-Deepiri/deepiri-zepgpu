@@ -6,13 +6,13 @@ import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Optional
 
 from deepiri_zepgpu.core.task import Task
 
 
 class ResourceType(Enum):
     """Resource types for quota enforcement."""
+
     TASKS = "tasks"
     GPU_HOURS = "gpu_hours"
     GPU_MEMORY = "gpu_memory"
@@ -23,6 +23,7 @@ class ResourceType(Enum):
 @dataclass
 class Quota:
     """Resource quota for a user or group."""
+
     max_tasks: int = 100
     max_gpu_hours: float = 24.0
     max_gpu_memory_mb: int = 16384
@@ -33,6 +34,7 @@ class Quota:
 @dataclass
 class ResourceUsage:
     """Current resource usage."""
+
     tasks_submitted: int = 0
     gpu_seconds: float = 0.0
     peak_gpu_memory_mb: int = 0
@@ -54,7 +56,7 @@ class AccessControl:
 
     def __init__(
         self,
-        default_quota: Optional[Quota] = None,
+        default_quota: Quota | None = None,
         period_hours: int = 24,
     ):
         self._default_quota = default_quota or Quota()
@@ -89,7 +91,10 @@ class AccessControl:
             quota = self.get_quota(user_id)
 
             if usage.tasks_submitted >= quota.max_tasks:
-                return False, f"Task limit reached: {quota.max_tasks} tasks per {self._period_hours}h"
+                return (
+                    False,
+                    f"Task limit reached: {quota.max_tasks} tasks per {self._period_hours}h",
+                )
 
             if usage.concurrent_tasks >= quota.max_concurrent_tasks:
                 return False, f"Concurrent task limit reached: {quota.max_concurrent_tasks}"
@@ -143,15 +148,18 @@ class AccessControl:
             quota = self.get_quota(user_id)
 
             period_elapsed = min(
-                (datetime.utcnow() - usage.period_start).total_seconds() / 3600,
-                self._period_hours
+                (datetime.utcnow() - usage.period_start).total_seconds() / 3600, self._period_hours
             )
 
             return {
                 "tasks_remaining": max(0, quota.max_tasks - usage.tasks_submitted),
                 "gpu_hours_remaining": max(0, quota.max_gpu_hours - (usage.gpu_seconds / 3600)),
-                "concurrent_tasks_remaining": max(0, quota.max_concurrent_tasks - usage.concurrent_tasks),
-                "gpu_memory_remaining_mb": max(0, quota.max_gpu_memory_mb - usage.peak_gpu_memory_mb),
+                "concurrent_tasks_remaining": max(
+                    0, quota.max_concurrent_tasks - usage.concurrent_tasks
+                ),
+                "gpu_memory_remaining_mb": max(
+                    0, quota.max_gpu_memory_mb - usage.peak_gpu_memory_mb
+                ),
                 "storage_remaining_gb": max(0, quota.max_storage_gb - usage.storage_used_gb),
                 "period_hours_remaining": max(0, self._period_hours - period_elapsed),
             }

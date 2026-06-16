@@ -4,16 +4,18 @@ from __future__ import annotations
 
 import asyncio
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Callable, Optional
+from typing import Any
 
 from deepiri_zepgpu.monitoring.logger import get_logger
 
 
 class AlertSeverity(Enum):
     """Alert severity levels."""
+
     INFO = "info"
     WARNING = "warning"
     ERROR = "error"
@@ -22,6 +24,7 @@ class AlertSeverity(Enum):
 
 class AlertType(Enum):
     """Alert types."""
+
     TASK_FAILED = "task_failed"
     TASK_TIMEOUT = "task_timeout"
     GPU_ERROR = "gpu_error"
@@ -35,13 +38,14 @@ class AlertType(Enum):
 @dataclass
 class Alert:
     """Alert representation."""
+
     alert_type: AlertType
     severity: AlertSeverity
     message: str
     timestamp: datetime = field(default_factory=datetime.utcnow)
-    task_id: Optional[str] = None
-    device_id: Optional[int] = None
-    user_id: Optional[str] = None
+    task_id: str | None = None
+    device_id: int | None = None
+    user_id: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
     acknowledged: bool = False
 
@@ -89,6 +93,7 @@ class WebhookAlertHandler(AlertHandler):
         """Send alert to webhook."""
         try:
             import httpx
+
             async with httpx.AsyncClient() as client:
                 await client.post(
                     self._webhook_url,
@@ -175,7 +180,7 @@ class AlertManager:
         self,
         task_id: str,
         error: str,
-        user_id: Optional[str] = None,
+        user_id: str | None = None,
     ) -> Alert:
         """Raise task failed alert."""
         return await self.raise_alert(
@@ -191,7 +196,7 @@ class AlertManager:
         self,
         task_id: str,
         timeout_seconds: int,
-        user_id: Optional[str] = None,
+        user_id: str | None = None,
     ) -> Alert:
         """Raise task timeout alert."""
         return await self.raise_alert(
@@ -246,8 +251,8 @@ class AlertManager:
 
     def get_alerts(
         self,
-        alert_type: Optional[AlertType] = None,
-        severity: Optional[AlertSeverity] = None,
+        alert_type: AlertType | None = None,
+        severity: AlertSeverity | None = None,
         limit: int = 100,
     ) -> list[Alert]:
         """Get alert history."""
