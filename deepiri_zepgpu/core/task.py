@@ -73,18 +73,18 @@ class Task:
     callback_url: str | None = None
     tags: list[str] = field(default_factory=list)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.name is None:
             self.name = f"task_{self.task_id[:8]}"
 
     def serialize_func(self) -> bytes:
         """Serialize the task function using cloudpickle."""
-        return cloudpickle.dumps(self.func)
+        return cloudpickle.dumps(self.func)  # type: ignore[no-any-return]
 
     @classmethod
     def deserialize_func(cls, serialized: bytes) -> Callable[..., Any]:
         """Deserialize a task function."""
-        return cloudpickle.loads(serialized)
+        return cloudpickle.loads(serialized)  # type: ignore[no-any-return]
 
     def to_dict(self) -> dict[str, Any]:
         """Convert task to dictionary representation."""

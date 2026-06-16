@@ -38,7 +38,7 @@ class MonitoringDashboard:
         host: str = "localhost",
         port: int = 8765,
         metrics_collector: Any | None = None,
-    ):
+    ) -> None:
         self._host = host
         self._port = port
         self._collector = metrics_collector
@@ -65,7 +65,7 @@ class MonitoringDashboard:
 
     async def _run_server(self) -> None:
         """Run WebSocket server."""
-        async with websockets.serve(self._handle_client, self._host, self._port):
+        async with websockets.serve(self._handle_client, self._host, self._port):  # type: ignore[arg-type]
             while self._running:
                 await asyncio.sleep(1)
 
@@ -212,7 +212,7 @@ class MonitoringDashboard:
 class PrometheusExporter:
     """Export metrics to Prometheus."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._metrics: dict[str, float] = {}
         self._lock = threading.Lock()
 

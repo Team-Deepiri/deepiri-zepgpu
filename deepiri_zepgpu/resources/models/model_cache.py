@@ -59,7 +59,7 @@ class ModelCache(Generic[T]):
                 checksum=checksum,
                 size_bytes=int(size_mb * 1024 * 1024),
             )
-            self._current_size_mb += size_mb
+            self._current_size_mb += size_mb  # type: ignore[assignment]
             self._access_order.append(name)
 
     def get(self, name: str) -> T | None:
@@ -90,7 +90,7 @@ class ModelCache(Generic[T]):
             del self._cache[name]
             del self._metadata[name]
             self._access_order.remove(name)
-            self._current_size_mb -= size_mb
+            self._current_size_mb -= size_mb  # type: ignore[assignment]
             return True
 
     def clear(self) -> None:
@@ -143,18 +143,18 @@ class ModelCache(Generic[T]):
             }
 
 
-class ModelRegistry:
+class ModelRegistry(Generic[T]):
     """Registry for managing model loaders and versions."""
 
-    def __init__(self, cache: ModelCache | None = None):
-        self._cache = cache or ModelCache()
-        self._loaders: dict[str, Callable[[], T]] = {}
+    def __init__(self, cache: ModelCache[T] | None = None):
+        self._cache: ModelCache[T] = cache or ModelCache[T]()
+        self._loaders: dict[str, Callable[..., T]] = {}
         self._lock = threading.RLock()
 
     def register(
         self,
         name: str,
-        loader: Callable[[], T],
+        loader: Callable[..., T],
     ) -> None:
         """Register a model loader."""
         with self._lock:
@@ -176,7 +176,7 @@ class ModelRegistry:
         if loader is None:
             raise KeyError(f"No loader registered for model: {name}")
 
-        model = loader(**kwargs)
+        model: T = loader(**kwargs)
 
         self._cache.put(name, model)
 
@@ -184,7 +184,7 @@ class ModelRegistry:
 
     def preload(self, names: list[str]) -> dict[str, T | None]:
         """Preload multiple models."""
-        results = {}
+        results: dict[str, T | None] = {}
         for name in names:
             try:
                 results[name] = self.load(name)
@@ -193,6 +193,6 @@ class ModelRegistry:
                 print(f"Failed to preload {name}: {e}")
         return results
 
-    def get_cache(self) -> ModelCache:
+    def get_cache(self) -> ModelCache[T]:
         """Get the model cache."""
         return self._cache

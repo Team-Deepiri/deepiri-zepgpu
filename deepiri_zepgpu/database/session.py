@@ -5,8 +5,8 @@ from __future__ import annotations
 import os
 from collections.abc import AsyncGenerator, Generator
 from contextlib import asynccontextmanager
+from typing import Any
 
-from sqlalchemy import create_engine
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import NullPool
@@ -28,14 +28,34 @@ async_engine = create_async_engine(
     poolclass=NullPool,
 )
 
-sync_engine = create_engine(
-    DATABASE_SYNC_URL,
-    echo=settings.database.echo,
-    pool_size=settings.database.pool_size,
-    max_overflow=settings.database.max_overflow,
-    pool_pre_ping=True,
-    pool_recycle=3600,
-)
+_sync_engine: Any = None
+
+
+def get_sync_engine() -> Any:
+    global _sync_engine
+    if _sync_engine is None:
+        from sqlalchemy import create_engine as _create_engine
+
+        _sync_engine = _create_engine(
+            DATABASE_SYNC_URL,
+            echo=settings.database.echo,
+            pool_size=settings.database.pool_size,
+            max_overflow=settings.database.max_overflow,
+            pool_pre_ping=True,
+            pool_recycle=3600,
+        )
+    return _sync_engine
+
+
+class _LazyEngine:
+    def __repr__(self) -> str:
+        return repr(get_sync_engine())
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(get_sync_engine(), name)
+
+
+sync_engine = _LazyEngine()
 
 AsyncSessionLocal = async_sessionmaker(
     bind=async_engine,
@@ -45,12 +65,19 @@ AsyncSessionLocal = async_sessionmaker(
     autocommit=False,
 )
 
-SyncSessionLocal = sessionmaker(
-    bind=sync_engine,
-    expire_on_commit=False,
-    autoflush=False,
-    autocommit=False,
-)
+_SyncSessionLocal: Any = None
+
+
+def get_sync_session_local() -> Any:
+    global _SyncSessionLocal
+    if _SyncSessionLocal is None:
+        _SyncSessionLocal = sessionmaker(
+            bind=get_sync_engine(),
+            expire_on_commit=False,
+            autoflush=False,
+            autocommit=False,
+        )
+    return _SyncSessionLocal
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
@@ -68,7 +95,7 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 def get_db_sync() -> Generator[Session, None, None]:
     """Get sync database session."""
-    with SyncSessionLocal() as session:
+    with get_sync_session_local()() as session:
         try:
             yield session
             session.commit()
@@ -109,7 +136,7 @@ async def close_db() -> None:
 class DatabaseManager:
     """Database connection manager."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._engine = async_engine
         self._session_factory = AsyncSessionLocal
 
@@ -120,7 +147,7 @@ class DatabaseManager:
     @asynccontextmanager
     async def session(self) -> AsyncGenerator[AsyncSession, None]:
         """Context manager for session."""
-        session = await self._session_factory()
+        session = await self._session_factory()  # type: ignore[misc]
         try:
             yield session
             await session.commit()

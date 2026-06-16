@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from deepiri_zepgpu.core.gpu_manager import GPUDevice, GPUState, GPUType
+from deepiri_zepgpu.core.gpu_manager import GPUDevice, GPUManager, GPUState, GPUType
 
 if TYPE_CHECKING:
     from deepiri_zepgpu.vpn.remote_gpu_lock import RemoteGpuLock
@@ -77,7 +77,7 @@ class RemoteGPUDevice:
 class GpuPoolAggregator:
     """Aggregates local and remote GPUs into a unified pool."""
 
-    def __init__(self, gpu_manager, remote_lock: RemoteGpuLock | None = None):
+    def __init__(self, gpu_manager: GPUManager, remote_lock: RemoteGpuLock | None = None) -> None:
         self._local_manager = gpu_manager
         self._remote_devices: dict[str, RemoteGPUDevice] = {}
         self._lock = threading.RLock()

@@ -8,8 +8,10 @@ from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from deepiri_zepgpu.api.server.dependencies import get_current_user, get_db_session
+from deepiri_zepgpu.database.models import User
 from deepiri_zepgpu.database.models.task import TaskPriority as DBTaskPriority
 from deepiri_zepgpu.database.models.task import TaskStatus as DBTaskStatus
 from deepiri_zepgpu.database.repositories import TaskRepository
@@ -129,8 +131,8 @@ async def send_callback(callback_url: str, task_id: str, status: str, result: An
 async def create_task(
     request: TaskCreateRequest,
     background_tasks: BackgroundTasks,
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_current_user),
 ) -> TaskResponse:
     """Create a new task and enqueue it for execution."""
     from deepiri_zepgpu.database.models import Task
@@ -182,8 +184,8 @@ async def create_task(
 
 @router.get("", response_model=TaskListResponse)
 async def list_tasks(
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_current_user),
     status_filter: str | None = Query(None, alias="status"),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
@@ -191,6 +193,7 @@ async def list_tasks(
     """List tasks."""
     repo = TaskRepository(db)
 
+    assert current_user is not None
     tasks = await repo.list_by_user(
         user_id=current_user.id,
         status=DBTaskStatus(status_filter) if status_filter else None,
@@ -227,8 +230,8 @@ async def list_tasks(
 @router.get("/{task_id}", response_model=TaskResponse)
 async def get_task(
     task_id: str,
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_current_user),
 ) -> TaskResponse:
     """Get task by ID."""
     repo = TaskRepository(db)
@@ -261,8 +264,8 @@ async def get_task(
 @router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def cancel_task(
     task_id: str,
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_current_user),
 ) -> None:
     """Cancel a task."""
     repo = TaskRepository(db)
@@ -284,8 +287,8 @@ async def cancel_task(
 async def retry_task(
     task_id: str,
     background_tasks: BackgroundTasks,
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_current_user),
 ) -> TaskResponse:
     """Retry a failed task."""
     repo = TaskRepository(db)
@@ -306,6 +309,7 @@ async def retry_task(
     background_tasks.add_task(enqueue_task_to_celery, task_id)
 
     task = await repo.get_by_id(task_id)
+    assert task is not None
 
     return TaskResponse(
         id=str(task.id),
@@ -328,8 +332,8 @@ async def retry_task(
 @router.get("/{task_id}/result", response_model=TaskResultResponse)
 async def get_task_result(
     task_id: str,
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_current_user),
 ) -> TaskResultResponse:
     """Get task result."""
     from deepiri_zepgpu.storage.result_store import ResultStore

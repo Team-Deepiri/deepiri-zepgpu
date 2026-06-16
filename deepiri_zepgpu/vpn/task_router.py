@@ -6,6 +6,8 @@ import asyncio
 import base64
 import pickle
 import time
+from collections.abc import Callable
+from typing import Any
 
 import httpx
 
@@ -15,14 +17,14 @@ from deepiri_zepgpu.vpn.config import vpn_settings
 class TaskRouter:
     """Route GPU tasks to remote peer nodes over the VPN."""
 
-    def __init__(self, relay_api_url: str | None = None):
+    def __init__(self, relay_api_url: str | None = None) -> None:
         self._relay_url = relay_api_url or vpn_settings.relay_api_url
 
     async def execute_on_peer(
         self,
         peer_vpn_ip: str,
         task_id: str,
-        func,
+        func: Callable[..., Any],
         args: tuple,
         kwargs: dict,
         gpu_device_id: int,
@@ -50,7 +52,7 @@ class TaskRouter:
                     timeout=timeout_seconds,
                 )
                 response.raise_for_status()
-                return response.json()
+                return response.json()  # type: ignore[no-any-return]
             except httpx.TimeoutException:
                 return {
                     "task_id": task_id,
@@ -83,7 +85,7 @@ class TaskRouter:
                         timeout=5,
                     )
                     if response.status_code == 200:
-                        return response.json()
+                        return response.json()  # type: ignore[no-any-return]
                     await asyncio.sleep(poll_interval)
                 except Exception:
                     await asyncio.sleep(poll_interval)

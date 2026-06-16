@@ -17,10 +17,10 @@ from deepiri_zepgpu.database.models.task import Task, TaskStatus
 class TaskRepository:
     """Repository for Task database operations."""
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def create(self, **kwargs) -> Task:
+    async def create(self, **kwargs: Any) -> Task:
         """Create a new task."""
         task = Task(id=str(uuid.uuid4()), **kwargs)
         self.session.add(task)
@@ -87,7 +87,7 @@ class TaskRepository:
         self,
         task_id: str,
         status: TaskStatus,
-        **kwargs,
+        **kwargs: Any,
     ) -> Task | None:
         """Update task status and optional fields."""
         task = await self.get_by_id(task_id)
@@ -190,7 +190,7 @@ class TaskRepository:
 
         stats = {status.value: 0 for status in TaskStatus}
         for row in result:
-            stats[row.status.value] = row.count
+            stats[row.status.value] = row.count  # type: ignore[assignment]
 
         return stats
 
@@ -211,4 +211,4 @@ class TaskRepository:
             .values(metadata_json={"deleted": True})
         )
         await self.session.flush()
-        return result.rowcount or 0
+        return result.rowcount or 0  # type: ignore[attr-defined]

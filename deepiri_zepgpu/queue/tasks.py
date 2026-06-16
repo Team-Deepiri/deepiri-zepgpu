@@ -122,7 +122,7 @@ async def _log_audit(
         )
 
 
-@celery_app.task(
+@celery_app.task(  # type: ignore[untyped-decorator]
     bind=True,
     base=GPUTask,
     autoretry_for=(Exception,),
@@ -247,13 +247,13 @@ def execute_task(  # noqa: C901
     return asyncio.run(_execute())
 
 
-@celery_app.task(
+@celery_app.task(  # type: ignore[untyped-decorator]
     bind=True,
     base=GPUTask,
     soft_time_limit=7200,
     time_limit=7300,
 )
-def execute_pipeline(self, pipeline_id: str) -> dict[str, Any]:
+def execute_pipeline(self: GPUTask, pipeline_id: str) -> dict[str, Any]:
     """Execute a multi-stage pipeline.
 
     Args:
@@ -336,7 +336,7 @@ def execute_pipeline(self, pipeline_id: str) -> dict[str, Any]:
     return asyncio.run(_execute())
 
 
-@celery_app.task
+@celery_app.task  # type: ignore[untyped-decorator]
 def cleanup_old_results(days: int = 7) -> dict[str, int]:
     """Clean up old task results from storage.
 
@@ -356,7 +356,7 @@ def cleanup_old_results(days: int = 7) -> dict[str, int]:
     return asyncio.run(_cleanup())
 
 
-@celery_app.task
+@celery_app.task  # type: ignore[untyped-decorator]
 def sync_gpu_devices() -> dict[str, Any]:
     """Synchronize GPU device information from NVML.
 
@@ -391,7 +391,7 @@ def sync_gpu_devices() -> dict[str, Any]:
     return asyncio.run(_sync())
 
 
-@celery_app.task
+@celery_app.task  # type: ignore[untyped-decorator]
 def health_check() -> dict[str, Any]:
     """Perform system health check.
 
@@ -418,7 +418,7 @@ def health_check() -> dict[str, Any]:
     return asyncio.run(_check())
 
 
-@celery_app.task
+@celery_app.task  # type: ignore[untyped-decorator]
 def update_gpu_metrics() -> dict[str, Any]:
     """Update GPU metrics from NVML.
 
@@ -453,13 +453,15 @@ def update_gpu_metrics() -> dict[str, Any]:
     return asyncio.run(_update())
 
 
-@celery_app.task(
+@celery_app.task(  # type: ignore[untyped-decorator]
     bind=True,
     base=GPUTask,
     soft_time_limit=3600,
     time_limit=3700,
 )
-def execute_scheduled_task(self, schedule_id: str, run_id: str | None = None) -> dict[str, Any]:
+def execute_scheduled_task(
+    self: GPUTask, schedule_id: str, run_id: str | None = None
+) -> dict[str, Any]:
     """Execute a scheduled task.
 
     Args:
@@ -570,13 +572,13 @@ def execute_scheduled_task(self, schedule_id: str, run_id: str | None = None) ->
     return asyncio.run(_execute())
 
 
-@celery_app.task(
+@celery_app.task(  # type: ignore[untyped-decorator]
     bind=True,
     base=GPUTask,
     soft_time_limit=3600,
     time_limit=3700,
 )
-def execute_delayed_task(self, task_id: str) -> dict[str, Any]:
+def execute_delayed_task(self: GPUTask, task_id: str) -> dict[str, Any]:
     """Execute a task that was delayed (scheduled for a future time).
 
     Args:
@@ -612,7 +614,7 @@ def execute_delayed_task(self, task_id: str) -> dict[str, Any]:
     return asyncio.run(_execute())
 
 
-@celery_app.task
+@celery_app.task  # type: ignore[untyped-decorator]
 def sync_schedules_to_beat() -> dict[str, Any]:
     """Sync all enabled schedules to Celery Beat.
 
@@ -638,7 +640,7 @@ def sync_schedules_to_beat() -> dict[str, Any]:
         }
 
 
-@celery_app.task
+@celery_app.task  # type: ignore[untyped-decorator]
 def cleanup_old_schedule_runs(days: int = 30) -> dict[str, int]:
     """Clean up old scheduled task run records.
 
@@ -658,7 +660,7 @@ def cleanup_old_schedule_runs(days: int = 30) -> dict[str, int]:
     return asyncio.run(_cleanup())
 
 
-@celery_app.task(
+@celery_app.task(  # type: ignore[untyped-decorator]
     bind=True,
     base=GPUTask,
     soft_time_limit=7200,
@@ -794,8 +796,8 @@ def execute_gang_task(  # noqa: C901
     return asyncio.run(_execute())
 
 
-@celery_app.task(bind=True, base=GPUTask, soft_time_limit=300, time_limit=330)
-def preempt_task(self, task_id: str, gang_task_id: str | None = None) -> dict[str, Any]:
+@celery_app.task(bind=True, base=GPUTask, soft_time_limit=300, time_limit=330)  # type: ignore[untyped-decorator]
+def preempt_task(self: GPUTask, task_id: str, gang_task_id: str | None = None) -> dict[str, Any]:
     """Preempt a running task to make room for a higher priority task.
 
     Args:
@@ -865,7 +867,7 @@ def preempt_task(self, task_id: str, gang_task_id: str | None = None) -> dict[st
     return asyncio.run(_execute())
 
 
-@celery_app.task
+@celery_app.task  # type: ignore[untyped-decorator]
 def check_and_preempt() -> dict[str, Any]:
     """Check for pending high-priority tasks and preempt if needed.
 
@@ -918,7 +920,7 @@ def check_and_preempt() -> dict[str, Any]:
     return asyncio.run(_check())
 
 
-@celery_app.task
+@celery_app.task  # type: ignore[untyped-decorator]
 def update_fair_share_usage() -> dict[str, Any]:
     """Update GPU usage tracking for fair share scheduling.
 
@@ -951,7 +953,7 @@ def update_fair_share_usage() -> dict[str, Any]:
     return asyncio.run(_update())
 
 
-@celery_app.task
+@celery_app.task  # type: ignore[untyped-decorator]
 def get_fair_share_weights() -> dict[str, Any]:
     """Get fair share weights for all active users.
 
@@ -985,7 +987,7 @@ def get_fair_share_weights() -> dict[str, Any]:
     return asyncio.run(_get())
 
 
-@celery_app.task
+@celery_app.task  # type: ignore[untyped-decorator]
 def reset_expired_fair_share_periods() -> dict[str, int]:
     """Reset fair share counters for users whose period has expired.
 

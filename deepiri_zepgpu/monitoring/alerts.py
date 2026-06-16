@@ -61,7 +61,7 @@ class AlertHandler:
 class LoggingAlertHandler(AlertHandler):
     """Handler that logs alerts."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._logger = get_logger()
 
     def handle(self, alert: Alert) -> None:
@@ -86,10 +86,10 @@ class LoggingAlertHandler(AlertHandler):
 class WebhookAlertHandler(AlertHandler):
     """Handler that sends alerts to webhooks."""
 
-    def __init__(self, webhook_url: str):
+    def __init__(self, webhook_url: str) -> None:
         self._webhook_url = webhook_url
 
-    async def handle(self, alert: Alert) -> None:
+    async def handle(self, alert: Alert) -> None:  # type: ignore[override]
         """Send alert to webhook."""
         try:
             import httpx
@@ -114,7 +114,7 @@ class WebhookAlertHandler(AlertHandler):
 class AlertManager:
     """Manages alerts and notification handlers."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._handlers: list[AlertHandler] = [LoggingAlertHandler()]
         self._alert_history: list[Alert] = []
         self._callbacks: dict[AlertType, list[Callable[[Alert], None]]] = {}

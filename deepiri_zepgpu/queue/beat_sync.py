@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 class BeatSchedulerSync:
     """Manages Celery Beat schedule synchronization from database to Redis."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.redis_client = redis.from_url(
             settings.schedule.beat_schedule_db,
             decode_responses=True,
@@ -72,9 +72,9 @@ class BeatSchedulerSync:
         if schedule_type == "cron" and cron_expr:
             entry["cron"] = cron_expr
             next_run = self._get_next_cron_run(cron_expr)
-            entry["next_run"] = next_run.isoformat() if next_run else None
+            entry["next_run"] = next_run.isoformat() if next_run else None  # type: ignore[assignment]
         elif schedule_type == "interval" and interval_seconds:
-            entry["interval_seconds"] = interval_seconds
+            entry["interval_seconds"] = interval_seconds  # type: ignore[assignment]
             entry["next_run"] = (
                 datetime.utcnow() + timedelta(seconds=interval_seconds)
             ).isoformat()
@@ -120,7 +120,7 @@ class BeatSchedulerSync:
 
             schedules_to_remove = set(self.get_beat_schedule().keys())
 
-            async def _sync():
+            async def _sync() -> int:
                 async with get_db_context() as db:
                     repo = ScheduleRepository(db)
                     schedules = await repo.get_enabled_schedules()
@@ -169,7 +169,7 @@ class BeatSchedulerSync:
                 self.remove_schedule(schedule_id)
 
             logger.info(f"Synced {synced} schedules to Celery Beat")
-            return synced
+            return synced  # type: ignore[no-any-return]
 
         except Exception as e:
             logger.error(f"Failed to sync schedules: {e}")
@@ -178,7 +178,7 @@ class BeatSchedulerSync:
             self._release_lock()
 
 
-def asyncio_run(coro):
+def asyncio_run(coro: Any) -> Any:
     """Run an async coroutine from sync code."""
     import asyncio
 

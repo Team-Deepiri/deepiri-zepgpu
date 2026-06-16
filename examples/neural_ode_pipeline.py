@@ -1,16 +1,16 @@
 """Neural ODE pipeline example for scientific computing."""
 
 import numpy as np
-from typing import Tuple
+from typing import Optional, Tuple
 
 
 class ODEFunction:
     """Base class for ODE functions compatible with GPU execution."""
 
-    def __init__(self):
-        self.device = None
+    def __init__(self) -> None:
+        self.device: Optional[str] = None
 
-    def set_device(self, device: str):
+    def set_device(self, device: str) -> None:
         self.device = device
 
     def __call__(self, t: float, y: np.ndarray) -> np.ndarray:
@@ -20,7 +20,7 @@ class ODEFunction:
 class LotkaVolterra(ODEFunction):
     """Lotka-Volterra predator-prey model."""
 
-    def __init__(self, alpha: float = 1.5, beta: float = 1.0, gamma: float = 3.0, delta: float = 1.0):
+    def __init__(self, alpha: float = 1.5, beta: float = 1.0, gamma: float = 3.0, delta: float = 1.0) -> None:
         super().__init__()
         self.alpha = alpha
         self.beta = beta
@@ -37,7 +37,7 @@ class LotkaVolterra(ODEFunction):
 class LorenzSystem(ODEFunction):
     """Lorenz attractor system."""
 
-    def __init__(self, sigma: float = 10.0, rho: float = 28.0, beta: float = 8.0 / 3.0):
+    def __init__(self, sigma: float = 10.0, rho: float = 28.0, beta: float = 8.0 / 3.0) -> None:
         super().__init__()
         self.sigma = sigma
         self.rho = rho

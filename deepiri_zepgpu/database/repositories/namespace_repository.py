@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,10 +25,10 @@ from deepiri_zepgpu.database.models.namespace import (
 class NamespaceRepository:
     """Repository for Namespace database operations."""
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def create(self, **kwargs) -> Namespace:
+    async def create(self, **kwargs: Any) -> Namespace:
         """Create a new namespace."""
         namespace = Namespace(id=str(uuid.uuid4()), **kwargs)
         self.session.add(namespace)
@@ -77,7 +78,7 @@ class NamespaceRepository:
         )
         return result.scalars().all()
 
-    async def update(self, namespace_id: str, **kwargs) -> Namespace | None:
+    async def update(self, namespace_id: str, **kwargs: Any) -> Namespace | None:
         """Update a namespace."""
         namespace = await self.get_by_id(namespace_id)
         if not namespace:
@@ -113,10 +114,10 @@ class NamespaceRepository:
 class NamespaceMemberRepository:
     """Repository for NamespaceMember database operations."""
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def create(self, **kwargs) -> NamespaceMember:
+    async def create(self, **kwargs: Any) -> NamespaceMember:
         """Create a new namespace member."""
         member = NamespaceMember(
             id=str(uuid.uuid4()),
@@ -207,10 +208,10 @@ class NamespaceMemberRepository:
 class TeamRepository:
     """Repository for Team database operations."""
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def create(self, **kwargs) -> Team:
+    async def create(self, **kwargs: Any) -> Team:
         """Create a new team."""
         team = Team(id=str(uuid.uuid4()), **kwargs)
         self.session.add(team)
@@ -241,7 +242,7 @@ class TeamRepository:
         )
         return result.scalars().all()
 
-    async def update(self, team_id: str, **kwargs) -> Team | None:
+    async def update(self, team_id: str, **kwargs: Any) -> Team | None:
         """Update a team."""
         team = await self.get_by_id(team_id)
         if not team:
@@ -265,10 +266,10 @@ class TeamRepository:
 class TeamMemberRepository:
     """Repository for TeamMember database operations."""
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def create(self, **kwargs) -> TeamMember:
+    async def create(self, **kwargs: Any) -> TeamMember:
         """Create a new team member."""
         member = TeamMember(
             id=str(uuid.uuid4()),
@@ -318,10 +319,10 @@ class TeamMemberRepository:
 class NamespaceQuotaRepository:
     """Repository for NamespaceQuota database operations."""
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def create(self, **kwargs) -> NamespaceQuota:
+    async def create(self, **kwargs: Any) -> NamespaceQuota:
         """Create namespace quota."""
         quota = NamespaceQuota(
             id=str(uuid.uuid4()),
@@ -347,7 +348,7 @@ class NamespaceQuotaRepository:
             return quota
         return await self.create(namespace_id=namespace_id)
 
-    async def update(self, namespace_id: str, **kwargs) -> NamespaceQuota | None:
+    async def update(self, namespace_id: str, **kwargs: Any) -> NamespaceQuota | None:
         """Update namespace quota."""
         quota = await self.get_by_namespace(namespace_id)
         if not quota:
@@ -363,10 +364,10 @@ class NamespaceQuotaRepository:
 class NamespaceUsageRepository:
     """Repository for NamespaceUsage database operations."""
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def create(self, **kwargs) -> NamespaceUsage:
+    async def create(self, **kwargs: Any) -> NamespaceUsage:
         """Create namespace usage record."""
         usage = NamespaceUsage(
             id=str(uuid.uuid4()),

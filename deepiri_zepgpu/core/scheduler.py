@@ -117,7 +117,7 @@ class TaskScheduler:
             heapq.heappush(
                 self._pending_queue,
                 PriorityTaskItem(
-                    priority=priority_value,
+                    priority=priority_value,  # type: ignore[arg-type]
                     created_at=task.created_at.timestamp(),
                     task_id=task_id,
                     task=task,
@@ -149,7 +149,7 @@ class TaskScheduler:
         """Set quota for a user."""
         self._user_quotas[user_id] = {
             "max_tasks": max_tasks,
-            "max_gpu_hours": max_gpu_hours,
+            "max_gpu_hours": max_gpu_hours,  # type: ignore[dict-item]
         }
 
     def cancel_task(self, task_id: str) -> bool:

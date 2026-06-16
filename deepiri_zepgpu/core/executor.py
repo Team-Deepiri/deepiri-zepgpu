@@ -324,7 +324,7 @@ except Exception as e:
                 if isinstance(result, Exception):
                     results.append(ExecutionResult(success=False, error=str(result)))
                 else:
-                    results.append(result)
+                    results.append(result)  # type: ignore[arg-type]
         return results
 
     def get_active_executors(self) -> list[str]:

@@ -24,7 +24,7 @@ class TaskSubmitter:
         gpu_manager: GPUManager | None = None,
         executor: TaskExecutor | None = None,
         auto_start: bool = True,
-    ):
+    ) -> None:
         self._gpu_manager = gpu_manager or GPUManager()
         self._gpu_pool = GpuPoolAggregator(self._gpu_manager, remote_lock=RemoteGpuLock())
         self._executor = executor or TaskExecutor(self._gpu_manager)
@@ -208,7 +208,7 @@ async def submit_task(
 class AsyncTaskSubmitter:
     """Async context manager for task submission."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._submitter = TaskSubmitter()
 
     async def __aenter__(self) -> TaskSubmitter:
