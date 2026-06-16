@@ -8,8 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from deepiri_zepgpu.api.server.dependencies import get_db_session, get_required_user
 from deepiri_zepgpu.database.models import User
 from deepiri_zepgpu.database.models.vpn_models import (
+    Friendship,
     GpuShareState,
     PeerOnlineStatus,
+    VpnNetwork,
 )
 from deepiri_zepgpu.vpn.config import vpn_settings
 from deepiri_zepgpu.vpn.crypto import encrypt_value
@@ -47,7 +49,7 @@ async def _ensure_network_member(
     network_repo: VpnNetworkRepository,
     user_id: str,
     network_id: str,
-):
+) -> VpnNetwork:
     network = await network_repo.get_by_id(network_id)
     if not network:
         raise HTTPException(status_code=404, detail="Network not found")
@@ -62,7 +64,7 @@ async def create_vpn_network(
     data: VpnNetworkCreate,
     user: User = Depends(get_required_user),
     db: AsyncSession = Depends(get_db_session),
-):
+) -> VpnNetworkResponse:
     repo = VpnNetworkRepository(db)
     relay_endpoint = data.relay_endpoint or vpn_settings.relay_host
     private_key, public_key = generate_keypair()
@@ -104,7 +106,7 @@ async def create_vpn_network(
 async def list_vpn_networks(
     user: User = Depends(get_required_user),
     db: AsyncSession = Depends(get_db_session),
-):
+) -> list[VpnNetworkResponse]:
     repo = VpnNetworkRepository(db)
     networks = await repo.list_user_networks(str(user.id))
     responses = []
@@ -130,7 +132,7 @@ async def get_vpn_network(
     network_id: str,
     user: User = Depends(get_required_user),
     db: AsyncSession = Depends(get_db_session),
-):
+) -> VpnNetworkResponse:
     repo = VpnNetworkRepository(db)
     network = await _ensure_network_member(repo, str(user.id), network_id)
     peer_count = await repo.get_peer_count(network_id)
@@ -151,7 +153,7 @@ async def list_network_peers(
     network_id: str,
     user: User = Depends(get_required_user),
     db: AsyncSession = Depends(get_db_session),
-):
+) -> list[PeerResponse]:
     net_repo = VpnNetworkRepository(db)
     await _ensure_network_member(net_repo, str(user.id), network_id)
     repo = PeerRepository(db)
@@ -177,7 +179,7 @@ async def get_wireguard_config(
     network_id: str,
     user: User = Depends(get_required_user),
     db: AsyncSession = Depends(get_db_session),
-):
+) -> VpnConfigResponse:
     network_repo = VpnNetworkRepository(db)
     network = await _ensure_network_member(network_repo, str(user.id), network_id)
 
@@ -216,7 +218,7 @@ async def create_invite(
     data: NetworkInviteRequest,
     user: User = Depends(get_required_user),
     db: AsyncSession = Depends(get_db_session),
-):
+) -> InviteResponse:
     network_repo = VpnNetworkRepository(db)
     network = await _ensure_network_member(network_repo, str(user.id), network_id)
 
@@ -245,7 +247,7 @@ async def create_invite(
 async def list_invites(
     user: User = Depends(get_required_user),
     db: AsyncSession = Depends(get_db_session),
-):
+) -> list[InviteResponse]:
     invite_repo = VpnInviteRepository(db)
     invites = await invite_repo.list_by_creator(str(user.id))
     responses = []
@@ -273,7 +275,7 @@ async def revoke_invite(
     invite_id: str,
     user: User = Depends(get_required_user),
     db: AsyncSession = Depends(get_db_session),
-):
+) -> dict[str, str]:
     invite_repo = VpnInviteRepository(db)
     success = await invite_repo.revoke(invite_id)
     if not success:
@@ -286,7 +288,7 @@ async def revoke_invite_by_code(
     code: str,
     user: User = Depends(get_required_user),
     db: AsyncSession = Depends(get_db_session),
-):
+) -> dict[str, str]:
     invite_repo = VpnInviteRepository(db)
     inv = await invite_repo.get_by_code(code)
     if not inv or str(inv.creator_id) != str(user.id):
@@ -302,7 +304,7 @@ async def leave_vpn_network(
     network_id: str,
     user: User = Depends(get_required_user),
     db: AsyncSession = Depends(get_db_session),
-):
+) -> dict[str, str]:
     net_repo = VpnNetworkRepository(db)
     await _ensure_network_member(net_repo, str(user.id), network_id)
     peer_repo = PeerRepository(db)
@@ -321,7 +323,7 @@ async def list_all_vpn_peers(
     network_id: str | None = None,
     user: User = Depends(get_required_user),
     db: AsyncSession = Depends(get_db_session),
-):
+) -> list[PeerResponse]:
     net_repo = VpnNetworkRepository(db)
     peer_repo = PeerRepository(db)
     nets = await net_repo.list_user_networks(str(user.id))
@@ -354,7 +356,7 @@ async def join_network(
     data: JoinNetworkRequest,
     user: User = Depends(get_required_user),
     db: AsyncSession = Depends(get_db_session),
-):
+) -> VpnConfigResponse:
     invite_repo = VpnInviteRepository(db)
     invite = await invite_repo.get_by_code(data.invite_code)
     if not invite:
@@ -412,13 +414,14 @@ async def join_network(
 async def register_peer(
     data: PeerRegisterRequest,
     db: AsyncSession = Depends(get_db_session),
-):
+) -> dict[str, str]:
     peer_repo = PeerRepository(db)
     existing = await peer_repo.get_by_public_key(data.wireguard_public_key)
     if not existing:
         raise HTTPException(status_code=404, detail="Peer not found in network")
 
     peer = await peer_repo.heartbeat(str(existing.id), is_online=True, endpoint=data.endpoint)
+    assert peer is not None
     return {"peer_id": str(peer.id), "status": "registered"}
 
 
@@ -426,7 +429,7 @@ async def register_peer(
 async def peer_heartbeat(
     data: PeerHeartbeatRequest,
     db: AsyncSession = Depends(get_db_session),
-):
+) -> dict[str, str]:
     peer_repo = PeerRepository(db)
     gpu_repo = GpuShareRepository(db)
 
@@ -471,7 +474,7 @@ async def get_peer_gpus(
     peer_id: str,
     user: User = Depends(get_required_user),
     db: AsyncSession = Depends(get_db_session),
-):
+) -> list[GpuShareResponse]:
     peer_repo = PeerRepository(db)
     peer = await peer_repo.get_by_id(peer_id)
     if not peer:
@@ -506,7 +509,7 @@ async def get_gpu_pool(
     network_id: str | None = None,
     user: User = Depends(get_required_user),
     db: AsyncSession = Depends(get_db_session),
-):
+) -> GpuPoolSummary:
     pool = get_registered_gpu_pool()
     if pool is not None:
         await refresh_gpu_pool_from_db(db, pool)
@@ -566,13 +569,13 @@ async def get_gpu_pool(
 async def list_friends(
     user: User = Depends(get_required_user),
     db: AsyncSession = Depends(get_db_session),
-):
+) -> FriendListResponse:
     repo = FriendshipRepository(db)
     friends = await repo.get_friends(str(user.id))
     pending = await repo.get_pending(str(user.id))
     sent = await repo.get_sent_requests(str(user.id))
 
-    def to_response(f) -> FriendResponse:
+    def to_response(f: Friendship) -> FriendResponse:
         return FriendResponse(
             id=str(f.id),
             user_id=str(f.user_id),
@@ -595,7 +598,7 @@ async def send_friend_request(
     data: FriendRequest,
     user: User = Depends(get_required_user),
     db: AsyncSession = Depends(get_db_session),
-):
+) -> dict[str, str]:
     repo = FriendshipRepository(db)
     existing = await repo.check_friendship(str(user.id), data.friend_id)
     if existing:
@@ -610,7 +613,7 @@ async def accept_friend(
     friendship_id: str,
     user: User = Depends(get_required_user),
     db: AsyncSession = Depends(get_db_session),
-):
+) -> dict[str, str]:
     repo = FriendshipRepository(db)
     friendship = await repo.get_by_id(friendship_id)
     if not friendship:
@@ -627,7 +630,7 @@ async def block_friend(
     friendship_id: str,
     user: User = Depends(get_required_user),
     db: AsyncSession = Depends(get_db_session),
-):
+) -> dict[str, str]:
     repo = FriendshipRepository(db)
     friendship = await repo.get_by_id(friendship_id)
     if not friendship:

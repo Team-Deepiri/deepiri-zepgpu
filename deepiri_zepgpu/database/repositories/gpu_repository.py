@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,10 +15,10 @@ from deepiri_zepgpu.database.models.gpu_device import GPUDevice, GPUState
 class GPURepository:
     """Repository for GPU Device database operations."""
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def create(self, **kwargs) -> GPUDevice:
+    async def create(self, **kwargs: Any) -> GPUDevice:
         """Create or update GPU device."""
         device = GPUDevice(**kwargs)
         self.session.add(device)
@@ -85,7 +86,7 @@ class GPURepository:
         result = await self.session.execute(query)
         devices = result.scalars().all()
 
-        consecutive = []
+        consecutive = []  # type: ignore[var-annotated]
         for device in devices:
             if len(consecutive) == 0:
                 consecutive.append(device)
@@ -124,7 +125,7 @@ class GPURepository:
     async def update_or_create(
         self,
         device_index: int,
-        **kwargs,
+        **kwargs: Any,
     ) -> GPUDevice:
         """Update or create GPU device."""
         device = await self.get_by_device_index(device_index)

@@ -104,7 +104,7 @@ class ContainerSandbox:
         with self._lock:
             self._running_containers.pop(task.task_id, None)
 
-        return process.returncode, stdout.decode(), stderr.decode()
+        return process.returncode, stdout.decode(), stderr.decode()  # type: ignore[return-value]
 
     def _build_environment(self, config: ContainerConfig) -> dict[str, str]:
         """Build environment variables for container."""

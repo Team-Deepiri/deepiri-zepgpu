@@ -57,11 +57,12 @@ cryptography = ">=41.0.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=8,<10"
-pytest-asyncio = "^0.23.0"
+pytest-asyncio = ">=0.25.0"
 pytest-cov = "^4.1.0"
 black = ">=24,<27"
 ruff = "^0.2.0"
 mypy = "^1.8.0"
+types-croniter = ">=6.2.0"
 
 [tool.poetry.group.gpu]
 optional = true
@@ -135,6 +136,7 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 warn_no_return = true
 strict_equality = true
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 minversion = "8.0"

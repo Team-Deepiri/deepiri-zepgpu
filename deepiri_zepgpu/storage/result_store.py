@@ -11,7 +11,7 @@ class ResultStore:
     SMALL_RESULT_THRESHOLD = 1024 * 1024
     LARGE_RESULT_THRESHOLD = 100 * 1024 * 1024
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._initialized = False
         self._redis_client = None
         self._s3_client = None
@@ -21,11 +21,12 @@ class ResultStore:
         from deepiri_zepgpu.storage.s3_client import storage
 
         storage.connect()
-        self._s3_client = storage
+        self._s3_client = storage  # type: ignore[assignment]
 
         from deepiri_zepgpu.queue.redis_queue import RedisQueue
 
-        self._redis_client = RedisQueue()
+        self._redis_client = RedisQueue()  # type: ignore[assignment]
+        assert self._redis_client is not None
         await self._redis_client.connect()
 
         self._initialized = True
@@ -45,6 +46,9 @@ class ResultStore:
             size_bytes: Size of stored result
         """
         size_bytes = len(result)
+
+        assert self._redis_client is not None
+        assert self._s3_client is not None
 
         if size_bytes <= self.SMALL_RESULT_THRESHOLD:
             await self._redis_client.set_task_result(
@@ -70,6 +74,9 @@ class ResultStore:
         storage_ref: str | None = None,
     ) -> bytes | None:
         """Retrieve task result."""
+        assert self._redis_client is not None
+        assert self._s3_client is not None
+
         if storage_type == "redis":
             result_data = await self._redis_client.get_task_result(task_id)
             if result_data:
@@ -94,6 +101,9 @@ class ResultStore:
         storage_type: str,
     ) -> None:
         """Delete stored result."""
+        assert self._redis_client is not None
+        assert self._s3_client is not None
+
         if storage_type == "redis":
             await self._redis_client.delete_task_result(task_id)
         elif storage_type == "s3":
@@ -101,6 +111,7 @@ class ResultStore:
 
     async def get_presigned_url(self, task_id: str, expiry: int | None = None) -> str | None:
         """Get presigned URL for result download."""
+        assert self._s3_client is not None
         return self._s3_client.generate_presigned_url(task_id, expiry)
 
     async def result_exists(self, task_id: str) -> bool:

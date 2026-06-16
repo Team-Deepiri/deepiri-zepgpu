@@ -20,7 +20,7 @@ def estimate_pi_monte_carlo(num_samples: int = 1000000) -> float:
 
     pi_estimate = 4 * inside_circle / num_samples
 
-    return pi_estimate
+    return float(pi_estimate)
 
 
 def estimate_integral_monte_carlo(

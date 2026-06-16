@@ -8,8 +8,10 @@ from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from deepiri_zepgpu.api.server.dependencies import get_current_user, get_db_session
+from deepiri_zepgpu.database.models import User
 from deepiri_zepgpu.database.repositories import FairShareRepository, GangScheduleRepository
 from deepiri_zepgpu.queue.tasks import check_and_preempt, execute_gang_task
 
@@ -123,8 +125,8 @@ class FairShareUpdateRequest(BaseModel):
 async def create_gang_task(
     request: GangTaskCreateRequest,
     background_tasks: BackgroundTasks,
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_current_user),
 ) -> GangTaskResponse:
     """Create a new gang scheduled task requiring multiple GPUs."""
     from deepiri_zepgpu.database.models import GangStatus, GangTask
@@ -180,8 +182,8 @@ async def create_gang_task(
 
 @router.get("/gang", response_model=GangTaskListResponse)
 async def list_gang_tasks(
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_current_user),
     status_filter: str | None = Query(None, alias="status"),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
@@ -230,8 +232,8 @@ async def list_gang_tasks(
 @router.get("/gang/{gang_task_id}", response_model=GangTaskResponse)
 async def get_gang_task(
     gang_task_id: str,
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_current_user),
 ) -> GangTaskResponse:
     """Get a gang task by ID."""
     repo = GangScheduleRepository(db)
@@ -268,8 +270,8 @@ async def get_gang_task(
 async def update_gang_task(
     gang_task_id: str,
     request: GangTaskUpdateRequest,
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_current_user),
 ) -> GangTaskResponse:
     """Update a gang task."""
     from deepiri_zepgpu.database.models import GangStatus as DBGangStatus
@@ -319,8 +321,8 @@ async def update_gang_task(
 @router.delete("/gang/{gang_task_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def cancel_gang_task(
     gang_task_id: str,
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_current_user),
 ) -> None:
     """Cancel a gang task."""
     from deepiri_zepgpu.database.models import GangStatus as DBGangStatus
@@ -349,8 +351,8 @@ async def cancel_gang_task(
 async def retry_gang_task(
     gang_task_id: str,
     background_tasks: BackgroundTasks,
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_current_user),
 ) -> GangTaskResponse:
     """Retry a failed gang task."""
     from deepiri_zepgpu.database.models import GangStatus as DBGangStatus
@@ -376,6 +378,7 @@ async def retry_gang_task(
     background_tasks.add_task(execute_gang_task.delay, gang_task_id)
 
     task = await repo.get_by_id(gang_task_id)
+    assert task is not None
 
     return GangTaskResponse(
         id=task.id,
@@ -407,8 +410,8 @@ async def trigger_preemption_check() -> dict[str, str]:
 
 @router.get("/fair-share/me", response_model=FairShareResponse)
 async def get_my_fair_share(
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_current_user),
 ) -> FairShareResponse:
     """Get current user's fair share information."""
     if not current_user:
@@ -432,8 +435,8 @@ async def get_my_fair_share(
 @router.put("/fair-share/me", response_model=FairShareResponse)
 async def update_my_fair_share(
     request: FairShareUpdateRequest,
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_current_user),
 ) -> FairShareResponse:
     """Update current user's fair share settings."""
     if not current_user:
@@ -472,4 +475,4 @@ async def get_all_fair_share_weights() -> dict[str, Any]:
     result = get_fair_share_weights.delay()
     weights = result.get(timeout=10)
 
-    return weights
+    return weights  # type: ignore[no-any-return]

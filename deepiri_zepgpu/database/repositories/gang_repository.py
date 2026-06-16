@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 from datetime import datetime, timedelta
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,10 +21,10 @@ from deepiri_zepgpu.database.models.gang_scheduling import (
 class GangScheduleRepository:
     """Repository for GangTask database operations."""
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def create(self, **kwargs) -> GangTask:
+    async def create(self, **kwargs: Any) -> GangTask:
         """Create a new gang task."""
         gang_task = GangTask(id=str(uuid.uuid4()), **kwargs)
         self.session.add(gang_task)
@@ -73,7 +74,7 @@ class GangScheduleRepository:
         self,
         gang_task_id: str,
         status: GangStatus,
-        **kwargs,
+        **kwargs: Any,
     ) -> GangTask | None:
         """Update gang task status."""
         gang_task = await self.get_by_id(gang_task_id)
@@ -139,10 +140,10 @@ class GangScheduleRepository:
 class PreemptionRepository:
     """Repository for PreemptionRecord database operations."""
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def create(self, **kwargs) -> PreemptionRecord:
+    async def create(self, **kwargs: Any) -> PreemptionRecord:
         """Create a new preemption record."""
         record = PreemptionRecord(id=str(uuid.uuid4()), **kwargs)
         self.session.add(record)
@@ -193,10 +194,10 @@ class PreemptionRepository:
 class FairShareRepository:
     """Repository for FairShareBucket database operations."""
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def create(self, **kwargs) -> FairShareBucket:
+    async def create(self, **kwargs: Any) -> FairShareBucket:
         """Create a new fair share bucket."""
         bucket = FairShareBucket(
             id=str(uuid.uuid4()),

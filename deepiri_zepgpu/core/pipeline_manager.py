@@ -52,7 +52,7 @@ class Pipeline:
     errors: dict[str, str] = field(default_factory=dict)
     completed_stages: int = 0
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         for stage in self.stages:
             self.stage_statuses[stage.name] = PipelineStageStatus.PENDING
 
@@ -65,7 +65,7 @@ class PipelineManager:
         task_scheduler: Any,
         max_concurrent_stages: int = 4,
         enable_retry: bool = True,
-    ):
+    ) -> None:
         self._scheduler = task_scheduler
         self._max_concurrent_stages = max_concurrent_stages
         self._enable_retry = enable_retry
@@ -115,8 +115,8 @@ class PipelineManager:
     ) -> dict[str, Any]:
         """Execute pipeline stages respecting dependencies."""
         context = dict(initial_inputs)
-        completed = set()
-        failed_stages = set()
+        completed: set[str] = set()
+        failed_stages: set[str] = set()
 
         stage_tasks: dict[str, asyncio.Task] = {}
 

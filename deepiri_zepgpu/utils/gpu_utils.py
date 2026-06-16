@@ -29,10 +29,11 @@ except ImportError:
 
 def get_gpu_info() -> dict[str, Any]:
     """Get information about available GPUs."""
-    info = {
+    gpus: list[dict[str, Any]] = []
+    info: dict[str, Any] = {
         "cuda_available": False,
         "gpu_count": 0,
-        "gpus": [],
+        "gpus": gpus,
         "torch_available": TORCH_AVAILABLE,
         "cupy_available": CUPY_AVAILABLE,
     }
@@ -47,7 +48,7 @@ def get_gpu_info() -> dict[str, Any]:
                     "name": torch.cuda.get_device_name(i),
                     "total_memory": torch.cuda.get_device_properties(i).total_memory,
                 }
-                info["gpus"].append(gpu_info)
+                gpus.append(gpu_info)
 
     elif PYNVML_AVAILABLE:
         try:
@@ -66,7 +67,7 @@ def get_gpu_info() -> dict[str, Any]:
                     "free_memory": memory.free,
                     "used_memory": memory.used,
                 }
-                info["gpus"].append(gpu_info)
+                gpus.append(gpu_info)
 
             pynvml.nvmlShutdown()
         except Exception:
@@ -95,7 +96,7 @@ def format_memory(bytes: int) -> str:
     for unit in ["B", "KB", "MB", "GB", "TB"]:
         if bytes < 1024.0:
             return f"{bytes:.2f}{unit}"
-        bytes /= 1024.0
+        bytes /= 1024.0  # type: ignore[assignment]
     return f"{bytes:.2f}PB"
 
 
@@ -125,7 +126,7 @@ def check_nvidia_driver() -> str | None:
         pynvml.nvmlInit()
         driver_version = pynvml.nvmlSystemGetDriverVersion()
         pynvml.nvmlShutdown()
-        return driver_version
+        return driver_version  # type: ignore[no-any-return]
     except Exception:
         return None
 

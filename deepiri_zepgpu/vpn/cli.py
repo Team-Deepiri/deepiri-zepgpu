@@ -53,7 +53,7 @@ def load_peer_id() -> str | None:
         return None
     try:
         data = json.loads(p.read_text())
-        return data.get("peer_id")
+        return data.get("peer_id")  # type: ignore[no-any-return]
     except Exception:
         return None
 
@@ -180,7 +180,7 @@ def install_wireguard() -> bool:
 if HAS_CLICK:
 
     @click.group()
-    def vpn():
+    def vpn() -> None:
         """ZepGPU VPN - GPU sharing network management."""
         pass
 
@@ -196,7 +196,14 @@ if HAS_CLICK:
         help="Bearer token for relay API (required for --code)",
     )
     @click.option("--gpu-host", is_flag=True, help="Register as GPU host when using --code")
-    def join(config, code, relay_url, interface, api_token, gpu_host):  # noqa: C901
+    def join(  # noqa: C901
+        config: str | None,
+        code: str | None,
+        relay_url: str,
+        interface: str,
+        api_token: str | None,
+        gpu_host: bool,
+    ) -> None:
         """Join a VPN network."""
         if not check_wireguard_installed():
             print("WireGuard is not installed.")
@@ -260,7 +267,7 @@ if HAS_CLICK:
 
     @vpn.command()
     @click.option("--interface", default="wg0", help="WireGuard interface name")
-    def leave(interface):
+    def leave(interface: str) -> None:
         """Leave the current VPN network."""
         if remove_wireguard_config(interface):
             print(f"Disconnected from VPN ({interface})")
@@ -270,7 +277,7 @@ if HAS_CLICK:
 
     @vpn.command()
     @click.option("--interface", default="wg0", help="WireGuard interface name")
-    def status(interface):
+    def status(interface: str) -> None:
         """Show VPN connection status."""
         if is_linux():
             result = subprocess.run(["wg", "show", interface], capture_output=True, text=True)
@@ -299,7 +306,7 @@ if HAS_CLICK:
         default=None,
         help="Peer UUID from join response (or saved in peer_state.json)",
     )
-    def advertise(relay_url, interface, peer_id):
+    def advertise(relay_url: str, interface: str, peer_id: str | None) -> None:
         """Advertise local GPUs to the relay server."""
         if not check_wireguard_installed():
             print("WireGuard is not installed.")
@@ -328,7 +335,7 @@ if HAS_CLICK:
 
         from deepiri_zepgpu.vpn.peer_node import discover_local_gpus
 
-        async def advertise_loop():
+        async def advertise_loop() -> None:
             while True:
                 gpus = discover_local_gpus()
                 if gpus:
@@ -357,7 +364,7 @@ if HAS_CLICK:
             print("\nStopped advertising GPUs.")
 
     @vpn.command()
-    def stop_advertise():
+    def stop_advertise() -> None:
         """Stop advertising local GPUs."""
         print("GPU advertising stopped.")
         print("(In production, this would send an offline signal to the relay)")
@@ -370,7 +377,7 @@ if HAS_CLICK:
         default=None,
         help="Bearer token (required to read gpu-pool from relay)",
     )
-    def list_gpus(relay_url, api_token):
+    def list_gpus(relay_url: str, api_token: str | None) -> None:
         """List GPUs available in the network pool."""
         import httpx
 
@@ -405,7 +412,7 @@ class VPNCLI:
     """VPN CLI command group."""
 
     @staticmethod
-    def register(parent_cli):
+    def register(parent_cli: click.Group) -> None:
         if not HAS_CLICK:
             return
         parent_cli.add_command(vpn)

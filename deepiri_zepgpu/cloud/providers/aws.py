@@ -72,8 +72,8 @@ class AWSProvider(CloudProvider):
                         provider_instance_id=instance_type,
                         name=f"{specs['name']} ({instance_type})",
                         gpu_type=instance_type,
-                        gpu_count=specs["gpu_count"],
-                        memory_gb=specs["memory_gb"],
+                        gpu_count=specs["gpu_count"],  # type: ignore[arg-type]
+                        memory_gb=specs["memory_gb"],  # type: ignore[arg-type]
                         price_per_hour=price,
                         available=True,
                     )
@@ -141,8 +141,8 @@ class AWSProvider(CloudProvider):
                 provider_instance_id=instance_data.get("InstanceId", ""),
                 status=InstanceStatus.PENDING,
                 gpu_type=instance_type,
-                gpu_count=specs.get("gpu_count", 1),
-                memory_gb=specs.get("memory_gb", 0),
+                gpu_count=specs.get("gpu_count", 1),  # type: ignore[arg-type]
+                memory_gb=specs.get("memory_gb", 0),  # type: ignore[arg-type]
                 price_per_hour=config.max_price_per_hour or 0,
                 endpoint=instance_data.get("PublicIpAddress"),
             )
@@ -207,8 +207,8 @@ class AWSProvider(CloudProvider):
                     instance_data.get("State", {}).get("Name", ""), InstanceStatus.PENDING
                 ),
                 gpu_type=instance_type,
-                gpu_count=specs.get("gpu_count", 0),
-                memory_gb=specs.get("memory_gb", 0),
+                gpu_count=specs.get("gpu_count", 0),  # type: ignore[arg-type]
+                memory_gb=specs.get("memory_gb", 0),  # type: ignore[arg-type]
                 price_per_hour=0,
                 endpoint=instance_data.get("PublicIpAddress"),
                 started_at=instance_data.get("LaunchTime"),
@@ -232,9 +232,9 @@ class AWSProvider(CloudProvider):
         return CostEstimate(
             provider_type=self.provider_type,
             gpu_type=gpu_type_id,
-            gpu_count=specs.get("gpu_count", 1),
+            gpu_count=specs.get("gpu_count", 1),  # type: ignore[arg-type]
             price_per_hour=price_per_hour,
-            estimated_monthly_cost=price_per_hour * 24 * 30 * specs.get("gpu_count", 1),
+            estimated_monthly_cost=price_per_hour * 24 * 30 * specs.get("gpu_count", 1),  # type: ignore[operator]
         )
 
     async def get_status(self) -> dict[str, Any]:

@@ -157,7 +157,7 @@ class AuditRepository:
 
         result = await self.session.execute(delete(AuditLog).where(AuditLog.created_at < cutoff))
         await self.session.flush()
-        return result.rowcount or 0
+        return result.rowcount or 0  # type: ignore[attr-defined]
 
     async def log_task_action(
         self,

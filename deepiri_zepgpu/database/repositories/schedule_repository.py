@@ -22,10 +22,10 @@ from deepiri_zepgpu.database.models.scheduled_task_run import ScheduledTaskRun, 
 class ScheduleRepository:
     """Repository for ScheduledTask database operations."""
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def create(self, **kwargs) -> ScheduledTask:
+    async def create(self, **kwargs: Any) -> ScheduledTask:
         """Create a new scheduled task."""
         schedule = ScheduledTask(id=str(uuid.uuid4()), **kwargs)
         self.session.add(schedule)
@@ -108,7 +108,7 @@ class ScheduleRepository:
     async def update(
         self,
         schedule_id: str,
-        **kwargs,
+        **kwargs: Any,
     ) -> ScheduledTask | None:
         """Update a scheduled task."""
         schedule = await self.get_by_id(schedule_id)
@@ -223,10 +223,10 @@ class ScheduleRepository:
 class ScheduleRunRepository:
     """Repository for ScheduledTaskRun database operations."""
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def create(self, **kwargs) -> ScheduledTaskRun:
+    async def create(self, **kwargs: Any) -> ScheduledTaskRun:
         """Create a new scheduled task run record."""
         run = ScheduledTaskRun(id=str(uuid.uuid4()), **kwargs)
         self.session.add(run)
@@ -366,4 +366,4 @@ class ScheduleRunRepository:
             .values(result_summary=None)
         )
         await self.session.flush()
-        return result.rowcount or 0
+        return result.rowcount or 0  # type: ignore[attr-defined]

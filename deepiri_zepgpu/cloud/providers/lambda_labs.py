@@ -69,7 +69,7 @@ class LambdaLabsProvider(CloudProvider):
 
     async def launch_instance(self, config: LaunchConfig) -> Instance:
         """Launch a Lambda Labs GPU instance."""
-        data = {
+        data: dict[str, Any] = {
             "instance_type_name": config.gpu_type_id,
             "region_name": "us-west-1",
             "ssh_key_names": config.env.get("ssh_key_names", []) if config.env else [],

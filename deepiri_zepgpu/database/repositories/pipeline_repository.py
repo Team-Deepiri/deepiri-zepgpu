@@ -16,7 +16,7 @@ from deepiri_zepgpu.database.models.pipeline import Pipeline, PipelineStatus
 class PipelineRepository:
     """Repository for Pipeline database operations."""
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
     async def create(
@@ -25,7 +25,7 @@ class PipelineRepository:
         name: str,
         stages: list[dict[str, Any]],
         description: str | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> Pipeline:
         """Create a new pipeline."""
         pipeline = Pipeline(
@@ -73,7 +73,7 @@ class PipelineRepository:
         self,
         pipeline_id: str,
         status: PipelineStatus,
-        **kwargs,
+        **kwargs: Any,
     ) -> Pipeline | None:
         """Update pipeline status."""
         pipeline = await self.get_by_id(pipeline_id)
