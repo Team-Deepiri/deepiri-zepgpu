@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
-from deepiri_zepgpu.core.pipeline_manager import PipelineStage, Pipeline, PipelineStageStatus
-from deepiri_zepgpu.core.task import TaskResources, TaskPriority
+from deepiri_zepgpu.core.pipeline_manager import PipelineStage
+from deepiri_zepgpu.core.task import TaskResources
 
 
 class PipelineBuilder:
     """Builder for composing multi-stage GPU pipelines."""
 
-    def __init__(self, name: str, user_id: Optional[str] = None):
+    def __init__(self, name: str, user_id: str | None = None):
         self._name = name
         self._user_id = user_id
         self._stages: list[PipelineStage] = []
@@ -21,13 +22,13 @@ class PipelineBuilder:
         self,
         name: str,
         func: Callable[..., Any],
-        args: Optional[dict[str, Any]] = None,
-        depends_on: Optional[list[str]] = None,
-        resources: Optional[TaskResources] = None,
+        args: dict[str, Any] | None = None,
+        depends_on: list[str] | None = None,
+        resources: TaskResources | None = None,
         timeout_seconds: int = 3600,
         retry_count: int = 3,
-        on_error: Optional[Callable[[Exception], Any]] = None,
-    ) -> "PipelineBuilder":
+        on_error: Callable[[Exception], Any] | None = None,
+    ) -> PipelineBuilder:
         """Add a stage to the pipeline.
 
         Args:
@@ -62,9 +63,9 @@ class PipelineBuilder:
         self,
         func: Callable[..., Any],
         name: str = "preprocess",
-        args: Optional[dict[str, Any]] = None,
+        args: dict[str, Any] | None = None,
         **kwargs: Any,
-    ) -> "PipelineBuilder":
+    ) -> PipelineBuilder:
         """Add a preprocessing stage (depends on nothing)."""
         return self.add_stage(
             name=name,
@@ -77,11 +78,11 @@ class PipelineBuilder:
         self,
         name: str,
         func: Callable[..., Any],
-        args: Optional[dict[str, Any]] = None,
-        depends_on: Optional[list[str]] = None,
+        args: dict[str, Any] | None = None,
+        depends_on: list[str] | None = None,
         gpu_memory_mb: int = 2048,
         **kwargs: Any,
-    ) -> "PipelineBuilder":
+    ) -> PipelineBuilder:
         """Add a GPU compute stage."""
         resources = TaskResources(gpu_memory_mb=gpu_memory_mb)
         return self.add_stage(
@@ -96,10 +97,10 @@ class PipelineBuilder:
         self,
         func: Callable[..., Any],
         name: str = "postprocess",
-        args: Optional[dict[str, Any]] = None,
-        depends_on: Optional[list[str]] = None,
+        args: dict[str, Any] | None = None,
+        depends_on: list[str] | None = None,
         **kwargs: Any,
-    ) -> "PipelineBuilder":
+    ) -> PipelineBuilder:
         """Add a postprocessing stage."""
         return self.add_stage(
             name=name,
@@ -123,9 +124,9 @@ class PipelineExecutor:
     async def run(
         self,
         stages: list[PipelineStage],
-        user_id: Optional[str] = None,
-        initial_inputs: Optional[dict[str, Any]] = None,
-        name: Optional[str] = None,
+        user_id: str | None = None,
+        initial_inputs: dict[str, Any] | None = None,
+        name: str | None = None,
     ) -> str:
         """Execute a pipeline and return pipeline ID."""
         pipeline_name = name or f"pipeline_{len(stages)}_stages"
@@ -140,9 +141,9 @@ class PipelineExecutor:
     async def run_and_wait(
         self,
         stages: list[PipelineStage],
-        user_id: Optional[str] = None,
-        initial_inputs: Optional[dict[str, Any]] = None,
-        name: Optional[str] = None,
+        user_id: str | None = None,
+        initial_inputs: dict[str, Any] | None = None,
+        name: str | None = None,
         poll_interval: float = 0.5,
     ) -> dict[str, Any]:
         """Execute pipeline and wait for completion."""
@@ -181,19 +182,25 @@ def create_inference_pipeline(
     Returns:
         List of pipeline stages
     """
-    return PipelineBuilder("inference_pipeline").preprocess(
-        name="preprocess",
-        func=preprocess_fn,
-    ).compute(
-        name="inference",
-        func=model_fn,
-        depends_on=["preprocess"],
-        gpu_memory_mb=gpu_memory_mb,
-    ).postprocess(
-        name="postprocess",
-        func=postprocess_fn,
-        depends_on=["inference"],
-    ).build()
+    return (
+        PipelineBuilder("inference_pipeline")
+        .preprocess(
+            name="preprocess",
+            func=preprocess_fn,
+        )
+        .compute(
+            name="inference",
+            func=model_fn,
+            depends_on=["preprocess"],
+            gpu_memory_mb=gpu_memory_mb,
+        )
+        .postprocess(
+            name="postprocess",
+            func=postprocess_fn,
+            depends_on=["inference"],
+        )
+        .build()
+    )
 
 
 def create_simulation_pipeline(

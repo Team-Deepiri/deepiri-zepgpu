@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import Optional
 
 
 class SimulationClock:
     """Virtual clock for time-controllable simulations."""
 
-    def __init__(self, start_time: Optional[datetime] = None):
+    def __init__(self, start_time: datetime | None = None):
         self._current_time = start_time or datetime.utcnow()
         self._offset = timedelta(0)
         self._speed = 1.0
@@ -46,7 +45,7 @@ class SimulationClock:
         self._paused = False
         self._start_real = datetime.utcnow()
 
-    def reset(self, start_time: Optional[datetime] = None) -> None:
+    def reset(self, start_time: datetime | None = None) -> None:
         """Reset clock to start time."""
         self._current_time = start_time or datetime.utcnow()
         self._start_real = datetime.utcnow()
@@ -135,10 +134,7 @@ class RateLimiter:
         """Check if request is allowed under rate limit."""
         now = datetime.utcnow()
         elapsed = (now - self._last_update).total_seconds()
-        self._tokens = min(
-            self._burst,
-            self._tokens + (elapsed * self._max_per_second)
-        )
+        self._tokens = min(self._burst, self._tokens + (elapsed * self._max_per_second))
         self._last_update = now
 
         if self._tokens >= 1:

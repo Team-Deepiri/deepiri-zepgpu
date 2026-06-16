@@ -75,7 +75,9 @@ class BeatSchedulerSync:
             entry["next_run"] = next_run.isoformat() if next_run else None
         elif schedule_type == "interval" and interval_seconds:
             entry["interval_seconds"] = interval_seconds
-            entry["next_run"] = (datetime.utcnow() + timedelta(seconds=interval_seconds)).isoformat()
+            entry["next_run"] = (
+                datetime.utcnow() + timedelta(seconds=interval_seconds)
+            ).isoformat()
         elif schedule_type == "once" and run_at:
             entry["run_at"] = run_at.isoformat()
             entry["next_run"] = run_at.isoformat()
@@ -88,7 +90,9 @@ class BeatSchedulerSync:
         self.redis_client.hdel(self.schedule_key, schedule_id)
         logger.debug(f"Removed schedule {schedule_id} from beat")
 
-    def _get_next_cron_run(self, cron_expr: str, from_time: datetime | None = None) -> datetime | None:
+    def _get_next_cron_run(
+        self, cron_expr: str, from_time: datetime | None = None
+    ) -> datetime | None:
         """Get the next run time for a cron expression."""
         try:
             if from_time is None:
@@ -101,7 +105,7 @@ class BeatSchedulerSync:
 
     def sync_all_schedules(self) -> int:
         """Sync all enabled schedules from database to Redis beat.
-        
+
         Returns:
             Number of schedules synced.
         """
@@ -110,17 +114,17 @@ class BeatSchedulerSync:
             return 0
 
         try:
-            from deepiri_zepgpu.database.session import get_db_context
+            from deepiri_zepgpu.database.models.scheduled_task import ScheduleType
             from deepiri_zepgpu.database.repositories import ScheduleRepository
-            from deepiri_zepgpu.database.models.scheduled_task import ScheduleType, ScheduleStatus
+            from deepiri_zepgpu.database.session import get_db_context
 
-            synced = 0
             schedules_to_remove = set(self.get_beat_schedule().keys())
 
             async def _sync():
                 async with get_db_context() as db:
                     repo = ScheduleRepository(db)
                     schedules = await repo.get_enabled_schedules()
+                    count = 0
 
                     for schedule in schedules:
                         schedules_to_remove.discard(schedule.id)
@@ -133,7 +137,10 @@ class BeatSchedulerSync:
                                 schedule_type="cron",
                                 cron_expr=schedule.cron_expression,
                             )
-                        elif schedule.schedule_type == ScheduleType.INTERVAL and schedule.interval_seconds:
+                        elif (
+                            schedule.schedule_type == ScheduleType.INTERVAL
+                            and schedule.interval_seconds
+                        ):
                             self.sync_schedule(
                                 schedule_id=schedule.id,
                                 task_name="deepiri_zepgpu.queue.tasks.execute_scheduled_task",
@@ -141,7 +148,9 @@ class BeatSchedulerSync:
                                 schedule_type="interval",
                                 interval_seconds=schedule.interval_seconds,
                             )
-                        elif schedule.schedule_type == ScheduleType.ONCE and schedule.start_datetime:
+                        elif (
+                            schedule.schedule_type == ScheduleType.ONCE and schedule.start_datetime
+                        ):
                             self.sync_schedule(
                                 schedule_id=schedule.id,
                                 task_name="deepiri_zepgpu.queue.tasks.execute_scheduled_task",
@@ -150,9 +159,9 @@ class BeatSchedulerSync:
                                 run_at=schedule.start_datetime,
                             )
 
-                        synced += 1
+                        count += 1
 
-                    return synced
+                    return count
 
             synced = asyncio_run(_sync())
 
@@ -172,6 +181,7 @@ class BeatSchedulerSync:
 def asyncio_run(coro):
     """Run an async coroutine from sync code."""
     import asyncio
+
     return asyncio.run(coro)
 
 

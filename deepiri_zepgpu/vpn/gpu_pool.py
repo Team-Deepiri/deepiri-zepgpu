@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import asyncio
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from deepiri_zepgpu.core.gpu_manager import GPUDevice, GPUState, GPUType
 
@@ -17,6 +16,7 @@ if TYPE_CHECKING:
 @dataclass
 class RemoteGPUDevice:
     """Wraps a remote peer's GPU as a local GPU device."""
+
     peer_id: str
     peer_username: str
     share_id: str
@@ -27,7 +27,7 @@ class RemoteGPUDevice:
     available_memory_mb: int
     compute_capability: tuple[int, int]
     state: GPUState = GPUState.IDLE
-    current_task_id: Optional[str] = None
+    current_task_id: str | None = None
     utilization_percent: float = 0.0
     temperature_celsius: float = 0.0
     power_draw_watts: float = 0.0
@@ -40,10 +40,7 @@ class RemoteGPUDevice:
         return abs(hash(self.share_id)) % 1_000_000
 
     def can_allocate(self, required_memory_mb: int) -> bool:
-        return (
-            self.state == GPUState.IDLE and
-            self.available_memory_mb >= required_memory_mb
-        )
+        return self.state == GPUState.IDLE and self.available_memory_mb >= required_memory_mb
 
     def allocate(self, task_id: str) -> bool:
         if self.state != GPUState.IDLE:
@@ -80,7 +77,7 @@ class RemoteGPUDevice:
 class GpuPoolAggregator:
     """Aggregates local and remote GPUs into a unified pool."""
 
-    def __init__(self, gpu_manager, remote_lock: Optional["RemoteGpuLock"] = None):
+    def __init__(self, gpu_manager, remote_lock: RemoteGpuLock | None = None):
         self._local_manager = gpu_manager
         self._remote_devices: dict[str, RemoteGPUDevice] = {}
         self._lock = threading.RLock()
@@ -94,8 +91,10 @@ class GpuPoolAggregator:
                 share_id = gpu_data["share_id"]
                 cc_str = gpu_data.get("compute_capability", "0.0")
                 cc_parts = cc_str.split(".")
-                cc = (int(cc_parts[0]) if len(cc_parts) > 0 else 0,
-                      int(cc_parts[1]) if len(cc_parts) > 1 else 0)
+                cc = (
+                    int(cc_parts[0]) if len(cc_parts) > 0 else 0,
+                    int(cc_parts[1]) if len(cc_parts) > 1 else 0,
+                )
 
                 device = RemoteGPUDevice(
                     peer_id=gpu_data["peer_id"],
@@ -118,8 +117,8 @@ class GpuPoolAggregator:
     def get_available_device(
         self,
         required_memory_mb: int = 1024,
-        gpu_type: Optional[str] = None,
-    ) -> Optional[GPUDevice | RemoteGPUDevice]:
+        gpu_type: str | None = None,
+    ) -> GPUDevice | RemoteGPUDevice | None:
         """Find an available GPU across local + remote."""
         local = self._local_manager.get_available_device(
             required_memory_mb=required_memory_mb,
@@ -141,7 +140,7 @@ class GpuPoolAggregator:
         device_id: int,
         task_id: str,
         is_remote: bool = False,
-        share_id: Optional[str] = None,
+        share_id: str | None = None,
     ) -> bool:
         """Allocate a GPU device."""
         if is_remote and share_id:
@@ -149,9 +148,10 @@ class GpuPoolAggregator:
                 device = self._remote_devices.get(share_id)
                 if not device or not device.can_allocate(0):
                     return False
-                if self._remote_lock is not None:
-                    if not self._remote_lock.acquire(share_id, task_id):
-                        return False
+                if self._remote_lock is not None and not self._remote_lock.acquire(
+                    share_id, task_id
+                ):
+                    return False
                 if not device.allocate(task_id):
                     if self._remote_lock is not None:
                         self._remote_lock.release(share_id, task_id)
@@ -164,8 +164,8 @@ class GpuPoolAggregator:
         self,
         device_id: int,
         is_remote: bool = False,
-        share_id: Optional[str] = None,
-        task_id: Optional[str] = None,
+        share_id: str | None = None,
+        task_id: str | None = None,
     ) -> None:
         """Release a GPU device."""
         if is_remote and share_id:
@@ -181,7 +181,9 @@ class GpuPoolAggregator:
         else:
             self._local_manager.release_device(device_id)
 
-    def get_device(self, device_id: int, is_remote: bool = False, share_id: Optional[str] = None) -> Optional[GPUDevice | RemoteGPUDevice]:
+    def get_device(
+        self, device_id: int, is_remote: bool = False, share_id: str | None = None
+    ) -> GPUDevice | RemoteGPUDevice | None:
         if is_remote and share_id:
             with self._lock:
                 return self._remote_devices.get(share_id)
@@ -203,7 +205,7 @@ class GpuPoolAggregator:
             remote_available = sum(d.available_memory_mb for d in self._remote_devices.values())
         return self._local_manager.get_available_memory_mb() + remote_available
 
-    def get_remote_vpn_ip(self, share_id: str) -> Optional[str]:
+    def get_remote_vpn_ip(self, share_id: str) -> str | None:
         with self._lock:
             device = self._remote_devices.get(share_id)
             return device.vpn_ip if device else None

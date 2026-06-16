@@ -6,7 +6,6 @@ import base64
 import os
 import secrets
 import subprocess
-from pathlib import Path
 
 
 class WireGuardKeyGen:
@@ -44,6 +43,7 @@ class WireGuardKeyGen:
         """
         try:
             import nacl.bindings
+
             private_bytes = nacl.bindings.crypto_box_keypair()
             private_key = base64.b64encode(private_bytes[:32]).decode().rstrip("=")
             public_bytes = nacl.bindings.crypto_scalarmult_base(private_bytes[:32])

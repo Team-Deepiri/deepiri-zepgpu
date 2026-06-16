@@ -6,7 +6,6 @@ import asyncio
 import base64
 import pickle
 import time
-from typing import Optional
 
 import httpx
 
@@ -16,7 +15,7 @@ from deepiri_zepgpu.vpn.config import vpn_settings
 class TaskRouter:
     """Route GPU tasks to remote peer nodes over the VPN."""
 
-    def __init__(self, relay_api_url: Optional[str] = None):
+    def __init__(self, relay_api_url: str | None = None):
         self._relay_url = relay_api_url or vpn_settings.relay_api_url
 
     async def execute_on_peer(
@@ -73,7 +72,7 @@ class TaskRouter:
         task_id: str,
         poll_interval: float = 2.0,
         max_wait: float = 3600.0,
-    ) -> Optional[dict]:
+    ) -> dict | None:
         """Poll a remote peer for task result."""
         start = time.time()
         async with httpx.AsyncClient(timeout=10) as client:

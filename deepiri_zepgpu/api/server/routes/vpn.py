@@ -2,49 +2,43 @@
 
 from __future__ import annotations
 
-import secrets
-from datetime import datetime
-from typing import Optional
-
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from deepiri_zepgpu.api.server.dependencies import get_required_user, get_db_session
+from deepiri_zepgpu.api.server.dependencies import get_db_session, get_required_user
 from deepiri_zepgpu.database.models import User
-from deepiri_zepgpu.vpn.repositories import (
-    VpnNetworkRepository,
-    PeerRepository,
-    GpuShareRepository,
-    FriendshipRepository,
-    VpnInviteRepository,
-    GpuShareQuotaRepository,
+from deepiri_zepgpu.database.models.vpn_models import (
+    GpuShareState,
+    PeerOnlineStatus,
 )
+from deepiri_zepgpu.vpn.config import vpn_settings
+from deepiri_zepgpu.vpn.crypto import encrypt_value
+from deepiri_zepgpu.vpn.keygen import generate_keypair
 from deepiri_zepgpu.vpn.models import (
-    PeerRegisterRequest,
-    PeerHeartbeatRequest,
-    GpuStatusPayload,
-    PeerResponse,
-    GpuShareResponse,
-    GpuPoolSummary,
-    VpnNetworkCreate,
-    VpnNetworkResponse,
-    VpnConfigResponse,
-    NetworkInviteRequest,
-    InviteResponse,
-    JoinNetworkRequest,
+    FriendListResponse,
     FriendRequest,
     FriendResponse,
-    FriendListResponse,
+    GpuPoolSummary,
+    GpuShareResponse,
+    InviteResponse,
+    JoinNetworkRequest,
+    NetworkInviteRequest,
+    PeerHeartbeatRequest,
+    PeerRegisterRequest,
+    PeerResponse,
+    VpnConfigResponse,
+    VpnNetworkCreate,
+    VpnNetworkResponse,
 )
-from deepiri_zepgpu.vpn.pool_sync import refresh_gpu_pool_from_db, get_registered_gpu_pool
-from deepiri_zepgpu.vpn.keygen import generate_keypair
-from deepiri_zepgpu.vpn.wg_config import generate_peer_config, allocate_vpn_ip
-from deepiri_zepgpu.vpn.crypto import encrypt_value, decrypt_value
-from deepiri_zepgpu.vpn.config import vpn_settings
-from deepiri_zepgpu.database.models.vpn_models import (
-    PeerOnlineStatus,
-    GpuShareState,
+from deepiri_zepgpu.vpn.pool_sync import get_registered_gpu_pool, refresh_gpu_pool_from_db
+from deepiri_zepgpu.vpn.repositories import (
+    FriendshipRepository,
+    GpuShareRepository,
+    PeerRepository,
+    VpnInviteRepository,
+    VpnNetworkRepository,
 )
+from deepiri_zepgpu.vpn.wg_config import allocate_vpn_ip, generate_peer_config
 
 router = APIRouter(prefix="/vpn", tags=["VPN"])
 
@@ -116,16 +110,18 @@ async def list_vpn_networks(
     responses = []
     for net in networks:
         peer_count = await repo.get_peer_count(net.id)
-        responses.append(VpnNetworkResponse(
-            id=str(net.id),
-            name=net.name,
-            cidr=net.cidr,
-            listen_port=net.listen_port,
-            relay_endpoint=net.relay_endpoint,
-            is_active=net.is_active,
-            peer_count=peer_count,
-            created_at=net.created_at,
-        ))
+        responses.append(
+            VpnNetworkResponse(
+                id=str(net.id),
+                name=net.name,
+                cidr=net.cidr,
+                listen_port=net.listen_port,
+                relay_endpoint=net.relay_endpoint,
+                is_active=net.is_active,
+                peer_count=peer_count,
+                created_at=net.created_at,
+            )
+        )
     return responses
 
 
@@ -256,17 +252,19 @@ async def list_invites(
     for inv in invites:
         network_repo = VpnNetworkRepository(db)
         network = await network_repo.get_by_id(str(inv.vpn_network_id))
-        responses.append(InviteResponse(
-            id=str(inv.id),
-            code=inv.code,
-            vpn_network_id=str(inv.vpn_network_id),
-            vpn_network_name=network.name if network else "unknown",
-            max_uses=inv.max_uses,
-            used_count=inv.used_count,
-            expires_at=inv.expires_at,
-            is_revoked=inv.is_revoked,
-            created_at=inv.created_at,
-        ))
+        responses.append(
+            InviteResponse(
+                id=str(inv.id),
+                code=inv.code,
+                vpn_network_id=str(inv.vpn_network_id),
+                vpn_network_name=network.name if network else "unknown",
+                max_uses=inv.max_uses,
+                used_count=inv.used_count,
+                expires_at=inv.expires_at,
+                is_revoked=inv.is_revoked,
+                created_at=inv.created_at,
+            )
+        )
     return responses
 
 
@@ -455,7 +453,11 @@ async def peer_heartbeat(
                 "available_memory_mb": gpu.available_memory_mb,
                 "compute_capability": gpu.compute_capability,
                 "gpu_type": gpu.gpu_type,
-                "state": GpuShareState(gpu.state) if gpu.state in ("idle", "allocated", "unavailable") else GpuShareState.IDLE,
+                "state": (
+                    GpuShareState(gpu.state)
+                    if gpu.state in ("idle", "allocated", "unavailable")
+                    else GpuShareState.IDLE
+                ),
                 "utilization_percent": gpu.utilization_percent,
                 "is_active": True,
             },
@@ -501,7 +503,7 @@ async def get_peer_gpus(
 
 @router.get("/gpu-pool", response_model=GpuPoolSummary)
 async def get_gpu_pool(
-    network_id: Optional[str] = None,
+    network_id: str | None = None,
     user: User = Depends(get_required_user),
     db: AsyncSession = Depends(get_db_session),
 ):
@@ -532,21 +534,23 @@ async def get_gpu_pool(
     for s in shares:
         peer = await peer_repo.get_by_id(str(s.peer_id))
         username = peer.user.username if peer and peer.user else "unknown"
-        breakdown.append(GpuShareResponse(
-            id=str(s.id),
-            peer_id=str(s.peer_id),
-            username=username,
-            device_index=s.device_index,
-            name=s.name,
-            total_memory_mb=s.total_memory_mb,
-            available_memory_mb=s.available_memory_mb,
-            compute_capability=s.compute_capability,
-            gpu_type=s.gpu_type,
-            state=s.state.value,
-            utilization_percent=s.utilization_percent,
-            is_active=s.is_active,
-            last_updated=s.updated_at,
-        ))
+        breakdown.append(
+            GpuShareResponse(
+                id=str(s.id),
+                peer_id=str(s.peer_id),
+                username=username,
+                device_index=s.device_index,
+                name=s.name,
+                total_memory_mb=s.total_memory_mb,
+                available_memory_mb=s.available_memory_mb,
+                compute_capability=s.compute_capability,
+                gpu_type=s.gpu_type,
+                state=s.state.value,
+                utilization_percent=s.utilization_percent,
+                is_active=s.is_active,
+                last_updated=s.updated_at,
+            )
+        )
 
     return GpuPoolSummary(
         total_gpus=total_gpus,

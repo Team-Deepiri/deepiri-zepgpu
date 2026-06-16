@@ -2,7 +2,19 @@
 
 from fastapi import APIRouter
 
-from deepiri_zepgpu.api.server.routes import tasks, users, pipelines, gpu, health, websocket, schedules, gang_scheduling, namespaces, cloud, vpn
+from deepiri_zepgpu.api.server.routes import (
+    cloud,
+    gang_scheduling,
+    gpu,
+    health,
+    namespaces,
+    pipelines,
+    schedules,
+    tasks,
+    users,
+    vpn,
+    websocket,
+)
 
 api_router = APIRouter()
 
