@@ -108,6 +108,4 @@ jobs:
           namespace: zepgpu
           manifests: |
             k8s/deployment.yaml
-          images: |
-            ghcr.io/${{ github.repository }}:${{ github.ref_name }}
 
