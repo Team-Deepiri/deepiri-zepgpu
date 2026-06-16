@@ -6,12 +6,12 @@ import asyncio
 import base64
 import pickle
 import time
+from collections.abc import Callable
 from datetime import datetime
+from typing import Any
 
 import httpx
 from fastapi import FastAPI, HTTPException
-from typing import Any, Callable
-
 from pydantic import BaseModel
 
 from deepiri_zepgpu.vpn.config import vpn_settings

@@ -65,7 +65,8 @@ async def task_updates_websocket(  # noqa: C901
 
             try:
                 message = asyncio.get_event_loop().run_in_executor(
-                    None, lambda d=data: __import__("json").loads(d)  # type: ignore[misc]
+                    None,
+                    lambda d=data: __import__("json").loads(d),  # type: ignore[misc]
                 )
                 msg = await message
 

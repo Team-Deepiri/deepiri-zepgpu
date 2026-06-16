@@ -711,7 +711,9 @@ async def create_delayed_task(
 ) -> DelayedTaskResponse:
     """Create a task that executes at a specified time."""
     from deepiri_zepgpu.database.models import Task
-    from deepiri_zepgpu.database.models import TaskStatus as DBTaskStatus  # type: ignore[attr-defined]
+    from deepiri_zepgpu.database.models import (
+        TaskStatus as DBTaskStatus,  # type: ignore[attr-defined]
+    )
 
     if request.execute_at <= datetime.utcnow():
         raise HTTPException(status_code=400, detail="execute_at must be in the future")

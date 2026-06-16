@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """CLI entry point for deepiri-zepgpu."""
 
-from typing import Optional
-
 import asyncio
 import sys
 
@@ -99,7 +97,7 @@ if HAS_CLICK:
     @cli.command()
     @click.option("--user", help="Filter by user ID")
     @click.option("--status", help="Filter by status")
-    def list(user: Optional[str], status: Optional[str]) -> None:
+    def list(user: str | None, status: str | None) -> None:
         """List tasks."""
         print("Listing tasks...")
 
@@ -271,7 +269,7 @@ if HAS_CLICK:
     @click.option("--config", type=click.Path(exists=True), help="Path to WireGuard .conf file")
     @click.option("--relay-url", default=vpn_settings.relay_api_url, help="Relay server URL")
     @click.option("--interface", default="wg0", help="WireGuard interface name")
-    def vpn_join(config: Optional[str], relay_url: str, interface: str) -> None:
+    def vpn_join(config: str | None, relay_url: str, interface: str) -> None:
         """Join a VPN network."""
         if not check_wireguard_installed():
             print("WireGuard is not installed.")
@@ -318,7 +316,7 @@ if HAS_CLICK:
     @click.option(
         "--api-token", envvar="ZEPGPU_API_TOKEN", default=None, help="Bearer token for relay"
     )
-    def gpu_pool(relay_url: str, api_token: Optional[str]) -> None:
+    def gpu_pool(relay_url: str, api_token: str | None) -> None:
         """List GPUs available in the network pool."""
         import httpx
 
@@ -351,7 +349,7 @@ if HAS_CLICK:
     @click.option("--relay-url", default=vpn_settings.relay_api_url, help="Relay server URL")
     @click.option("--interface", default="wg0", help="WireGuard interface name")
     @click.option("--peer-id", envvar="ZEPGPU_PEER_ID", default=None, help="Peer UUID from join")
-    def advertise(relay_url: str, interface: str, peer_id: Optional[str]) -> None:
+    def advertise(relay_url: str, interface: str, peer_id: str | None) -> None:
         """Advertise local GPUs to the relay server."""
         from deepiri_zepgpu.vpn.cli import (
             get_vpn_ip,

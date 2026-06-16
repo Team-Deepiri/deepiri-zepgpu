@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable
-
 import asyncio
 import base64
 import pickle
 import time
+from collections.abc import Callable
+from typing import Any
 
 import httpx
 

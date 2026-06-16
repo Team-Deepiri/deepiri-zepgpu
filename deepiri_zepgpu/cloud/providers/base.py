@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import uuid
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from collections.abc import Callable
 from typing import Any
 
 
@@ -195,7 +195,9 @@ class CloudProviderRegistry:
         cls._instances.pop(instance_id, None)
 
 
-def register_provider(provider_type: CloudProviderType) -> Callable[[type[CloudProvider]], type[CloudProvider]]:
+def register_provider(
+    provider_type: CloudProviderType,
+) -> Callable[[type[CloudProvider]], type[CloudProvider]]:
     """Decorator to register a cloud provider."""
 
     def decorator(cls: type[CloudProvider]) -> type[CloudProvider]:

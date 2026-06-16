@@ -459,7 +459,9 @@ def update_gpu_metrics() -> dict[str, Any]:
     soft_time_limit=3600,
     time_limit=3700,
 )
-def execute_scheduled_task(self: GPUTask, schedule_id: str, run_id: str | None = None) -> dict[str, Any]:
+def execute_scheduled_task(
+    self: GPUTask, schedule_id: str, run_id: str | None = None
+) -> dict[str, Any]:
     """Execute a scheduled task.
 
     Args:

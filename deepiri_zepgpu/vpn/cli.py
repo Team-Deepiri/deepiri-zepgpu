@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 import asyncio
 import os
 import platform
@@ -198,7 +196,14 @@ if HAS_CLICK:
         help="Bearer token for relay API (required for --code)",
     )
     @click.option("--gpu-host", is_flag=True, help="Register as GPU host when using --code")
-    def join(config: Optional[str], code: Optional[str], relay_url: str, interface: str, api_token: Optional[str], gpu_host: bool) -> None:  # noqa: C901
+    def join(  # noqa: C901
+        config: str | None,
+        code: str | None,
+        relay_url: str,
+        interface: str,
+        api_token: str | None,
+        gpu_host: bool,
+    ) -> None:
         """Join a VPN network."""
         if not check_wireguard_installed():
             print("WireGuard is not installed.")
@@ -301,7 +306,7 @@ if HAS_CLICK:
         default=None,
         help="Peer UUID from join response (or saved in peer_state.json)",
     )
-    def advertise(relay_url: str, interface: str, peer_id: Optional[str]) -> None:
+    def advertise(relay_url: str, interface: str, peer_id: str | None) -> None:
         """Advertise local GPUs to the relay server."""
         if not check_wireguard_installed():
             print("WireGuard is not installed.")
@@ -372,7 +377,7 @@ if HAS_CLICK:
         default=None,
         help="Bearer token (required to read gpu-pool from relay)",
     )
-    def list_gpus(relay_url: str, api_token: Optional[str]) -> None:
+    def list_gpus(relay_url: str, api_token: str | None) -> None:
         """List GPUs available in the network pool."""
         import httpx
 
