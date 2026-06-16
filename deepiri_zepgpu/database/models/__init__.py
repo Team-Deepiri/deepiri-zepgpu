@@ -26,7 +26,7 @@ from deepiri_zepgpu.database.models.scheduled_task import (
     ScheduleType,
 )
 from deepiri_zepgpu.database.models.scheduled_task_run import ScheduledTaskRun, ScheduleRunStatus
-from deepiri_zepgpu.database.models.task import Task
+from deepiri_zepgpu.database.models.task import Task, TaskStatus
 from deepiri_zepgpu.database.models.user import User
 from deepiri_zepgpu.database.models.user_quota import UserQuota
 from deepiri_zepgpu.database.models.vpn_models import (
@@ -45,6 +45,7 @@ __all__ = [
     "Base",
     "User",
     "Task",
+    "TaskStatus",
     "Pipeline",
     "GPUDevice",
     "GPUState",
