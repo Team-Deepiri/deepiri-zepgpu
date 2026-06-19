@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { namespacesApi } from '@/api/client'
+import { ensureList } from '@/utils/listUtils'
 import {
   Plus, Users, Shield, X,
   ChevronRight, Trash2
@@ -13,10 +14,12 @@ export default function Namespaces() {
   const [selected, setSelected] = useState<string | null>(null)
   const queryClient = useQueryClient()
 
-  const { data: namespaces, isLoading } = useQuery({
+  const { data: namespacesRaw, isLoading } = useQuery({
     queryKey: ['namespaces'],
     queryFn: namespacesApi.list,
   })
+
+  const namespaces = ensureList(namespacesRaw, 'namespaces')
 
   const deleteMutation = useMutation({
     mutationFn: namespacesApi.delete,
@@ -47,7 +50,7 @@ export default function Namespaces() {
             </div>
             Multi-Tenant Namespaces
           </h1>
-          <p className="text-slate-400 mt-1">{namespaces?.length ?? 0} namespaces · isolation and quotas</p>
+          <p className="text-slate-400 mt-1">{namespaces.length} namespaces · isolation and quotas</p>
         </div>
         <button onClick={() => setShowCreate(true)}
           className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 text-white rounded-lg font-medium transition-all shadow-lg shadow-teal-500/20">
@@ -60,12 +63,12 @@ export default function Namespaces() {
         <div className="lg:col-span-1 space-y-3">
           {isLoading ? (
             <div className="text-center py-8 text-slate-400">Loading...</div>
-          ) : namespaces?.length === 0 ? (
+          ) : namespaces.length === 0 ? (
             <div className="bg-slate-800 rounded-xl border border-slate-700 p-8 text-center">
               <Shield className="w-8 h-8 text-slate-600 mx-auto mb-2" />
               <p className="text-slate-400 text-sm">No namespaces</p>
             </div>
-          ) : namespaces?.map(ns => (
+          ) : namespaces.map(ns => (
             <div key={ns.id}
               className={clsx(
                 'bg-slate-800/60 rounded-xl border p-4 cursor-pointer transition-all hover:border-teal-500/30',
@@ -92,7 +95,7 @@ export default function Namespaces() {
 
         {/* Detail Panel */}
         <div className="lg:col-span-2">
-          {selected && namespaces && (
+          {selected && namespaces.length > 0 && (
             <NamespaceDetail
               namespace={namespaces.find(n => n.id === selected)!}
               quota={quota?.quota}
