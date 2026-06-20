@@ -29,6 +29,22 @@ def _enum_value(value: Any) -> str:
     return value.value if hasattr(value, "value") else str(value)
 
 
+def _uuid_value(value: Any) -> UUID:
+    """Convert ORM string/UUID values into UUID objects for response schemas."""
+
+    if isinstance(value, UUID):
+        return value
+    return UUID(str(value))
+
+
+def _optional_uuid_value(value: Any) -> UUID | None:
+    """Convert optional ORM string/UUID values into UUID objects."""
+
+    if value is None:
+        return None
+    return _uuid_value(value)
+
+
 def vpn_network_to_room_response(
     network: VpnNetwork,
     host_id: UUID | None = None,
@@ -36,10 +52,10 @@ def vpn_network_to_room_response(
     """Convert an internal VpnNetwork into a room-facing response."""
 
     return RoomResponse(
-        id=network.id,
+        id=_uuid_value(network.id),
         name=network.name,
         description=None,
-        host_id=host_id,
+        host_id=_optional_uuid_value(host_id),
         status="active" if network.is_active else "archived",
         created_at=network.created_at,
         updated_at=getattr(network, "updated_at", None),
@@ -54,8 +70,8 @@ def peer_to_room_member_response(peer: Peer) -> RoomMemberResponse:
         display_name = getattr(peer.user, "username", None) or getattr(peer.user, "email", None)
 
     return RoomMemberResponse(
-        id=peer.id,
-        user_id=peer.user_id,
+        id=_uuid_value(peer.id),
+        user_id=_optional_uuid_value(peer.user_id),
         display_name=display_name,
         status=_room_member_status(peer.online_status),
         joined_at=getattr(peer, "created_at", None),
@@ -97,10 +113,10 @@ def vpn_invite_to_room_invite_response(invite: VpnInvite) -> RoomInviteResponse:
     """Convert an internal VPN invite into a room invite response."""
 
     return RoomInviteResponse(
-        id=invite.id,
-        room_id=invite.vpn_network_id,
+        id=_uuid_value(invite.id),
+        room_id=_uuid_value(invite.vpn_network_id),
         code=invite.code,
-        created_by=invite.creator_id,
+        created_by=_uuid_value(invite.creator_id),
         expires_at=invite.expires_at,
         max_uses=invite.max_uses,
         use_count=invite.used_count,
@@ -126,8 +142,8 @@ def peer_config_to_room_config_response(
     """Build a room-facing config response for a peer."""
 
     return RoomConnectionConfigResponse(
-        room_id=room_id,
-        peer_id=peer_id,
+        room_id=_uuid_value(room_id),
+        peer_id=_uuid_value(peer_id),
         config=config_text,
         filename=filename or f"room-{room_id}-peer-{peer_id}.conf",
     )

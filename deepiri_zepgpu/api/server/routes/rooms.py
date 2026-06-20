@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from math import ceil
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
@@ -11,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from deepiri_zepgpu.api.server.dependencies import get_db_session, get_required_user
 from deepiri_zepgpu.database.models import User
-from deepiri_zepgpu.database.models.vpn_models import VpnInvite
+from deepiri_zepgpu.database.models.vpn_models import Peer, VpnInvite, VpnNetwork
 from deepiri_zepgpu.rooms.mappers import (
     gpu_shares_to_room_pool_summary,
     peer_config_to_room_config_response,
@@ -49,7 +50,7 @@ async def _ensure_room_member(
     network_repo: VpnNetworkRepository,
     user_id: str,
     room_id: str,
-):
+) -> VpnNetwork:
     """Ensure the current user belongs to the underlying VPN network."""
 
     room = await network_repo.get_by_id(room_id)
@@ -121,7 +122,7 @@ async def _get_current_user_peer(
     peer_repo: PeerRepository,
     user_id: str,
     room_id: str,
-):
+) -> Peer | None:
     """Find the current user's peer in a room."""
 
     peers = await peer_repo.get_by_network(room_id)
@@ -165,7 +166,7 @@ async def create_room(
         is_relay=True,
     )
 
-    return vpn_network_to_room_response(network, host_id=user.id)
+    return vpn_network_to_room_response(network, host_id=UUID(str(user.id)))
 
 
 @router.get("", response_model=list[RoomResponse])
@@ -242,7 +243,7 @@ async def get_room_gpu_pool(
 
     gpu_repo = GpuShareRepository(db)
     shares = await gpu_repo.list_by_network(room_id)
-    return gpu_shares_to_room_pool_summary(room_id=room_id, shares=shares)
+    return gpu_shares_to_room_pool_summary(UUID(str(room_id)), shares)
 
 
 @router.post(
@@ -416,7 +417,7 @@ async def get_room_config(
     )
 
     return peer_config_to_room_config_response(
-        room_id=room.id,
-        peer_id=peer.id,
+        room_id=UUID(str(room_id)),
+        peer_id=UUID(str(peer.id)),
         config_text=config_text,
     )
