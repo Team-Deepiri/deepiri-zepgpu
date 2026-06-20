@@ -245,7 +245,11 @@ async def get_room_gpu_pool(
     return gpu_shares_to_room_pool_summary(room_id=room_id, shares=shares)
 
 
-@router.post("/{room_id}/invites", response_model=RoomInviteResponse)
+@router.post(
+    "/{room_id}/invites",
+    response_model=RoomInviteResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 async def create_room_invite(
     room_id: str,
     data: RoomInviteCreateRequest,

@@ -591,7 +591,7 @@ export interface Room {
   id: string
   name: string
   description: string | null
-  host_id: string
+  host_id: string | null
   status: RoomStatus
   created_at: string
   updated_at: string | null
