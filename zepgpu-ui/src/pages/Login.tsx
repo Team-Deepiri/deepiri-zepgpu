@@ -17,14 +17,27 @@ export default function Login() {
   const loginMutation = useMutation({
     mutationFn: () => authApi.login(formData.username, formData.password),
     onSuccess: async (data) => {
+      // Set auth in the store immediately — do not wait for /users/me
+      login(data.access_token, {
+        id: '',
+        username: formData.username,
+        email: '',
+        role: 'user' as UserRole,
+        is_active: true,
+        created_at: '',
+        last_login: null,
+        namespace_ids: [],
+        total_tasks: 0,
+        total_gpu_hours: 0,
+      })
+      toast.success('Login successful')
+      navigate('/')
+
       try {
         const user = await authApi.me()
-        login(data.access_token, user)
-        toast.success('Login successful')
-        navigate('/')
+        useAuthStore.getState().setUser(user)
       } catch {
-        login(data.access_token, { id: '', username: formData.username, email: '', role: 'user' as UserRole, is_active: true, created_at: '', last_login: null, namespace_ids: [], total_tasks: 0, total_gpu_hours: 0 })
-        navigate('/')
+        // Profile fetch is optional; JWT in store is enough to stay logged in
       }
     },
     onError: () => {

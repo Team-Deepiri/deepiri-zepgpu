@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { schedulesApi } from '@/api/client'
+import { ensureList } from '@/utils/listUtils'
 import {
   Plus, Play, Pause, Trash2, Clock, Calendar,
   Zap, X, Repeat
@@ -12,11 +13,13 @@ export default function Schedules() {
   const [showCreate, setShowCreate] = useState(false)
   const queryClient = useQueryClient()
 
-  const { data: schedules, isLoading } = useQuery({
+  const { data: schedulesRaw, isLoading } = useQuery({
     queryKey: ['schedules'],
     queryFn: () => schedulesApi.list(),
     refetchInterval: 30000,
   })
+
+  const schedules = ensureList(schedulesRaw, 'schedules')
 
   const enableMutation = useMutation({
     mutationFn: (id: string) => schedulesApi.enable(id),
@@ -53,7 +56,7 @@ export default function Schedules() {
             Schedule Control
           </h1>
           <p className="text-slate-400 mt-1">
-            {schedules?.filter(s => s.enabled).length ?? 0} active · {schedules?.length ?? 0} total
+            {schedules.filter(s => s.enabled).length} active · {schedules.length} total
           </p>
         </div>
         <button onClick={() => setShowCreate(true)}
@@ -65,9 +68,9 @@ export default function Schedules() {
       {/* Quick Stats */}
       <div className="grid grid-cols-3 gap-4">
         {[
-          { label: 'Active Schedules', value: schedules?.filter(s => s.enabled).length ?? 0, color: 'text-green-400', border: 'border-green-500/30' },
-          { label: 'Total Runs', value: schedules?.reduce((a, s) => a + s.run_count, 0) ?? 0, color: 'text-blue-400', border: 'border-blue-500/30' },
-          { label: 'Failures', value: schedules?.reduce((a, s) => a + s.failure_count, 0) ?? 0, color: 'text-red-400', border: 'border-red-500/30' },
+          { label: 'Active Schedules', value: schedules.filter(s => s.enabled).length, color: 'text-green-400', border: 'border-green-500/30' },
+          { label: 'Total Runs', value: schedules.reduce((a, s) => a + s.run_count, 0), color: 'text-blue-400', border: 'border-blue-500/30' },
+          { label: 'Failures', value: schedules.reduce((a, s) => a + s.failure_count, 0), color: 'text-red-400', border: 'border-red-500/30' },
         ].map(s => (
           <div key={s.label} className={clsx('bg-slate-800/60 rounded-xl border backdrop-blur-sm p-4', s.border)}>
             <p className={clsx('text-2xl font-bold', s.color)}>{s.value}</p>
@@ -79,14 +82,14 @@ export default function Schedules() {
       {/* Schedules List */}
       {isLoading ? (
         <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-500" /></div>
-      ) : schedules?.length === 0 ? (
+      ) : schedules.length === 0 ? (
         <div className="bg-slate-800 rounded-xl border border-slate-700 p-12 text-center">
           <Clock className="w-12 h-12 text-slate-600 mx-auto mb-4" />
           <p className="text-slate-400">No scheduled tasks configured</p>
         </div>
       ) : (
         <div className="space-y-4">
-          {schedules?.map(schedule => (
+          {schedules.map(schedule => (
             <div key={schedule.id} className={clsx(
               'bg-slate-800/80 rounded-2xl border backdrop-blur-sm overflow-hidden',
               schedule.enabled ? 'border-slate-700/50' : 'border-slate-700/30 opacity-70'

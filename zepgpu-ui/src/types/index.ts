@@ -577,3 +577,75 @@ export interface VpnConfigResponse {
   peer?: Peer
   wireguard_config?: string
 }
+
+export type RoomStatus = 'active' | 'archived'
+
+export type RoomMemberStatus = 'connected' | 'disconnected' | 'pending'
+
+export interface RoomCreateRequest {
+  name: string
+  description: string | null
+}
+
+export interface Room {
+  id: string
+  name: string
+  description: string | null
+  host_id: string
+  status: RoomStatus
+  created_at: string
+  updated_at: string | null
+}
+
+export interface RoomMember {
+  id: string
+  user_id: string | null
+  display_name: string | null
+  status: RoomMemberStatus
+  joined_at: string | null
+  last_seen_at: string | null
+}
+
+export interface RoomGpuPoolSummary {
+  room_id: string
+  total_gpus: number
+  available_gpus: number
+  allocated_gpus: number
+  total_memory_mb: number
+  available_memory_mb: number
+  providers: unknown[]
+}
+
+export interface RoomInviteCreateRequest {
+  expires_at: string | null
+  max_uses: number
+}
+
+export interface RoomInvite {
+  id: string
+  room_id: string
+  code: string
+  created_by: string
+  expires_at: string | null
+  max_uses: number
+  use_count: number
+  is_revoked: boolean
+  created_at: string
+}
+
+export interface RoomJoinRequest {
+  invite_code: string
+}
+
+export interface RoomJoinResponse {
+  room: Room
+  member: RoomMember
+  config_available: boolean
+}
+
+export interface RoomConnectionConfig {
+  room_id: string
+  peer_id: string
+  config: string
+  filename: string
+}

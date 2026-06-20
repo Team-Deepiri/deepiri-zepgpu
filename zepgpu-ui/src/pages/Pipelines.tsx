@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { pipelinesApi } from '@/api/client'
+import { ensureList } from '@/utils/listUtils'
 import {
   Plus, Play, Trash2, GitBranch, Eye,
   X, ArrowRight, Settings2, Loader2
@@ -14,11 +15,13 @@ export default function Pipelines() {
   const [selectedPipeline, setSelectedPipeline] = useState<string | null>(null)
   const queryClient = useQueryClient()
 
-  const { data: pipelines, isLoading } = useQuery({
+  const { data: pipelinesRaw, isLoading } = useQuery({
     queryKey: ['pipelines'],
     queryFn: () => pipelinesApi.list(),
     refetchInterval: 5000,
   })
+
+  const pipelines = ensureList(pipelinesRaw, 'pipelines')
 
   const deleteMutation = useMutation({
     mutationFn: pipelinesApi.delete,
@@ -32,7 +35,7 @@ export default function Pipelines() {
     onError: () => toast.error('Failed to run pipeline'),
   })
 
-  const selected = pipelines?.find(p => p.id === selectedPipeline)
+  const selected = pipelines.find(p => p.id === selectedPipeline)
 
   return (
     <div className="space-y-6">
@@ -44,7 +47,7 @@ export default function Pipelines() {
             </div>
             Pipeline Control
           </h1>
-          <p className="text-slate-400 mt-1">{pipelines?.length ?? 0} pipelines configured</p>
+          <p className="text-slate-400 mt-1">{pipelines.length} pipelines configured</p>
         </div>
         <div className="flex items-center gap-3">
           <div className="flex bg-slate-800 rounded-lg p-1">
@@ -67,12 +70,12 @@ export default function Pipelines() {
         <div className="space-y-4">
           {isLoading ? (
             <div className="flex justify-center py-12"><Loader2 className="w-8 h-8 text-slate-400 animate-spin" /></div>
-          ) : pipelines?.length === 0 ? (
+          ) : pipelines.length === 0 ? (
             <div className="bg-slate-800 rounded-xl border border-slate-700 p-12 text-center">
               <GitBranch className="w-12 h-12 text-slate-600 mx-auto mb-4" />
               <p className="text-slate-400">No pipelines yet. Create your first pipeline.</p>
             </div>
-          ) : pipelines?.map(pipeline => (
+          ) : pipelines.map(pipeline => (
             <div key={pipeline.id} className="bg-slate-800/80 rounded-2xl border border-slate-700/50 overflow-hidden backdrop-blur-sm hover:border-purple-500/30 transition-all">
               <div className="p-5 flex items-center justify-between">
                 <div className="flex items-center gap-4">
