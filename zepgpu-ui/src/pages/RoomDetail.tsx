@@ -29,12 +29,20 @@ function MemberStatusBadge({ status }: { status: RoomMemberStatus }) {
 }
 
 function providerDisplay(provider: unknown, index: number): { key: string; label: string } {
+  if (typeof provider === 'string') {
+    return {
+      key: provider || `provider-${index}`,
+      label: provider || 'Unknown provider',
+    }
+  }
+
   if (provider && typeof provider === 'object') {
     const record = provider as Record<string, unknown>
     const id = typeof record.id === 'string' ? record.id : `provider-${index}`
     const name = typeof record.name === 'string' ? record.name : id
     return { key: id, label: name }
   }
+
   return { key: `provider-${index}`, label: 'Unknown provider' }
 }
 
