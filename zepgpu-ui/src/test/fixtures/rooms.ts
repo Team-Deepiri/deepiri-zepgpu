@@ -39,7 +39,7 @@ export const fixtureInvite: RoomInvite = {
   id: '55555555-5555-4555-8555-555555555555',
   room_id: fixtureRoom.id,
   code: 'TEAMALPHA',
-  created_by: fixtureRoom.host_id,
+  created_by: '11111111-1111-4111-8111-111111111111',
   expires_at: '2027-01-01T00:00:00.000Z',
   max_uses: 10,
   use_count: 1,
