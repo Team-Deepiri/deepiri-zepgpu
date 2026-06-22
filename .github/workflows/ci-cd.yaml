@@ -119,7 +119,7 @@ jobs:
           kubeconfig: ${{ secrets.KUBE_CONFIG }}
 
       - name: Deploy to Kubernetes
-        uses: azure/k8s-deploy@v2
+        uses: Azure/k8s-deploy@v5
         with:
           namespace: zepgpu
           manifests: |
