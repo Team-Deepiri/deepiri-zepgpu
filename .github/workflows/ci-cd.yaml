@@ -73,6 +73,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Free Disk Space (Ubuntu)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: true
+          swap-storage: false
+      # ----------------------
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      # --------------------
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -108,4 +124,3 @@ jobs:
           namespace: zepgpu
           manifests: |
             k8s/deployment.yaml
-
