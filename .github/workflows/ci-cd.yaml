@@ -102,23 +102,38 @@ jobs:
           cache-to: type=gha,mode=max
           platforms: linux/amd64,linux/arm64
 
-  deploy:
+    deploy:
     name: Deploy to Kubernetes
     runs-on: ubuntu-latest
     needs: docker
     if: github.ref == 'refs/heads/main'
     environment: production
+    env:
+      KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
 
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check Kubernetes config
+        id: kubeconfig
+        shell: bash
+        run: |
+          if [ -z "$KUBE_CONFIG" ]; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::KUBE_CONFIG secret is not configured or not available to this environment; skipping Kubernetes deployment."
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Set Kubernetes context
+        if: steps.kubeconfig.outputs.available == 'true'
         uses: azure/k8s-set-context@v4
         with:
           method: kubeconfig
-          kubeconfig: ${{ secrets.KUBE_CONFIG }}
+          kubeconfig: ${{ env.KUBE_CONFIG }}
 
       - name: Deploy to Kubernetes
+        if: steps.kubeconfig.outputs.available == 'true'
         uses: Azure/k8s-deploy@v5
         with:
           namespace: zepgpu
