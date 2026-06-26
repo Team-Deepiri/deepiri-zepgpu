@@ -83,11 +83,9 @@ jobs:
           large-packages: false
           docker-images: true
           swap-storage: false
-      # ----------------------
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
-      # --------------------
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -108,17 +106,32 @@ jobs:
     needs: docker
     if: github.ref == 'refs/heads/main'
     environment: production
+    env:
+      KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
 
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check Kubernetes config
+        id: kubeconfig
+        shell: bash
+        run: |
+          if [ -z "$KUBE_CONFIG" ]; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::KUBE_CONFIG secret is not configured or not available to this environment; skipping Kubernetes deployment."
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Set Kubernetes context
+        if: steps.kubeconfig.outputs.available == 'true'
         uses: azure/k8s-set-context@v4
         with:
           method: kubeconfig
-          kubeconfig: ${{ secrets.KUBE_CONFIG }}
+          kubeconfig: ${{ env.KUBE_CONFIG }}
 
       - name: Deploy to Kubernetes
+        if: steps.kubeconfig.outputs.available == 'true'
         uses: Azure/k8s-deploy@v5
         with:
           namespace: zepgpu
