@@ -1,7 +1,7 @@
 """Tests for GPU manager module."""
 
-import asyncio
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
+
 import pytest
 
 from deepiri_zepgpu.core.gpu_manager import GPUManager, GPUState
