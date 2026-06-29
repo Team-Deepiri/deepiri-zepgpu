@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -120,7 +121,7 @@ def gpu_share_to_room_node_gpu_response(share: GpuShare) -> RoomNodeGpuResponse:
         state=_enum_value(share.state),
         utilization_percent=share.utilization_percent,
         is_active=share.is_active,
-        last_updated=share.last_updated,
+        last_updated=_gpu_share_last_updated(share),
     )
 
 
@@ -235,3 +236,15 @@ def _room_node_status(value: Any) -> str:
     if status == "awol":
         return "awol"
     return "pending"
+
+
+def _gpu_share_last_updated(share: GpuShare) -> datetime:
+    value = getattr(share, "last_updated", None)
+    if isinstance(value, datetime):
+        return value
+
+    value = getattr(share, "updated_at", None)
+    if isinstance(value, datetime):
+        return value
+
+    return datetime.now(UTC)
