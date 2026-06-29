@@ -97,6 +97,7 @@ class RoomConnectionConfigResponse(BaseModel):
     config: str
     filename: str
 
+
 class RoomNodeGpuResponse(BaseModel):
     id: UUID
     peer_id: UUID

@@ -80,6 +80,7 @@ def peer_to_room_member_response(peer: Peer) -> RoomMemberResponse:
         last_seen_at=peer.last_seen,
     )
 
+
 def peer_to_room_node_response(peer: Peer) -> RoomNodeResponse:
     """Convert an internal VPN peer into a room node response."""
 
@@ -97,11 +98,7 @@ def peer_to_room_node_response(peer: Peer) -> RoomNodeResponse:
         is_online=_room_node_status(peer.online_status) == "connected",
         last_seen=peer.last_seen,
         gpu_count=len(active_shares),
-        available_gpu_count=sum(
-            1
-            for share in active_shares
-            if _enum_value(share.state) == "idle"
-        ),
+        available_gpu_count=sum(1 for share in active_shares if _enum_value(share.state) == "idle"),
         total_memory_mb=sum(share.total_memory_mb for share in active_shares),
         available_memory_mb=sum(share.available_memory_mb for share in active_shares),
     )
@@ -139,6 +136,7 @@ def _gpu_share_peer_is_connected(share: GpuShare) -> bool:
         return True
 
     return _enum_value(peer.online_status) == "online"
+
 
 def gpu_shares_to_room_pool_summary(
     room_id: UUID,
@@ -226,6 +224,7 @@ def _room_member_status(value: Any) -> str:
     if status in {"offline", "awol"}:
         return "disconnected"
     return "pending"
+
 
 def _room_node_status(value: Any) -> str:
     status = _enum_value(value)

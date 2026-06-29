@@ -137,14 +137,6 @@ async def _get_current_user_peer(
     return None
 
 
-
-
-
-
-
-
-
-
 @router.post("", response_model=RoomResponse, status_code=status.HTTP_201_CREATED)
 async def create_room(
     data: RoomCreateRequest,
