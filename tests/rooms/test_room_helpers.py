@@ -11,9 +11,10 @@ from fastapi import HTTPException
 
 from deepiri_zepgpu.api.server.routes.rooms import (
     _expires_at_to_days,
-    _gpu_share_to_room_node_gpu_response,
-    _peer_status_to_room_status,
-    _peer_to_room_node_response,
+)
+from deepiri_zepgpu.rooms.mappers import (
+    gpu_share_to_room_node_gpu_response,
+    peer_to_room_node_response,
 )
 
 
@@ -36,22 +37,7 @@ def test_expires_at_to_days_rejects_past_expiration() -> None:
     assert exc_info.value.status_code == 400
     assert exc_info.value.detail == "Invite expiration must be in the future"
 
-def test_peer_status_to_room_status_maps_online_to_connected() -> None:
-    peer = SimpleNamespace(online_status=SimpleNamespace(value="online"))
 
-    assert _peer_status_to_room_status(peer) == "connected"
-
-
-def test_peer_status_to_room_status_maps_offline_to_disconnected() -> None:
-    peer = SimpleNamespace(online_status=SimpleNamespace(value="offline"))
-
-    assert _peer_status_to_room_status(peer) == "disconnected"
-
-
-def test_peer_status_to_room_status_maps_awol_to_awol() -> None:
-    peer = SimpleNamespace(online_status=SimpleNamespace(value="awol"))
-
-    assert _peer_status_to_room_status(peer) == "awol"
 
 
 def test_gpu_share_to_room_node_gpu_response_maps_share_fields() -> None:
@@ -72,7 +58,7 @@ def test_gpu_share_to_room_node_gpu_response_maps_share_fields() -> None:
         last_updated=now,
     )
 
-    response = _gpu_share_to_room_node_gpu_response(share)
+    response = gpu_share_to_room_node_gpu_response(share)
 
     assert response.device_index == 0
     assert response.name == "NVIDIA RTX 4090"
@@ -111,7 +97,7 @@ def test_peer_to_room_node_response_summarizes_active_gpu_shares() -> None:
         gpu_shares=[active_idle_share, inactive_share],
     )
 
-    response = _peer_to_room_node_response(peer)
+    response = peer_to_room_node_response(peer)
 
     assert response.id == peer_id
     assert response.room_id == room_id

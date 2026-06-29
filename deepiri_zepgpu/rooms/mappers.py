@@ -19,6 +19,8 @@ from deepiri_zepgpu.rooms.models import (
     RoomGpuPoolSummary,
     RoomInviteResponse,
     RoomMemberResponse,
+    RoomNodeGpuResponse,
+    RoomNodeResponse,
     RoomResponse,
 )
 
@@ -78,6 +80,65 @@ def peer_to_room_member_response(peer: Peer) -> RoomMemberResponse:
         last_seen_at=peer.last_seen,
     )
 
+def peer_to_room_node_response(peer: Peer) -> RoomNodeResponse:
+    """Convert an internal VPN peer into a room node response."""
+
+    gpu_shares = list(getattr(peer, "gpu_shares", []) or [])
+    active_shares = [share for share in gpu_shares if share.is_active]
+
+    return RoomNodeResponse(
+        id=_uuid_value(peer.id),
+        room_id=_uuid_value(peer.vpn_network_id),
+        user_id=_uuid_value(peer.user_id),
+        username=peer.user.username if peer.user else "",
+        vpn_ip=peer.vpn_ip,
+        status=_room_node_status(peer.online_status),
+        is_gpu_host=peer.is_gpu_host,
+        is_online=_room_node_status(peer.online_status) == "connected",
+        last_seen=peer.last_seen,
+        gpu_count=len(active_shares),
+        available_gpu_count=sum(
+            1
+            for share in active_shares
+            if _enum_value(share.state) == "idle"
+        ),
+        total_memory_mb=sum(share.total_memory_mb for share in active_shares),
+        available_memory_mb=sum(share.available_memory_mb for share in active_shares),
+    )
+
+
+def gpu_share_to_room_node_gpu_response(share: GpuShare) -> RoomNodeGpuResponse:
+    """Convert an internal GPU share into a room node GPU response."""
+
+    return RoomNodeGpuResponse(
+        id=_uuid_value(share.id),
+        peer_id=_uuid_value(share.peer_id),
+        room_id=_uuid_value(share.vpn_network_id),
+        device_index=share.device_index,
+        name=share.name,
+        total_memory_mb=share.total_memory_mb,
+        available_memory_mb=share.available_memory_mb,
+        compute_capability=share.compute_capability,
+        gpu_type=share.gpu_type,
+        state=_enum_value(share.state),
+        utilization_percent=share.utilization_percent,
+        is_active=share.is_active,
+        last_updated=share.last_updated,
+    )
+
+
+def _gpu_share_peer_is_connected(share: GpuShare) -> bool:
+    """Return whether a GPU share belongs to an online peer.
+
+    Older tests and repository calls may provide shares without a loaded peer.
+    Treat missing peer data as connected so existing behavior stays backward compatible.
+    """
+
+    peer = getattr(share, "peer", None)
+    if peer is None:
+        return True
+
+    return _enum_value(peer.online_status) == "online"
 
 def gpu_shares_to_room_pool_summary(
     room_id: UUID,
@@ -86,13 +147,22 @@ def gpu_shares_to_room_pool_summary(
     """Create a room GPU summary from GPU shares."""
 
     active_shares = [share for share in shares if share.is_active]
+    connected_active_shares = [
+        share for share in active_shares if _gpu_share_peer_is_connected(share)
+    ]
 
     total_gpus = len(active_shares)
     allocated_gpus = sum(1 for share in active_shares if share.state == GpuShareState.ALLOCATED)
-    available_gpus = sum(1 for share in active_shares if share.state == GpuShareState.IDLE)
+    available_gpus = sum(
+        1 for share in connected_active_shares if share.state == GpuShareState.IDLE
+    )
 
     total_memory_mb = sum(int(share.total_memory_mb or 0) for share in active_shares)
-    available_memory_mb = sum(int(share.available_memory_mb or 0) for share in active_shares)
+    available_memory_mb = sum(
+        int(share.available_memory_mb or 0)
+        for share in connected_active_shares
+        if share.state == GpuShareState.IDLE
+    )
 
     providers = sorted(
         {share.gpu_type for share in active_shares if getattr(share, "gpu_type", None)}
@@ -155,4 +225,14 @@ def _room_member_status(value: Any) -> str:
         return "connected"
     if status in {"offline", "awol"}:
         return "disconnected"
+    return "pending"
+
+def _room_node_status(value: Any) -> str:
+    status = _enum_value(value)
+    if status == "online":
+        return "connected"
+    if status == "offline":
+        return "disconnected"
+    if status == "awol":
+        return "awol"
     return "pending"

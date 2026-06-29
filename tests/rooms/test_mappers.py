@@ -117,8 +117,47 @@ def test_gpu_shares_to_room_pool_summary_counts_active_shares() -> None:
     assert response.available_gpus == 1
     assert response.allocated_gpus == 1
     assert response.total_memory_mb == 40000
-    assert response.available_memory_mb == 24000
+    assert response.available_memory_mb == 20000
     assert response.providers == ["nvidia"]
+
+
+
+def test_gpu_shares_to_room_pool_summary_excludes_offline_awol_from_available() -> None:
+    room_id = uuid4()
+
+    shares = [
+        SimpleNamespace(
+            is_active=True,
+            state=GpuShareState.IDLE,
+            total_memory_mb=24000,
+            available_memory_mb=20000,
+            gpu_type="nvidia",
+            peer=SimpleNamespace(online_status=SimpleNamespace(value="online")),
+        ),
+        SimpleNamespace(
+            is_active=True,
+            state=GpuShareState.IDLE,
+            total_memory_mb=16000,
+            available_memory_mb=12000,
+            gpu_type="nvidia",
+            peer=SimpleNamespace(online_status=SimpleNamespace(value="offline")),
+        ),
+        SimpleNamespace(
+            is_active=True,
+            state=GpuShareState.IDLE,
+            total_memory_mb=8000,
+            available_memory_mb=6000,
+            gpu_type="nvidia",
+            peer=SimpleNamespace(online_status=SimpleNamespace(value="awol")),
+        ),
+    ]
+
+    response = gpu_shares_to_room_pool_summary(room_id, shares)
+
+    assert response.total_gpus == 3
+    assert response.available_gpus == 1
+    assert response.total_memory_mb == 48000
+    assert response.available_memory_mb == 20000
 
 
 def test_vpn_invite_to_room_invite_response_maps_fields() -> None:

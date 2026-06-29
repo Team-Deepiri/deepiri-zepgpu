@@ -14,9 +14,11 @@ from deepiri_zepgpu.api.server.dependencies import get_db_session, get_required_
 from deepiri_zepgpu.database.models import User
 from deepiri_zepgpu.database.models.vpn_models import Peer, VpnInvite, VpnNetwork
 from deepiri_zepgpu.rooms.mappers import (
+    gpu_share_to_room_node_gpu_response,
     gpu_shares_to_room_pool_summary,
     peer_config_to_room_config_response,
     peer_to_room_member_response,
+    peer_to_room_node_response,
     room_create_to_vpn_network_data,
     vpn_invite_to_room_invite_response,
     vpn_network_to_room_response,
@@ -134,54 +136,13 @@ async def _get_current_user_peer(
             return peer
     return None
 
-def _peer_status_to_room_status(peer: Peer) -> str:
-    status_value = getattr(peer.online_status, "value", str(peer.online_status))
-    if status_value == "online":
-        return "connected"
-    if status_value == "offline":
-        return "disconnected"
-    if status_value == "awol":
-        return "awol"
-    return "pending"
 
 
-def _gpu_share_to_room_node_gpu_response(share) -> RoomNodeGpuResponse:
-    return RoomNodeGpuResponse(
-        id=UUID(str(share.id)),
-        peer_id=UUID(str(share.peer_id)),
-        room_id=UUID(str(share.vpn_network_id)),
-        device_index=share.device_index,
-        name=share.name,
-        total_memory_mb=share.total_memory_mb,
-        available_memory_mb=share.available_memory_mb,
-        compute_capability=share.compute_capability,
-        gpu_type=share.gpu_type,
-        state=getattr(share.state, "value", str(share.state)),
-        utilization_percent=share.utilization_percent,
-        is_active=share.is_active,
-        last_updated=share.last_updated,
-    )
 
 
-def _peer_to_room_node_response(peer: Peer) -> RoomNodeResponse:
-    gpu_shares = list(getattr(peer, "gpu_shares", []) or [])
-    active_shares = [share for share in gpu_shares if share.is_active]
 
-    return RoomNodeResponse(
-        id=UUID(str(peer.id)),
-        room_id=UUID(str(peer.vpn_network_id)),
-        user_id=UUID(str(peer.user_id)),
-        username=peer.user.username if peer.user else "",
-        vpn_ip=peer.vpn_ip,
-        status=_peer_status_to_room_status(peer),
-        is_gpu_host=peer.is_gpu_host,
-        is_online=_peer_status_to_room_status(peer) == "connected",
-        last_seen=peer.last_seen,
-        gpu_count=len(active_shares),
-        available_gpu_count=sum(1 for share in active_shares if getattr(share.state, "value", str(share.state)) == "idle"),
-        total_memory_mb=sum(share.total_memory_mb for share in active_shares),
-        available_memory_mb=sum(share.available_memory_mb for share in active_shares),
-    )
+
+
 
 
 @router.post("", response_model=RoomResponse, status_code=status.HTTP_201_CREATED)
@@ -295,7 +256,7 @@ async def list_room_nodes(
 
     peer_repo = PeerRepository(db)
     peers = await peer_repo.get_by_network(room_id)
-    return [_peer_to_room_node_response(peer) for peer in peers]
+    return [peer_to_room_node_response(peer) for peer in peers]
 
 
 @router.get("/{room_id}/nodes/{peer_id}", response_model=RoomNodeResponse)
@@ -315,7 +276,7 @@ async def get_room_node(
     if not peer or str(peer.vpn_network_id) != str(room_id):
         raise HTTPException(status_code=404, detail="Node not found")
 
-    return _peer_to_room_node_response(peer)
+    return peer_to_room_node_response(peer)
 
 
 @router.post("/{room_id}/nodes/{peer_id}/heartbeat", response_model=RoomNodeResponse)
@@ -360,7 +321,7 @@ async def room_node_heartbeat(
     if not refreshed_peer:
         raise HTTPException(status_code=404, detail="Node not found")
 
-    return _peer_to_room_node_response(refreshed_peer)
+    return peer_to_room_node_response(refreshed_peer)
 
 
 @router.get("/{room_id}/nodes/{peer_id}/gpus", response_model=list[RoomNodeGpuResponse])
@@ -384,7 +345,7 @@ async def list_room_node_gpus(
     shares = await gpu_repo.list_by_peer(peer_id)
     room_shares = [share for share in shares if str(share.vpn_network_id) == str(room_id)]
 
-    return [_gpu_share_to_room_node_gpu_response(share) for share in room_shares]
+    return [gpu_share_to_room_node_gpu_response(share) for share in room_shares]
 
 
 @router.get("/{room_id}/gpu-pool", response_model=RoomGpuPoolSummary)
