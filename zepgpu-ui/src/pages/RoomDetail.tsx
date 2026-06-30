@@ -2,11 +2,13 @@ import { Link, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import clsx from 'clsx'
-import { ArrowLeft, Cpu, Home, UserPlus, Users, Shield } from 'lucide-react'
+import { ArrowLeft, Home, UserPlus, Users, Shield } from 'lucide-react'
 import { getRoomErrorMessage, getRoomErrorStatus } from '@/utils/roomErrors'
 import { roomsApi } from '@/api/rooms'
 import InvitePanel from '@/components/rooms/InvitePanel'
 import RoomConfigPanel from '@/components/rooms/RoomConfigPanel'
+import RoomGpuPoolSummary from '@/components/rooms/RoomGpuPoolSummary'
+import RoomNodeList from '@/components/rooms/RoomNodeList'
 import type { RoomMember, RoomMemberStatus } from '@/types'
 
 function getErrorStatus(err: unknown): number | null {
@@ -26,24 +28,6 @@ function MemberStatusBadge({ status }: { status: RoomMemberStatus }) {
       {status}
     </span>
   )
-}
-
-function providerDisplay(provider: unknown, index: number): { key: string; label: string } {
-  if (typeof provider === 'string') {
-    return {
-      key: provider || `provider-${index}`,
-      label: provider || 'Unknown provider',
-    }
-  }
-
-  if (provider && typeof provider === 'object') {
-    const record = provider as Record<string, unknown>
-    const id = typeof record.id === 'string' ? record.id : `provider-${index}`
-    const name = typeof record.name === 'string' ? record.name : id
-    return { key: id, label: name }
-  }
-
-  return { key: `provider-${index}`, label: 'Unknown provider' }
 }
 
 function formatOptionalDate(value: string | null): string {
@@ -82,13 +66,6 @@ export default function RoomDetail() {
   const membersQuery = useQuery({
     queryKey: ['room-members', roomId],
     queryFn: () => roomsApi.getRoomMembers(roomId!),
-    enabled: !!roomId && roomQuery.isSuccess,
-    refetchInterval: 10000,
-  })
-
-  const poolQuery = useQuery({
-    queryKey: ['room-gpu-pool', roomId],
-    queryFn: () => roomsApi.getRoomGpuPool(roomId!),
     enabled: !!roomId && roomQuery.isSuccess,
     refetchInterval: 10000,
   })
@@ -211,60 +188,12 @@ export default function RoomDetail() {
         </section>
 
         <section className="rounded-xl border border-slate-700/80 bg-slate-800/40 p-5">
-          <h2 className="text-sm font-semibold text-slate-200 flex items-center gap-2 mb-4">
-            <Cpu className="w-4 h-4 text-orange-400" />
-            GPU pool
-          </h2>
-          {poolQuery.isLoading ? (
-            <p className="text-slate-500 text-sm">Loading GPU pool…</p>
-          ) : poolQuery.isError ? (
-            <p className="text-sm text-red-400">
-              {getRoomErrorMessage(poolQuery.error, 'Failed to load GPU pool')}
-            </p>
-          ) : poolQuery.data ? (
-            <div className="space-y-3 text-sm">
-              <div className="grid grid-cols-2 gap-2 text-slate-300">
-                <div>
-                  Total GPUs:{' '}
-                  <span className="text-white font-medium">{poolQuery.data.total_gpus}</span>
-                </div>
-                <div>
-                  Available:{' '}
-                  <span className="text-white font-medium">{poolQuery.data.available_gpus}</span>
-                </div>
-                <div>
-                  Allocated:{' '}
-                  <span className="text-white font-medium">{poolQuery.data.allocated_gpus}</span>
-                </div>
-                <div>
-                  VRAM total:{' '}
-                  <span className="text-white font-medium">
-                    {(poolQuery.data.total_memory_mb / 1024).toFixed(1)} GB
-                  </span>
-                </div>
-                <div className="col-span-2">
-                  VRAM available:{' '}
-                  <span className="text-white font-medium">
-                    {(poolQuery.data.available_memory_mb / 1024).toFixed(1)} GB
-                  </span>
-                </div>
-              </div>
-              {(poolQuery.data.providers ?? []).length > 0 && (
-                <ul className="border-t border-slate-700 pt-3 space-y-1 max-h-40 overflow-y-auto">
-                  {poolQuery.data.providers.map((provider, index) => {
-                    const { key, label } = providerDisplay(provider, index)
-                    return (
-                    <li key={key} className="text-slate-400">
-                      {label}
-                    </li>
-                    )
-                  })}
-                </ul>
-              )}
-            </div>
-          ) : null}
+          <h2 className="text-sm font-semibold text-slate-200 mb-4">GPU pool</h2>
+          <RoomGpuPoolSummary roomId={roomId} />
         </section>
       </div>
+
+      <RoomNodeList roomId={roomId} />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="rounded-xl border border-slate-700/80 bg-slate-800/40 p-5">

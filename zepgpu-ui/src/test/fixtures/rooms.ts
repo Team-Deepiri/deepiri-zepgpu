@@ -4,6 +4,8 @@ import type {
   RoomGpuPoolSummary,
   RoomInvite,
   RoomConnectionConfig,
+  RoomNode,
+  RoomNodeGpu,
 } from '@/types'
 
 export const fixtureRoom: Room = {
@@ -32,7 +34,17 @@ export const fixtureGpuPool: RoomGpuPoolSummary = {
   allocated_gpus: 2,
   total_memory_mb: 98304,
   available_memory_mb: 49152,
-  providers: [{ id: 'gpu-1', name: 'RTX 4090' }],
+  providers: ['nvidia'],
+}
+
+export const fixtureGpuPoolOffline: RoomGpuPoolSummary = {
+  room_id: fixtureRoom.id,
+  total_gpus: 4,
+  available_gpus: 0,
+  allocated_gpus: 2,
+  total_memory_mb: 98304,
+  available_memory_mb: 0,
+  providers: ['nvidia'],
 }
 
 export const fixtureInvite: RoomInvite = {
@@ -52,4 +64,62 @@ export const fixtureConfig: RoomConnectionConfig = {
   peer_id: '33333333-3333-4333-8333-333333333333',
   filename: 'room-test.conf',
   config: '[Interface]\nPrivateKey = TEST\n',
+}
+
+export const fixtureRoomNode: RoomNode = {
+  id: '33333333-3333-4333-8333-333333333333',
+  room_id: fixtureRoom.id,
+  user_id: '11111111-1111-4111-8111-111111111111',
+  username: 'host-user',
+  vpn_ip: '10.8.0.2',
+  status: 'connected',
+  is_gpu_host: true,
+  is_online: true,
+  last_seen: '2026-06-01T12:30:00.000Z',
+  gpu_count: 2,
+  available_gpu_count: 1,
+  total_memory_mb: 49152,
+  available_memory_mb: 24576,
+}
+
+export const fixtureRoomNodeAwol: RoomNode = {
+  ...fixtureRoomNode,
+  id: '44444444-4444-4444-8444-444444444444',
+  username: 'awol-user',
+  vpn_ip: '10.8.0.3',
+  status: 'awol',
+  is_online: false,
+  gpu_count: 1,
+  available_gpu_count: 0,
+  available_memory_mb: 0,
+}
+
+export const fixtureRoomNodeDisconnected: RoomNode = {
+  ...fixtureRoomNode,
+  id: '66666666-6666-4666-8666-666666666666',
+  username: 'offline-user',
+  vpn_ip: '10.8.0.4',
+  status: 'disconnected',
+  is_online: false,
+  is_gpu_host: false,
+  gpu_count: 0,
+  available_gpu_count: 0,
+  total_memory_mb: 0,
+  available_memory_mb: 0,
+}
+
+export const fixtureRoomNodeGpu: RoomNodeGpu = {
+  id: '77777777-7777-4777-8777-777777777777',
+  peer_id: fixtureRoomNode.id,
+  room_id: fixtureRoom.id,
+  device_index: 0,
+  name: 'NVIDIA RTX 4090',
+  total_memory_mb: 24576,
+  available_memory_mb: 18000,
+  compute_capability: '8.9',
+  gpu_type: 'nvidia',
+  state: 'idle',
+  utilization_percent: 12.5,
+  is_active: true,
+  last_updated: '2026-06-01T12:30:00.000Z',
 }
