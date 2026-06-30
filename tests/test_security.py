@@ -1,10 +1,8 @@
 """Tests for security module."""
 
-import pytest
-
+from deepiri_zepgpu.core.task import Task
 from deepiri_zepgpu.security.access_control import AccessControl, Quota
 from deepiri_zepgpu.security.user_management import UserManager, UserRole
-from deepiri_zepgpu.core.task import Task, TaskResources
 
 
 class TestAccessControl:
