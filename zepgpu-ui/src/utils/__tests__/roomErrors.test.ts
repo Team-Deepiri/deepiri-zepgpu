@@ -52,5 +52,20 @@ describe('getRoomErrorMessage', () => {
     expect(getRoomErrorMessage(new RoomApiError(409, 'User has already joined this room'))).toBe(
       'User has already joined this room',
     )
+    expect(getRoomErrorMessage(new RoomApiError(410, 'Invite usage limit reached'))).toBe(
+      'Invite usage limit reached',
+    )
+    expect(getRoomErrorMessage(new RoomApiError(403, 'Room config is not available yet'))).toBe(
+      'Room config is not available yet',
+    )
+    expect(
+      getRoomErrorMessage(
+        new RoomApiError(403, 'Only the room host or an admin can perform this action'),
+      ),
+    ).toBe('Only the room host or an admin can perform this action')
+    expect(getRoomErrorMessage(new RoomApiError(404, 'Node not found'))).toBe('Node not found')
+    expect(getRoomErrorMessage(new RoomApiError(403, 'You cannot update this node'))).toBe(
+      'You cannot update this node',
+    )
   })
 })

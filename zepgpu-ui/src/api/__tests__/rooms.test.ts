@@ -36,7 +36,36 @@ describe('roomsApi (MSW)', () => {
   it('getRoomGpuPool returns pool summary', async () => {
     const pool = await roomsApi.getRoomGpuPool(fixtureRoom.id)
     expect(pool.total_gpus).toBe(4)
-    expect(pool.providers).toHaveLength(1)
+    expect(pool.providers).toEqual(['nvidia'])
+  })
+
+  it('getRoomNodes returns nodes', async () => {
+    const nodes = await roomsApi.getRoomNodes(fixtureRoom.id)
+    expect(nodes.length).toBeGreaterThan(0)
+    expect(nodes[0].username).toBe('host-user')
+    expect(nodes[0].status).toBe('connected')
+  })
+
+  it('getRoomNode returns one node', async () => {
+    const node = await roomsApi.getRoomNode(fixtureRoom.id, '33333333-3333-4333-8333-333333333333')
+    expect(node.vpn_ip).toBe('10.8.0.2')
+    expect(node.is_gpu_host).toBe(true)
+  })
+
+  it('getRoomNode throws for unknown peer', async () => {
+    await expect(
+      roomsApi.getRoomNode(fixtureRoom.id, '00000000-0000-4000-8000-000000000000'),
+    ).rejects.toThrow()
+  })
+
+  it('getRoomNodeGpus returns gpu list', async () => {
+    const gpus = await roomsApi.getRoomNodeGpus(
+      fixtureRoom.id,
+      '33333333-3333-4333-8333-333333333333',
+    )
+    expect(gpus).toHaveLength(1)
+    expect(gpus[0].name).toBe('NVIDIA RTX 4090')
+    expect(gpus[0].utilization_percent).toBe(12.5)
   })
 
   it('createRoomInvite returns invite', async () => {

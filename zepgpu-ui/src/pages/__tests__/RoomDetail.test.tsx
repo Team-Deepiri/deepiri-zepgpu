@@ -27,6 +27,14 @@ vi.mock('@/components/rooms/RoomConfigPanel', () => ({
   default: () => <div data-testid="config-panel">Config panel</div>,
 }))
 
+vi.mock('@/components/rooms/RoomGpuPoolSummary', () => ({
+  default: () => <div data-testid="gpu-pool-summary">GPU pool summary</div>,
+}))
+
+vi.mock('@/components/rooms/RoomNodeList', () => ({
+  default: () => <div data-testid="node-list">Node list</div>,
+}))
+
 describe('RoomDetail page', () => {
   beforeEach(() => {
     getRoomMock.mockResolvedValue(fixtureRoom)
@@ -41,7 +49,8 @@ describe('RoomDetail page', () => {
 
     expect(await screen.findByRole('heading', { name: 'Team Alpha' })).toBeInTheDocument()
     expect(await screen.findByText('host-user')).toBeInTheDocument()
-    expect(await screen.findByText(/Total GPUs:/)).toBeInTheDocument()
+    expect(screen.getByTestId('gpu-pool-summary')).toBeInTheDocument()
+    expect(screen.getByTestId('node-list')).toBeInTheDocument()
     expect(screen.getByTestId('invite-panel')).toBeInTheDocument()
     expect(screen.getByTestId('config-panel')).toBeInTheDocument()
   })

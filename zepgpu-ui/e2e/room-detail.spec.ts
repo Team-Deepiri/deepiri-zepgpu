@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { loginAsTestUser } from './helpers/auth'
 
-/** Run with E2E_ROOMS_BACKEND=1 once Kapill's /api/v1/rooms/* endpoints are live. */
+/** Run with E2E_ROOMS_BACKEND=1 against a live /api/v1/rooms/* backend. */
 const describe = process.env.E2E_ROOMS_BACKEND === '1' ? test.describe : test.describe.skip
 
 const SAMPLE_ROOM_ID = '22222222-2222-4222-8222-222222222222'

@@ -5,10 +5,15 @@ import {
   fixtureInvite,
   fixtureMember,
   fixtureRoom,
+  fixtureRoomNode,
+  fixtureRoomNodeAwol,
+  fixtureRoomNodeDisconnected,
+  fixtureRoomNodeGpu,
 } from '@/test/fixtures/rooms'
 
 const rooms = [fixtureRoom]
 const invites = [fixtureInvite]
+const nodes = [fixtureRoomNode, fixtureRoomNodeAwol, fixtureRoomNodeDisconnected]
 
 export const roomHandlers = [
   http.get('/api/v1/rooms', () => HttpResponse.json(rooms)),
@@ -57,6 +62,38 @@ export const roomHandlers = [
     return HttpResponse.json(fixtureGpuPool)
   }),
 
+  http.get('/api/v1/rooms/:roomId/nodes', ({ params }) => {
+    if (params.roomId !== fixtureRoom.id) {
+      return HttpResponse.json({ detail: 'Room not found' }, { status: 404 })
+    }
+    return HttpResponse.json(nodes)
+  }),
+
+  http.get('/api/v1/rooms/:roomId/nodes/:peerId', ({ params }) => {
+    if (params.roomId !== fixtureRoom.id) {
+      return HttpResponse.json({ detail: 'Room not found' }, { status: 404 })
+    }
+    const node = nodes.find((n) => n.id === params.peerId)
+    if (!node) {
+      return HttpResponse.json({ detail: 'Node not found' }, { status: 404 })
+    }
+    return HttpResponse.json(node)
+  }),
+
+  http.get('/api/v1/rooms/:roomId/nodes/:peerId/gpus', ({ params }) => {
+    if (params.roomId !== fixtureRoom.id) {
+      return HttpResponse.json({ detail: 'Room not found' }, { status: 404 })
+    }
+    const node = nodes.find((n) => n.id === params.peerId)
+    if (!node) {
+      return HttpResponse.json({ detail: 'Node not found' }, { status: 404 })
+    }
+    if (node.status !== 'connected' || node.gpu_count === 0) {
+      return HttpResponse.json([])
+    }
+    return HttpResponse.json([fixtureRoomNodeGpu])
+  }),
+
   http.get('/api/v1/rooms/:roomId/invites', ({ params }) => {
     if (params.roomId !== fixtureRoom.id) {
       return HttpResponse.json({ detail: 'Room not found' }, { status: 404 })
@@ -98,6 +135,9 @@ export const roomHandlers = [
     }
     if (body.invite_code === 'REVOKED1') {
       return HttpResponse.json({ detail: 'Invite has been revoked' }, { status: 410 })
+    }
+    if (body.invite_code === 'LIMITED1') {
+      return HttpResponse.json({ detail: 'Invite usage limit reached' }, { status: 410 })
     }
     if (body.invite_code === 'DUPEJOIN') {
       return HttpResponse.json({ detail: 'User has already joined this room' }, { status: 409 })
