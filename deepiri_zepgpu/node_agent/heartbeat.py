@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import Any, cast
 
 import httpx
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
@@ -95,4 +95,4 @@ def send_heartbeat(
         response.raise_for_status()
 
     logger.info("Heartbeat accepted for peer %s (status %s)", config.peer_id, response.status_code)
-    return response.json()
+    return cast(dict[str, Any], response.json())
