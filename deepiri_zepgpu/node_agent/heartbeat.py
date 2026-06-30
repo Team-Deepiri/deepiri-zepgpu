@@ -24,8 +24,10 @@ def build_heartbeat_payload(
     is_online: bool = True,
 ) -> dict[str, Any]:
     return {
-        "gpu_status": gpu_status if gpu_status is not None else collect_gpu_status(
-            simulation_mode=config.simulation_mode
+        "gpu_status": (
+            gpu_status
+            if gpu_status is not None
+            else collect_gpu_status(simulation_mode=config.simulation_mode)
         ),
         "is_online": is_online,
         "endpoint": config.endpoint,
@@ -34,8 +36,7 @@ def build_heartbeat_payload(
 
 def heartbeat_url(config: NodeAgentConfig) -> str:
     return (
-        f"{config.api_base_url}/api/v1/rooms/{config.room_id}"
-        f"/nodes/{config.peer_id}/heartbeat"
+        f"{config.api_base_url}/api/v1/rooms/{config.room_id}" f"/nodes/{config.peer_id}/heartbeat"
     )
 
 

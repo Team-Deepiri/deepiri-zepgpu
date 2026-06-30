@@ -73,7 +73,9 @@ def run_agent(config: NodeAgentConfig, *, once: bool = False, dry_run: bool = Fa
 
 
 @click.command()
-@click.option("--config", "config_path", type=click.Path(exists=True, dir_okay=False), help="JSON config file")
+@click.option(
+    "--config", "config_path", type=click.Path(exists=True, dir_okay=False), help="JSON config file"
+)
 @click.option("--api-base-url", default=None, help="Relay API base URL")
 @click.option("--room-id", default=None, help="Room UUID")
 @click.option("--peer-id", default=None, help="Peer UUID")
