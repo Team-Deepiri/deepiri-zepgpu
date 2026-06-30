@@ -3,11 +3,19 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
 
-from deepiri_zepgpu.api.server.routes.rooms import _expires_at_to_days
+from deepiri_zepgpu.api.server.routes.rooms import (
+    _expires_at_to_days,
+)
+from deepiri_zepgpu.rooms.mappers import (
+    gpu_share_to_room_node_gpu_response,
+    peer_to_room_node_response,
+)
 
 
 def test_expires_at_to_days_defaults_to_seven_days() -> None:
@@ -28,3 +36,76 @@ def test_expires_at_to_days_rejects_past_expiration() -> None:
 
     assert exc_info.value.status_code == 400
     assert exc_info.value.detail == "Invite expiration must be in the future"
+
+
+
+
+def test_gpu_share_to_room_node_gpu_response_maps_share_fields() -> None:
+    now = datetime.now(UTC)
+    share = SimpleNamespace(
+        id=uuid4(),
+        peer_id=uuid4(),
+        vpn_network_id=uuid4(),
+        device_index=0,
+        name="NVIDIA RTX 4090",
+        total_memory_mb=24576,
+        available_memory_mb=18000,
+        compute_capability="8.9",
+        gpu_type="nvidia",
+        state=SimpleNamespace(value="idle"),
+        utilization_percent=12.5,
+        is_active=True,
+        last_updated=now,
+    )
+
+    response = gpu_share_to_room_node_gpu_response(share)
+
+    assert response.device_index == 0
+    assert response.name == "NVIDIA RTX 4090"
+    assert response.state == "idle"
+    assert response.available_memory_mb == 18000
+    assert response.last_updated == now
+
+
+def test_peer_to_room_node_response_summarizes_active_gpu_shares() -> None:
+    room_id = uuid4()
+    peer_id = uuid4()
+    user_id = uuid4()
+    now = datetime.now(UTC)
+
+    active_idle_share = SimpleNamespace(
+        is_active=True,
+        state=SimpleNamespace(value="idle"),
+        total_memory_mb=16000,
+        available_memory_mb=12000,
+    )
+    inactive_share = SimpleNamespace(
+        is_active=False,
+        state=SimpleNamespace(value="idle"),
+        total_memory_mb=8000,
+        available_memory_mb=8000,
+    )
+    peer = SimpleNamespace(
+        id=peer_id,
+        vpn_network_id=room_id,
+        user_id=user_id,
+        user=SimpleNamespace(username="kapill"),
+        vpn_ip="10.8.0.2",
+        online_status=SimpleNamespace(value="online"),
+        is_gpu_host=True,
+        last_seen=now,
+        gpu_shares=[active_idle_share, inactive_share],
+    )
+
+    response = peer_to_room_node_response(peer)
+
+    assert response.id == peer_id
+    assert response.room_id == room_id
+    assert response.user_id == user_id
+    assert response.username == "kapill"
+    assert response.status == "connected"
+    assert response.is_online is True
+    assert response.gpu_count == 1
+    assert response.available_gpu_count == 1
+    assert response.total_memory_mb == 16000
+    assert response.available_memory_mb == 12000

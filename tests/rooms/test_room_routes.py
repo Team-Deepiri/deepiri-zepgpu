@@ -20,6 +20,10 @@ def test_room_routes_are_registered() -> None:
     assert "/api/v1/rooms/{room_id}/invites/{invite_id}" in paths
     assert "/api/v1/rooms/join" in paths
     assert "/api/v1/rooms/{room_id}/config" in paths
+    assert "/api/v1/rooms/{room_id}/nodes" in paths
+    assert "/api/v1/rooms/{room_id}/nodes/{peer_id}" in paths
+    assert "/api/v1/rooms/{room_id}/nodes/{peer_id}/heartbeat" in paths
+    assert "/api/v1/rooms/{room_id}/nodes/{peer_id}/gpus" in paths
 
 
 def test_list_rooms_requires_authentication() -> None:
@@ -94,6 +98,37 @@ def test_join_room_requires_authentication() -> None:
 
 def test_get_room_config_requires_authentication() -> None:
     response = client.get("/api/v1/rooms/test-room-id/config")
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Authentication required"
+
+
+def test_list_room_nodes_requires_authentication() -> None:
+    response = client.get("/api/v1/rooms/test-room-id/nodes")
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Authentication required"
+
+
+def test_get_room_node_requires_authentication() -> None:
+    response = client.get("/api/v1/rooms/test-room-id/nodes/test-peer-id")
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Authentication required"
+
+
+def test_room_node_heartbeat_requires_authentication() -> None:
+    response = client.post(
+        "/api/v1/rooms/test-room-id/nodes/test-peer-id/heartbeat",
+        json={"gpu_status": []},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Authentication required"
+
+
+def test_list_room_node_gpus_requires_authentication() -> None:
+    response = client.get("/api/v1/rooms/test-room-id/nodes/test-peer-id/gpus")
 
     assert response.status_code == 401
     assert response.json()["detail"] == "Authentication required"

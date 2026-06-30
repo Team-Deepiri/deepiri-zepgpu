@@ -96,3 +96,52 @@ class RoomConnectionConfigResponse(BaseModel):
     peer_id: UUID
     config: str
     filename: str
+
+
+class RoomNodeGpuResponse(BaseModel):
+    id: UUID
+    peer_id: UUID
+    room_id: UUID
+    device_index: int
+    name: str | None = None
+    total_memory_mb: int
+    available_memory_mb: int
+    compute_capability: str | None = None
+    gpu_type: str = "nvidia"
+    state: str = "idle"
+    utilization_percent: float | None = None
+    is_active: bool = True
+    last_updated: datetime
+
+
+class RoomNodeResponse(BaseModel):
+    id: UUID
+    room_id: UUID
+    user_id: UUID
+    username: str
+    vpn_ip: str
+    status: str
+    is_gpu_host: bool
+    is_online: bool
+    last_seen: datetime
+    gpu_count: int = 0
+    available_gpu_count: int = 0
+    total_memory_mb: int = 0
+    available_memory_mb: int = 0
+
+
+class RoomNodeHeartbeatGpu(BaseModel):
+    device_index: int
+    name: str | None = None
+    total_memory_mb: int
+    available_memory_mb: int
+    compute_capability: str | None = None
+    gpu_type: str = "nvidia"
+    state: str = "idle"
+    utilization_percent: float | None = None
+
+
+class RoomNodeHeartbeatRequest(BaseModel):
+    gpu_status: list[RoomNodeHeartbeatGpu] = Field(default_factory=list)
+    is_online: bool = True
+    endpoint: str | None = None

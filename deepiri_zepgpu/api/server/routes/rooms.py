@@ -14,9 +14,11 @@ from deepiri_zepgpu.api.server.dependencies import get_db_session, get_required_
 from deepiri_zepgpu.database.models import User
 from deepiri_zepgpu.database.models.vpn_models import Peer, VpnInvite, VpnNetwork
 from deepiri_zepgpu.rooms.mappers import (
+    gpu_share_to_room_node_gpu_response,
     gpu_shares_to_room_pool_summary,
     peer_config_to_room_config_response,
     peer_to_room_member_response,
+    peer_to_room_node_response,
     room_create_to_vpn_network_data,
     vpn_invite_to_room_invite_response,
     vpn_network_to_room_response,
@@ -30,6 +32,9 @@ from deepiri_zepgpu.rooms.models import (
     RoomJoinRequest,
     RoomJoinResponse,
     RoomMemberResponse,
+    RoomNodeGpuResponse,
+    RoomNodeHeartbeatRequest,
+    RoomNodeResponse,
     RoomResponse,
 )
 from deepiri_zepgpu.vpn.config import vpn_settings
@@ -228,6 +233,111 @@ async def list_room_members(
     peer_repo = PeerRepository(db)
     peers = await peer_repo.get_by_network(room_id)
     return [peer_to_room_member_response(peer) for peer in peers]
+
+
+@router.get("/{room_id}/nodes", response_model=list[RoomNodeResponse])
+async def list_room_nodes(
+    room_id: str,
+    user: User = Depends(get_required_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> list[RoomNodeResponse]:
+    """List room nodes backed by VPN peers."""
+
+    network_repo = VpnNetworkRepository(db)
+    await _ensure_room_member(network_repo, str(user.id), room_id)
+
+    peer_repo = PeerRepository(db)
+    peers = await peer_repo.get_by_network(room_id)
+    return [peer_to_room_node_response(peer) for peer in peers]
+
+
+@router.get("/{room_id}/nodes/{peer_id}", response_model=RoomNodeResponse)
+async def get_room_node(
+    room_id: str,
+    peer_id: str,
+    user: User = Depends(get_required_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> RoomNodeResponse:
+    """Get one room node."""
+
+    network_repo = VpnNetworkRepository(db)
+    await _ensure_room_member(network_repo, str(user.id), room_id)
+
+    peer_repo = PeerRepository(db)
+    peer = await peer_repo.get_by_id(peer_id)
+    if not peer or str(peer.vpn_network_id) != str(room_id):
+        raise HTTPException(status_code=404, detail="Node not found")
+
+    return peer_to_room_node_response(peer)
+
+
+@router.post("/{room_id}/nodes/{peer_id}/heartbeat", response_model=RoomNodeResponse)
+async def room_node_heartbeat(
+    room_id: str,
+    peer_id: str,
+    data: RoomNodeHeartbeatRequest,
+    user: User = Depends(get_required_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> RoomNodeResponse:
+    """Update room node heartbeat and GPU metrics."""
+
+    network_repo = VpnNetworkRepository(db)
+    await _ensure_room_member(network_repo, str(user.id), room_id)
+
+    peer_repo = PeerRepository(db)
+    peer = await peer_repo.get_by_id(peer_id)
+    if not peer or str(peer.vpn_network_id) != str(room_id):
+        raise HTTPException(status_code=404, detail="Node not found")
+
+    if str(peer.user_id) != str(user.id):
+        raise HTTPException(status_code=403, detail="You cannot update this node")
+
+    updated_peer = await peer_repo.heartbeat(
+        peer_id=peer_id,
+        is_online=data.is_online,
+        endpoint=data.endpoint,
+        mark_gpu_host=bool(data.gpu_status),
+    )
+    if not updated_peer:
+        raise HTTPException(status_code=404, detail="Node not found")
+
+    gpu_repo = GpuShareRepository(db)
+    for gpu in data.gpu_status:
+        await gpu_repo.upsert(
+            peer_id=peer_id,
+            vpn_network_id=room_id,
+            gpu_data=gpu.model_dump(),
+        )
+
+    refreshed_peer = await peer_repo.get_by_id(peer_id)
+    if not refreshed_peer:
+        raise HTTPException(status_code=404, detail="Node not found")
+
+    return peer_to_room_node_response(refreshed_peer)
+
+
+@router.get("/{room_id}/nodes/{peer_id}/gpus", response_model=list[RoomNodeGpuResponse])
+async def list_room_node_gpus(
+    room_id: str,
+    peer_id: str,
+    user: User = Depends(get_required_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> list[RoomNodeGpuResponse]:
+    """List GPUs reported by one room node."""
+
+    network_repo = VpnNetworkRepository(db)
+    await _ensure_room_member(network_repo, str(user.id), room_id)
+
+    peer_repo = PeerRepository(db)
+    peer = await peer_repo.get_by_id(peer_id)
+    if not peer or str(peer.vpn_network_id) != str(room_id):
+        raise HTTPException(status_code=404, detail="Node not found")
+
+    gpu_repo = GpuShareRepository(db)
+    shares = await gpu_repo.list_by_peer(peer_id)
+    room_shares = [share for share in shares if str(share.vpn_network_id) == str(room_id)]
+
+    return [gpu_share_to_room_node_gpu_response(share) for share in room_shares]
 
 
 @router.get("/{room_id}/gpu-pool", response_model=RoomGpuPoolSummary)
