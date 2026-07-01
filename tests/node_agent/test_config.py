@@ -53,7 +53,7 @@ def test_env_overrides(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 
 
 def test_rejects_invalid_url() -> None:
-    with pytest.raises(Exception):
+    with pytest.raises(ValueError):
         NodeAgentConfig.model_validate(
             {
                 "api_base_url": "not-a-url",

@@ -38,8 +38,6 @@ def test_expires_at_to_days_rejects_past_expiration() -> None:
     assert exc_info.value.detail == "Invite expiration must be in the future"
 
 
-
-
 def test_gpu_share_to_room_node_gpu_response_maps_share_fields() -> None:
     now = datetime.now(UTC)
     share = SimpleNamespace(

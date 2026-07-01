@@ -64,10 +64,12 @@ class FakePeerRepository:
 
 
 class FakeGpuShareRepository:
-    last_instance: FakeGpuShareRepository | None = None
+    last_instance = None
 
-    def __init__(self, _db: object) -> None:
+    def __init__(self, db: object) -> None:
+        self.db = db
         self.upsert_calls: list[dict[str, object]] = []
+        self.upserted = self.upsert_calls
         FakeGpuShareRepository.last_instance = self
 
     async def upsert(
@@ -75,7 +77,7 @@ class FakeGpuShareRepository:
         peer_id: str,
         vpn_network_id: str,
         gpu_data: dict,
-    ) -> object:
+    ):
         self.upsert_calls.append(
             {
                 "peer_id": peer_id,
@@ -83,12 +85,27 @@ class FakeGpuShareRepository:
                 "gpu_data": gpu_data,
             }
         )
-        return SimpleNamespace(
-            id=uuid4(),
-            peer_id=peer_id,
-            vpn_network_id=vpn_network_id,
-            **gpu_data,
-        )
+
+    async def list_by_peer(self, peer_id: str):
+        return [
+            SimpleNamespace(
+                id=uuid4(),
+                peer_id=peer_id,
+                vpn_network_id=share["vpn_network_id"],
+                device_index=share["gpu_data"]["device_index"],
+                name=share["gpu_data"].get("name"),
+                total_memory_mb=share["gpu_data"]["total_memory_mb"],
+                available_memory_mb=share["gpu_data"]["available_memory_mb"],
+                compute_capability=share["gpu_data"].get("compute_capability"),
+                gpu_type=share["gpu_data"].get("gpu_type", "nvidia"),
+                state=SimpleNamespace(value=share["gpu_data"].get("state", "idle")),
+                utilization_percent=share["gpu_data"].get("utilization_percent"),
+                is_active=True,
+                updated_at=datetime.now(UTC),
+                created_at=datetime.now(UTC),
+            )
+            for share in self.upsert_calls
+        ]
 
 
 def _make_room(room_id: object) -> SimpleNamespace:
@@ -259,3 +276,7 @@ def test_room_node_heartbeat_rejects_updating_another_users_node(
 
     assert exc_info.value.status_code == 403
     assert exc_info.value.detail == "You cannot update this node"
+
+
+async def list_by_peer(self, peer_id: str):
+    return self.upserted

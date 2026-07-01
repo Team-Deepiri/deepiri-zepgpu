@@ -247,7 +247,11 @@ async def list_room_nodes(
     await _ensure_room_member(network_repo, str(user.id), room_id)
 
     peer_repo = PeerRepository(db)
+    gpu_repo = GpuShareRepository(db)
+
     peers = await peer_repo.get_by_network(room_id)
+    peers = await _attach_room_gpu_shares(gpu_repo, room_id, peers)
+
     return [peer_to_room_node_response(peer) for peer in peers]
 
 
@@ -267,6 +271,10 @@ async def get_room_node(
     peer = await peer_repo.get_by_id(peer_id)
     if not peer or str(peer.vpn_network_id) != str(room_id):
         raise HTTPException(status_code=404, detail="Node not found")
+
+    gpu_repo = GpuShareRepository(db)
+    shares = await gpu_repo.list_by_peer(peer_id)
+    peer._room_gpu_shares = shares  # type: ignore[attr-defined]
 
     return peer_to_room_node_response(peer)
 
@@ -312,6 +320,9 @@ async def room_node_heartbeat(
     refreshed_peer = await peer_repo.get_by_id(peer_id)
     if not refreshed_peer:
         raise HTTPException(status_code=404, detail="Node not found")
+
+    shares = await gpu_repo.list_by_peer(peer_id)
+    peer._room_gpu_shares = shares  # type: ignore[attr-defined]
 
     return peer_to_room_node_response(refreshed_peer)
 
@@ -531,3 +542,22 @@ async def get_room_config(
         peer_id=UUID(str(peer.id)),
         config_text=config_text,
     )
+
+
+async def _attach_room_gpu_shares(
+    gpu_repo: GpuShareRepository,
+    room_id: str,
+    peers: list[Peer],
+) -> list[Peer]:
+    """Attach room GPU shares to peers without using Peer.gpu_shares eager loading."""
+
+    shares = await gpu_repo.list_by_network(room_id)
+    shares_by_peer: dict[str, list] = {}
+
+    for share in shares:
+        shares_by_peer.setdefault(str(share.peer_id), []).append(share)
+
+    for peer in peers:
+        peer._room_gpu_shares = shares  # type: ignore[attr-defined]
+
+    return peers
