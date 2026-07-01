@@ -56,7 +56,10 @@ def test_send_heartbeat_uses_bearer_header(mock_post: MagicMock) -> None:
 
 
 def test_dry_run_does_not_post_and_redacts_token(caplog: pytest.LogCaptureFixture) -> None:
-    with caplog.at_level(logging.INFO), patch("deepiri_zepgpu.node_agent.heartbeat.httpx.post") as mock_post:
+    with (
+        caplog.at_level(logging.INFO),
+        patch("deepiri_zepgpu.node_agent.heartbeat.httpx.post") as mock_post,
+    ):
         result = send_heartbeat(CONFIG, dry_run=True)
     assert result is None
     mock_post.assert_not_called()

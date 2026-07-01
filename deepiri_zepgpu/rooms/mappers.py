@@ -85,7 +85,11 @@ def peer_to_room_member_response(peer: Peer) -> RoomMemberResponse:
 def peer_to_room_node_response(peer: Peer) -> RoomNodeResponse:
     """Convert an internal VPN peer into a room node response."""
 
-    gpu_shares = list(getattr(peer, "gpu_shares", []) or [])
+    room_gpu_shares = getattr(peer, "_room_gpu_shares", None)
+    if room_gpu_shares is None:
+        room_gpu_shares = getattr(peer, "gpu_shares", [])
+
+    gpu_shares = list(room_gpu_shares or [])
     active_shares = [share for share in gpu_shares if share.is_active]
 
     return RoomNodeResponse(

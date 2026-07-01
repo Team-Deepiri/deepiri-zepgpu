@@ -121,7 +121,6 @@ def test_gpu_shares_to_room_pool_summary_counts_active_shares() -> None:
     assert response.providers == ["nvidia"]
 
 
-
 def test_gpu_shares_to_room_pool_summary_excludes_offline_awol_from_available() -> None:
     room_id = uuid4()
 
