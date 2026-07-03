@@ -72,4 +72,26 @@ describe('JoinRoomForm', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Invite has expired')
   })
+
+  it('shows revoked invite error', async () => {
+    joinRoomMock.mockRejectedValue(new RoomApiError(410, 'Invite has been revoked'))
+    const user = userEvent.setup()
+    renderWithProviders(<JoinRoomForm />)
+
+    await user.type(screen.getByLabelText(/invite code/i), 'REVOKED1')
+    await user.click(screen.getByRole('button', { name: /join room/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Invite has been revoked')
+  })
+
+  it('shows duplicate join error', async () => {
+    joinRoomMock.mockRejectedValue(new RoomApiError(409, 'User has already joined this room'))
+    const user = userEvent.setup()
+    renderWithProviders(<JoinRoomForm />)
+
+    await user.type(screen.getByLabelText(/invite code/i), 'DUPEJOIN')
+    await user.click(screen.getByRole('button', { name: /join room/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('User has already joined this room')
+  })
 })

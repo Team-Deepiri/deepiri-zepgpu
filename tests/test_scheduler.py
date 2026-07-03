@@ -1,12 +1,12 @@
 """Tests for scheduler module."""
 
-import asyncio
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
+
 import pytest
 
-from deepiri_zepgpu.core.scheduler import TaskScheduler, SchedulingPolicy
-from deepiri_zepgpu.core.task import Task, TaskResources, TaskPriority
 from deepiri_zepgpu.core.gpu_manager import GPUManager
+from deepiri_zepgpu.core.scheduler import SchedulingPolicy, TaskScheduler
+from deepiri_zepgpu.core.task import Task, TaskPriority, TaskResources
 
 
 @pytest.fixture
@@ -22,8 +22,10 @@ async def scheduler() -> AsyncGenerator[TaskScheduler, None]:
 @pytest.fixture
 def sample_task() -> Task:
     """Create a sample task."""
+
     def dummy_func() -> int:
         return 42
+
     return Task(
         func=dummy_func,
         resources=TaskResources(gpu_memory_mb=1024),
@@ -73,7 +75,7 @@ class TestTaskScheduler:
         def dummy() -> int:
             return 1
 
-        for i in range(2):
+        for _ in range(2):
             task = Task(func=dummy, user_id="quota_user")
             await scheduler.submit_task(task)
 

@@ -613,7 +613,58 @@ export interface RoomGpuPoolSummary {
   allocated_gpus: number
   total_memory_mb: number
   available_memory_mb: number
-  providers: unknown[]
+  providers: string[]
+}
+
+export type RoomNodeStatus = 'connected' | 'disconnected' | 'awol' | 'pending'
+
+export interface RoomNode {
+  id: string
+  room_id: string
+  user_id: string
+  username: string
+  vpn_ip: string
+  status: RoomNodeStatus
+  is_gpu_host: boolean
+  is_online: boolean
+  last_seen: string
+  gpu_count: number
+  available_gpu_count: number
+  total_memory_mb: number
+  available_memory_mb: number
+}
+
+export interface RoomNodeGpu {
+  id: string
+  peer_id: string
+  room_id: string
+  device_index: number
+  name: string | null
+  total_memory_mb: number
+  available_memory_mb: number
+  compute_capability: string | null
+  gpu_type: string
+  state: string
+  utilization_percent: number | null
+  is_active: boolean
+  last_updated: string
+}
+
+export interface RoomNodeHeartbeatGpu {
+  device_index: number
+  name?: string | null
+  total_memory_mb: number
+  available_memory_mb: number
+  compute_capability?: string | null
+  gpu_type?: string
+  state?: string
+  utilization_percent?: number | null
+}
+
+export interface RoomNodeHeartbeatRequest {
+  gpu_status: RoomNodeHeartbeatGpu[]
+  is_online?: boolean
+  endpoint?: string | null
 }
 
 export interface RoomInviteCreateRequest {

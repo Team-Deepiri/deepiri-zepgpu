@@ -1,20 +1,5 @@
 /**
  * Room API client — calls /api/v1/rooms/* via the shared axios instance in client.ts.
- *
- * Coordination Doc / Phase 1 Work endpoint map:
- * | Function           | Method | Path                                      |
- * |--------------------|--------|-------------------------------------------|
- * | createRoom         | POST   | /api/v1/rooms                             |
- * | listRooms          | GET    | /api/v1/rooms                             |
- * | getRoom            | GET    | /api/v1/rooms/{room_id}                   |
- * | deleteRoom         | DELETE | /api/v1/rooms/{room_id}        → 204     |
- * | getRoomMembers     | GET    | /api/v1/rooms/{room_id}/members           |
- * | getRoomGpuPool     | GET    | /api/v1/rooms/{room_id}/gpu-pool          |
- * | createRoomInvite   | POST   | /api/v1/rooms/{room_id}/invites           |
- * | listRoomInvites    | GET    | /api/v1/rooms/{room_id}/invites           |
- * | revokeRoomInvite   | DELETE | /api/v1/rooms/{room_id}/invites/{invite_id} → 204 |
- * | joinRoom           | POST   | /api/v1/rooms/join                        |
- * | getRoomConfig      | GET    | /api/v1/rooms/{room_id}/config           |
  */
 import api from '@/api/client'
 import type {
@@ -27,6 +12,8 @@ import type {
   RoomJoinRequest,
   RoomJoinResponse,
   RoomConnectionConfig,
+  RoomNode,
+  RoomNodeGpu,
 } from '@/types'
 
 export const roomsApi = {
@@ -56,6 +43,21 @@ export const roomsApi = {
 
   getRoomGpuPool: async (roomId: string): Promise<RoomGpuPoolSummary> => {
     const { data } = await api.get<RoomGpuPoolSummary>(`/rooms/${roomId}/gpu-pool`)
+    return data
+  },
+
+  getRoomNodes: async (roomId: string): Promise<RoomNode[]> => {
+    const { data } = await api.get<RoomNode[]>(`/rooms/${roomId}/nodes`)
+    return data
+  },
+
+  getRoomNode: async (roomId: string, peerId: string): Promise<RoomNode> => {
+    const { data } = await api.get<RoomNode>(`/rooms/${roomId}/nodes/${peerId}`)
+    return data
+  },
+
+  getRoomNodeGpus: async (roomId: string, peerId: string): Promise<RoomNodeGpu[]> => {
+    const { data } = await api.get<RoomNodeGpu[]>(`/rooms/${roomId}/nodes/${peerId}/gpus`)
     return data
   },
 

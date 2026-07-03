@@ -1,7 +1,7 @@
 """Tests for task submission API."""
 
-import asyncio
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
+
 import pytest
 
 from deepiri_zepgpu.api.submit import TaskSubmitter
@@ -23,6 +23,7 @@ class TestTaskSubmission:
     @pytest.mark.asyncio
     async def test_submit_simple_task(self, submitter: TaskSubmitter) -> None:
         """Test submitting a simple task."""
+
         def dummy() -> str:
             return "hello"
 
@@ -32,6 +33,7 @@ class TestTaskSubmission:
     @pytest.mark.asyncio
     async def test_submit_with_priority(self, submitter: TaskSubmitter) -> None:
         """Test submitting with priority."""
+
         def dummy() -> int:
             return 42
 
@@ -41,6 +43,7 @@ class TestTaskSubmission:
     @pytest.mark.asyncio
     async def test_submit_with_resources(self, submitter: TaskSubmitter) -> None:
         """Test submitting with resource requirements."""
+
         def dummy() -> int:
             return 42
 
@@ -54,6 +57,7 @@ class TestTaskSubmission:
     @pytest.mark.asyncio
     async def test_get_task(self, submitter: TaskSubmitter) -> None:
         """Test getting task by ID."""
+
         def dummy() -> int:
             return 42
 
@@ -65,6 +69,7 @@ class TestTaskSubmission:
     @pytest.mark.asyncio
     async def test_list_tasks(self, submitter: TaskSubmitter) -> None:
         """Test listing tasks."""
+
         def dummy() -> int:
             return 42
 
@@ -77,8 +82,10 @@ class TestTaskSubmission:
     @pytest.mark.asyncio
     async def test_cancel_task(self, submitter: TaskSubmitter) -> None:
         """Test cancelling a task."""
+
         def dummy() -> int:
             import time
+
             time.sleep(10)
             return 42
 
