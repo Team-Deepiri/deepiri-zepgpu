@@ -300,9 +300,14 @@ async def create_task(
             raise _map_dispatch_error(exc) from exc
 
         repo = TaskRepository(db)
-        await repo.mark_assigned(str(task.id))
-        task = await repo.get_by_id(str(task.id))
-        assert task is not None
+        updated_task = await repo.mark_assigned(str(task.id))
+        if updated_task is None:
+            await db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Task not found after room assignment",
+            )
+        task = updated_task
         assignment_summary = TaskAssignmentResponse(
             assignment_id=str(dispatch_result.assignment.id),
             room_id=dispatch_result.vpn_network_id,
