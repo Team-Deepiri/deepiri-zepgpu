@@ -244,9 +244,13 @@ class TaskScheduler:
                 task = item.task
 
                 if self._gpu_pool is not None:
+                    room_id = getattr(task, "room_id", None)
+                    remote_only = bool(room_id)
                     device = self._gpu_pool.get_available_device(
                         required_memory_mb=task.resources.gpu_memory_mb,
                         gpu_type=task.resources.gpu_type,
+                        room_id=room_id,
+                        remote_only=remote_only,
                     )
                 else:
                     device = self._gpu_manager.get_available_device(

@@ -26,13 +26,21 @@ def get_registered_gpu_pool() -> GpuPoolAggregator | None:
     return _registered_pool
 
 
-async def refresh_gpu_pool_from_db(db: AsyncSession, pool: GpuPoolAggregator) -> int:
+async def refresh_gpu_pool_from_db(
+    db: AsyncSession,
+    pool: GpuPoolAggregator,
+    network_id: str | None = None,
+) -> int:
     """Load active GPU shares from online peers into the aggregator. Returns count synced."""
-    result = await db.execute(
+    query = (
         select(GpuShare)
         .options(joinedload(GpuShare.peer).joinedload(Peer.user))
         .where(GpuShare.is_active.is_(True))
     )
+    if network_id is not None:
+        query = query.where(GpuShare.vpn_network_id == network_id)
+
+    result = await db.execute(query)
     shares = list(result.unique().scalars().all())
     remote_payload: list[dict] = []
     for s in shares:
@@ -57,6 +65,7 @@ async def refresh_gpu_pool_from_db(db: AsyncSession, pool: GpuPoolAggregator) ->
                 "current_task_id": s.current_task_id,
                 "utilization_percent": s.utilization_percent or 0.0,
                 "vpn_ip": peer.vpn_ip or "",
+                "vpn_network_id": str(s.vpn_network_id),
             }
         )
     await pool.refresh_remote_gpus(remote_payload)

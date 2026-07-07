@@ -154,6 +154,20 @@ def execute_task(  # noqa: C901
                 logger.warning(f"Task {task_id} not found in database")
                 return {"status": "error", "message": "Task not found"}
 
+            if (
+                task.dispatch_mode in {"room_auto", "room_specific_node"}
+                and task.status.value == "assigned"
+            ):
+                logger.info(
+                    "Task %s is room-assigned and awaiting node execution (Phase 5)",
+                    task_id,
+                )
+                return {
+                    "status": "deferred",
+                    "task_id": task_id,
+                    "message": "Room-assigned task awaiting remote execution",
+                }
+
             await repo.mark_running(task_id)
             await _log_audit(AuditAction.TASK_START, task_id, task.user_id)
 
