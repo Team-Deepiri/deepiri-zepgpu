@@ -123,6 +123,76 @@ def rank_eligible_shares(
     return eligible
 
 
+async def _validate_dispatch_targets(
+    db: AsyncSession,
+    room_id: str,
+    *,
+    target_peer_id: str | None,
+    target_gpu_share_id: str | None,
+) -> None:
+    """Validate optional room-specific peer or GPU share targets."""
+    if target_peer_id:
+        peer_repo = PeerRepository(db)
+        peer = await peer_repo.get_by_id(target_peer_id)
+        if not peer or str(peer.vpn_network_id) != str(room_id):
+            raise RoomValidationError("Target peer does not belong to this room")
+
+    if target_gpu_share_id:
+        gpu_repo = GpuShareRepository(db)
+        share = await gpu_repo.get_by_id(target_gpu_share_id)
+        if not share or str(share.vpn_network_id) != str(room_id):
+            raise RoomValidationError("Target GPU share does not belong to this room")
+        if not share.is_active or share.state != GpuShareState.IDLE:
+            raise RoomValidationError("Target GPU share is not active and available")
+
+
+async def _assign_first_available_share(
+    db: AsyncSession,
+    candidates: list[GpuShare],
+    *,
+    room_id: str,
+    task_id: str,
+    lock: RemoteGpuLock,
+) -> RoomDispatchResult:
+    """Try each ranked candidate until one is locked and assigned."""
+    assignment_repo = NodeTaskRepository(db)
+    gpu_repo = GpuShareRepository(db)
+
+    for share in candidates:
+        share_id = str(share.id)
+        if not lock.acquire(share_id, task_id):
+            continue
+
+        try:
+            updated = await gpu_repo.update_state(
+                share_id,
+                GpuShareState.ALLOCATED,
+                current_task_id=task_id,
+            )
+            if not updated:
+                lock.release(share_id, task_id)
+                continue
+
+            assignment = await assignment_repo.create_assignment(
+                vpn_network_id=str(room_id),
+                task_id=task_id,
+                peer_id=str(share.peer_id),
+                gpu_share_id=share_id,
+            )
+            return RoomDispatchResult(
+                assignment=assignment,
+                peer_id=str(share.peer_id),
+                gpu_share_id=share_id,
+                vpn_network_id=str(room_id),
+            )
+        except Exception:
+            lock.release(share_id, task_id)
+            await gpu_repo.update_state(share_id, GpuShareState.IDLE, current_task_id=None)
+            raise
+
+    raise RoomGpuLockError("Could not acquire lock for any eligible GPU share")
+
+
 async def select_and_assign_room_gpu(
     db: AsyncSession,
     *,
@@ -146,20 +216,12 @@ async def select_and_assign_room_gpu(
         )
 
     await ensure_room_access(db, user_id, room_id)
-
-    if target_peer_id:
-        peer_repo = PeerRepository(db)
-        peer = await peer_repo.get_by_id(target_peer_id)
-        if not peer or str(peer.vpn_network_id) != str(room_id):
-            raise RoomValidationError("Target peer does not belong to this room")
-
-    if target_gpu_share_id:
-        gpu_repo = GpuShareRepository(db)
-        share = await gpu_repo.get_by_id(target_gpu_share_id)
-        if not share or str(share.vpn_network_id) != str(room_id):
-            raise RoomValidationError("Target GPU share does not belong to this room")
-        if not share.is_active or share.state != GpuShareState.IDLE:
-            raise RoomValidationError("Target GPU share is not active and available")
+    await _validate_dispatch_targets(
+        db,
+        room_id,
+        target_peer_id=target_peer_id,
+        target_gpu_share_id=target_gpu_share_id,
+    )
 
     gpu_repo = GpuShareRepository(db)
     shares = await gpu_repo.list_by_network(room_id, active_only=True)
@@ -175,55 +237,13 @@ async def select_and_assign_room_gpu(
         raise NoRoomGpuAvailable("No eligible GPU available in this room")
 
     lock = remote_lock or RemoteGpuLock()
-    assignment_repo = NodeTaskRepository(db)
-    last_share_id: str | None = None
-    last_task_id: str | None = None
-
-    try:
-        for share in candidates:
-            share_id = str(share.id)
-            if not lock.acquire(share_id, task_id):
-                continue
-
-            last_share_id = share_id
-            last_task_id = task_id
-            try:
-                updated = await gpu_repo.update_state(
-                    share_id,
-                    GpuShareState.ALLOCATED,
-                    current_task_id=task_id,
-                )
-                if not updated:
-                    lock.release(share_id, task_id)
-                    last_share_id = None
-                    last_task_id = None
-                    continue
-
-                assignment = await assignment_repo.create_assignment(
-                    vpn_network_id=str(room_id),
-                    task_id=task_id,
-                    peer_id=str(share.peer_id),
-                    gpu_share_id=share_id,
-                )
-                return RoomDispatchResult(
-                    assignment=assignment,
-                    peer_id=str(share.peer_id),
-                    gpu_share_id=share_id,
-                    vpn_network_id=str(room_id),
-                )
-            except Exception:
-                lock.release(share_id, task_id)
-                await gpu_repo.update_state(share_id, GpuShareState.IDLE, current_task_id=None)
-                last_share_id = None
-                last_task_id = None
-                raise
-
-        raise RoomGpuLockError("Could not acquire lock for any eligible GPU share")
-    except Exception:
-        if last_share_id and last_task_id:
-            lock.release(last_share_id, last_task_id)
-            await gpu_repo.update_state(last_share_id, GpuShareState.IDLE, current_task_id=None)
-        raise
+    return await _assign_first_available_share(
+        db,
+        candidates,
+        room_id=room_id,
+        task_id=task_id,
+        lock=lock,
+    )
 
 
 async def release_room_assignment(

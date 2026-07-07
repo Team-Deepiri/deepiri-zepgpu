@@ -23,7 +23,6 @@ from deepiri_zepgpu.rooms.dispatch import (
     RoomAccessError,
     RoomDispatchError,
     RoomGpuLockError,
-    RoomValidationError,
     release_room_assignment,
     select_and_assign_room_gpu,
 )
@@ -179,7 +178,7 @@ def _validate_room_dispatch_request(request: TaskCreateRequest) -> None:
 def _map_dispatch_error(exc: RoomDispatchError) -> HTTPException:
     if isinstance(exc, RoomAccessError):
         return HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
-    if isinstance(exc, (NoRoomGpuAvailable, RoomGpuLockError)):
+    if isinstance(exc, NoRoomGpuAvailable | RoomGpuLockError):
         return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
     return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 

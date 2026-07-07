@@ -71,7 +71,7 @@ class NodeTaskAssignment(UUIDMixin, TimestampMixin, Base):
     retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     task: Mapped[Task] = relationship("Task", back_populates="node_assignments")
-    events: Mapped[list["NodeTaskEvent"]] = relationship(
+    events: Mapped[list[NodeTaskEvent]] = relationship(
         "NodeTaskEvent",
         back_populates="assignment",
         lazy="selectin",
