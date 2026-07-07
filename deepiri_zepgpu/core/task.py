@@ -18,6 +18,7 @@ class TaskStatus(Enum):
     PENDING = "pending"
     QUEUED = "queued"
     SCHEDULED = "scheduled"
+    ASSIGNED = "assigned"
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
@@ -69,6 +70,10 @@ class Task:
     gpu_device_id: int | None = None
     remote_peer_vpn_ip: str | None = None
     remote_gpu_share_id: str | None = None
+    room_id: str | None = None
+    dispatch_mode: str = "local"
+    target_peer_id: str | None = None
+    target_gpu_share_id: str | None = None
     container_id: str | None = None
     callback_url: str | None = None
     tags: list[str] = field(default_factory=list)

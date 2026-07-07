@@ -15,6 +15,7 @@ from deepiri_zepgpu.database.repositories.namespace_repository import (
     TeamMemberRepository,
     TeamRepository,
 )
+from deepiri_zepgpu.database.repositories.node_task_repository import NodeTaskRepository
 from deepiri_zepgpu.database.repositories.pipeline_repository import PipelineRepository
 from deepiri_zepgpu.database.repositories.schedule_repository import (
     ScheduleRepository,
@@ -40,4 +41,5 @@ __all__ = [
     "TeamMemberRepository",
     "NamespaceQuotaRepository",
     "NamespaceUsageRepository",
+    "NodeTaskRepository",
 ]
