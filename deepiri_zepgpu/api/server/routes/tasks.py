@@ -245,7 +245,9 @@ async def create_task(
     _validate_room_dispatch_request(request)
 
     if not current_user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required"
+        )
 
     task = Task(
         id=str(uuid.uuid4()),
@@ -267,7 +269,9 @@ async def create_task(
         dispatch_mode=request.dispatch_mode,
         vpn_network_id=str(request.room_id) if request.room_id else None,
         target_peer_id=str(request.target_peer_id) if request.target_peer_id else None,
-        target_gpu_share_id=str(request.target_gpu_share_id) if request.target_gpu_share_id else None,
+        target_gpu_share_id=(
+            str(request.target_gpu_share_id) if request.target_gpu_share_id else None
+        ),
         status=DBTaskStatus.PENDING,
     )
 
@@ -375,6 +379,8 @@ async def get_task(
 
     assignment = await _load_assignment_summary(db, task_id)
     return _task_to_response(task, assignment)
+
+
 async def cancel_task(
     task_id: str,
     db: AsyncSession = Depends(get_db_session),

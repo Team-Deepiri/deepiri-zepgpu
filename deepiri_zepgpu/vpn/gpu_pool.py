@@ -144,12 +144,9 @@ class GpuPoolAggregator:
                 if best_remote is None:
                     best_remote = device
                     continue
-                if (
-                    device.available_memory_mb > best_remote.available_memory_mb
-                    or (
-                        device.available_memory_mb == best_remote.available_memory_mb
-                        and device.utilization_percent < best_remote.utilization_percent
-                    )
+                if device.available_memory_mb > best_remote.available_memory_mb or (
+                    device.available_memory_mb == best_remote.available_memory_mb
+                    and device.utilization_percent < best_remote.utilization_percent
                 ):
                     best_remote = device
         return best_remote
