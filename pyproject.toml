@@ -144,6 +144,11 @@ addopts = "-ra -q --strict-markers"
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "unit: unit tests with no external services",
+    "integration: tests requiring in-memory or local service mocks",
+    "e2e: end-to-end tests requiring Docker Compose stack",
+]
 
 [tool.coverage.run]
 source = ["deepiri_zepgpu"]

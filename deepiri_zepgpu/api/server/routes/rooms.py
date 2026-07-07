@@ -558,6 +558,6 @@ async def _attach_room_gpu_shares(
         shares_by_peer.setdefault(str(share.peer_id), []).append(share)
 
     for peer in peers:
-        peer._room_gpu_shares = shares  # type: ignore[attr-defined]
+        peer._room_gpu_shares = shares_by_peer.get(str(peer.id), [])  # type: ignore[attr-defined]
 
     return peers

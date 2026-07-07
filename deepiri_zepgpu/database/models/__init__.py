@@ -19,6 +19,11 @@ from deepiri_zepgpu.database.models.namespace import (
     TeamMember,
     TeamRole,
 )
+from deepiri_zepgpu.database.models.node_task_assignment import (
+    NodeAssignmentStatus,
+    NodeTaskAssignment,
+    NodeTaskEvent,
+)
 from deepiri_zepgpu.database.models.pipeline import Pipeline
 from deepiri_zepgpu.database.models.scheduled_task import (
     ScheduledTask,
@@ -78,4 +83,7 @@ __all__ = [
     "GpuShareQuota",
     "PeerOnlineStatus",
     "GpuShareState",
+    "NodeTaskAssignment",
+    "NodeTaskEvent",
+    "NodeAssignmentStatus",
 ]

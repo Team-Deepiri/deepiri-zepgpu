@@ -33,6 +33,7 @@ class RemoteGPUDevice:
     power_draw_watts: float = 0.0
     last_updated: datetime = field(default_factory=datetime.utcnow)
     vpn_ip: str = ""
+    vpn_network_id: str = ""
 
     @property
     def device_id(self) -> int:
@@ -110,6 +111,7 @@ class GpuPoolAggregator:
                     current_task_id=gpu_data.get("current_task_id"),
                     utilization_percent=gpu_data.get("utilization_percent", 0.0),
                     vpn_ip=gpu_data.get("vpn_ip", ""),
+                    vpn_network_id=gpu_data.get("vpn_network_id", ""),
                 )
                 new_map[share_id] = device
             self._remote_devices = new_map
@@ -118,22 +120,38 @@ class GpuPoolAggregator:
         self,
         required_memory_mb: int = 1024,
         gpu_type: str | None = None,
+        room_id: str | None = None,
+        remote_only: bool = False,
     ) -> GPUDevice | RemoteGPUDevice | None:
-        """Find an available GPU across local + remote."""
-        local = self._local_manager.get_available_device(
-            required_memory_mb=required_memory_mb,
-            gpu_type=gpu_type,
-        )
-        if local:
-            return local
+        """Find an available GPU across local + remote, optionally room-scoped."""
+        if not remote_only:
+            local = self._local_manager.get_available_device(
+                required_memory_mb=required_memory_mb,
+                gpu_type=gpu_type,
+            )
+            if local:
+                return local
 
+        best_remote: RemoteGPUDevice | None = None
         with self._lock:
             for device in self._remote_devices.values():
+                if room_id and device.vpn_network_id != str(room_id):
+                    continue
                 if gpu_type and device.gpu_type.value != gpu_type:
                     continue
-                if device.can_allocate(required_memory_mb):
-                    return device
-            return None
+                if not device.can_allocate(required_memory_mb):
+                    continue
+                if best_remote is None:
+                    best_remote = device
+                    continue
+                if device.available_memory_mb > best_remote.available_memory_mb:
+                    best_remote = device
+                elif (
+                    device.available_memory_mb == best_remote.available_memory_mb
+                    and device.utilization_percent < best_remote.utilization_percent
+                ):
+                    best_remote = device
+        return best_remote
 
     def allocate_device(
         self,

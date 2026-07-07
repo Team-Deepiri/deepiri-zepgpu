@@ -113,6 +113,10 @@ class TaskRepository:
         await self.session.flush()
         return task
 
+    async def mark_assigned(self, task_id: str, **kwargs: Any) -> Task | None:
+        """Mark task as assigned to a room GPU."""
+        return await self.update_status(task_id, TaskStatus.ASSIGNED, **kwargs)
+
     async def mark_running(
         self,
         task_id: str,
