@@ -450,7 +450,7 @@ Grafana runs at http://localhost:3001 when using Docker Compose (default login `
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+Apache License 2.0 - see [LICENSE](LICENSE) for details.
 
 ---
 
