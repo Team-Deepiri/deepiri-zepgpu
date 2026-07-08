@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import signal
 import time
@@ -11,6 +12,8 @@ import click
 
 from deepiri_zepgpu.node_agent.config import NodeAgentConfig, build_config
 from deepiri_zepgpu.node_agent.heartbeat import send_heartbeat
+from deepiri_zepgpu.node_agent.task_client import NodeTaskClient
+from deepiri_zepgpu.node_agent.task_worker import NodeTaskWorker
 
 logger = logging.getLogger(__name__)
 _shutdown = False
@@ -18,7 +21,7 @@ _shutdown = False
 
 def _handle_signal(signum: int, _frame: object) -> None:
     global _shutdown
-    logger.info("Received signal %s, shutting down…", signum)
+    logger.info("Received signal %s, shutting down...", signum)
     _shutdown = True
 
 
@@ -36,8 +39,10 @@ def _cli_overrides(
     peer_id: str | None,
     auth_token: str | None,
     heartbeat_interval_seconds: int | None,
+    task_poll_interval_seconds: int | None,
     endpoint: str | None,
     simulate: bool,
+    enable_task_worker: bool,
 ) -> dict[str, Any]:
     overrides: dict[str, Any] = {}
     if api_base_url is not None:
@@ -50,11 +55,35 @@ def _cli_overrides(
         overrides["auth_token"] = auth_token
     if heartbeat_interval_seconds is not None:
         overrides["heartbeat_interval_seconds"] = heartbeat_interval_seconds
+    if task_poll_interval_seconds is not None:
+        overrides["task_poll_interval_seconds"] = task_poll_interval_seconds
     if endpoint is not None:
         overrides["endpoint"] = endpoint
     if simulate:
         overrides["simulation_mode"] = True
+    if enable_task_worker:
+        overrides["enable_task_worker"] = True
     return overrides
+
+
+def build_task_worker(config: NodeAgentConfig) -> NodeTaskWorker:
+    """Build the Phase 5 node task polling worker."""
+    client = NodeTaskClient(
+        base_url=config.api_base_url,
+        room_id=config.room_id,
+        peer_id=config.peer_id,
+        token=config.auth_token,
+    )
+    return NodeTaskWorker(
+        client=client,
+        poll_interval_seconds=config.task_poll_interval_seconds,
+    )
+
+
+def run_task_worker_once(config: NodeAgentConfig) -> int:
+    """Run one task polling iteration from the sync node-agent loop."""
+    worker = build_task_worker(config)
+    return asyncio.run(worker.run_once())
 
 
 def run_agent(config: NodeAgentConfig, *, once: bool = False, dry_run: bool = False) -> None:
@@ -67,8 +96,15 @@ def run_agent(config: NodeAgentConfig, *, once: bool = False, dry_run: bool = Fa
 
     while True:
         send_heartbeat(config, dry_run=dry_run)
+
+        if config.enable_task_worker and not dry_run:
+            processed = run_task_worker_once(config)
+            if processed:
+                logger.info("Processed %s node task assignment(s)", processed)
+
         if once or dry_run or _shutdown:
             break
+
         time.sleep(config.heartbeat_interval_seconds)
 
 
@@ -81,9 +117,11 @@ def run_agent(config: NodeAgentConfig, *, once: bool = False, dry_run: bool = Fa
 @click.option("--peer-id", default=None, help="Peer UUID")
 @click.option("--auth-token", default=None, help="Bearer auth token")
 @click.option("--heartbeat-interval-seconds", default=None, type=int, help="Heartbeat interval")
+@click.option("--task-poll-interval-seconds", default=None, type=int, help="Task poll interval")
 @click.option("--endpoint", default=None, help="Optional peer endpoint URL")
 @click.option("--once", is_flag=True, help="Send one heartbeat and exit")
 @click.option("--simulate", is_flag=True, help="Use simulated GPU metrics")
+@click.option("--enable-task-worker", is_flag=True, help="Enable Phase 5 task polling worker")
 @click.option("--dry-run", is_flag=True, help="Print heartbeat payload without sending")
 @click.option("--verbose", is_flag=True, help="Debug logging")
 def main(
@@ -93,9 +131,11 @@ def main(
     peer_id: str | None,
     auth_token: str | None,
     heartbeat_interval_seconds: int | None,
+    task_poll_interval_seconds: int | None,
     endpoint: str | None,
     once: bool,
     simulate: bool,
+    enable_task_worker: bool,
     dry_run: bool,
     verbose: bool,
 ) -> None:
@@ -116,8 +156,10 @@ def main(
                 peer_id,
                 auth_token,
                 heartbeat_interval_seconds,
+                task_poll_interval_seconds,
                 endpoint,
                 simulate,
+                enable_task_worker,
             ),
         )
     except Exception as exc:

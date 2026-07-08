@@ -47,16 +47,63 @@ class NodeTaskWorker:
 
         try:
             await self.client.accept(assignment_id)
+            await self._log_assignment_event(
+                assignment_id,
+                event_type="node_task_accepted",
+                message="Node agent accepted assignment",
+            )
+
             started = await self.client.start(assignment_id)
+            await self._log_assignment_event(
+                assignment_id,
+                event_type="node_task_started",
+                message="Node agent started assignment",
+            )
+
             result_metadata = await self.runner.run_noop(started)
-            return await self.client.complete(
+            completed = await self.client.complete(
                 assignment_id,
                 result_metadata=result_metadata,
             )
+            await self._log_assignment_event(
+                assignment_id,
+                event_type="node_task_completed",
+                message="Node agent completed assignment",
+                payload={"result_metadata": result_metadata},
+            )
+            return completed
         except Exception as exc:
             logger.exception("Node task execution failed: %s", assignment_id)
             await self.client.fail(assignment_id, error=str(exc))
+            await self._log_assignment_event(
+                assignment_id,
+                event_type="node_task_failed",
+                message="Node agent failed assignment",
+                payload={"error": str(exc)},
+            )
             raise
+
+    async def _log_assignment_event(
+        self,
+        assignment_id: str,
+        *,
+        event_type: str,
+        message: str,
+        payload: dict[str, Any] | None = None,
+    ) -> None:
+        log_method = getattr(self.client, "log", None)
+        if not callable(log_method):
+            return
+
+        try:
+            await log_method(
+                assignment_id,
+                event_type=event_type,
+                message=message,
+                payload=payload or {},
+            )
+        except Exception:
+            logger.exception("Failed to write node task log: %s", assignment_id)
 
     async def run_forever(self) -> None:
         """Continuously poll for assignments until stopped."""

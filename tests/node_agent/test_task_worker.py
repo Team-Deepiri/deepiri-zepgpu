@@ -48,6 +48,22 @@ class FakeTaskClient:
         self.calls.append(f"fail:{assignment_id}")
         return {"assignment_id": assignment_id, "status": "failed", "error": error}
 
+    async def log(
+        self,
+        assignment_id: str,
+        *,
+        event_type: str,
+        message: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        self.calls.append(f"log:{event_type}:{assignment_id}")
+        return {
+            "assignment_id": assignment_id,
+            "event_type": event_type,
+            "message": message,
+            "payload": payload,
+        }
+
 
 @pytest.mark.asyncio
 async def test_worker_processes_pending_noop_assignment() -> None:
@@ -60,8 +76,11 @@ async def test_worker_processes_pending_noop_assignment() -> None:
     assert client.calls == [
         "poll:1",
         "accept:assignment-1",
+        "log:node_task_accepted:assignment-1",
         "start:assignment-1",
+        "log:node_task_started:assignment-1",
         "complete:assignment-1",
+        "log:node_task_completed:assignment-1",
     ]
 
 
@@ -84,6 +103,9 @@ async def test_worker_reports_failed_assignment_when_runner_fails() -> None:
     assert client.calls == [
         "poll:1",
         "accept:assignment-1",
+        "log:node_task_accepted:assignment-1",
         "start:assignment-1",
+        "log:node_task_started:assignment-1",
         "fail:assignment-1",
+        "log:node_task_failed:assignment-1",
     ]

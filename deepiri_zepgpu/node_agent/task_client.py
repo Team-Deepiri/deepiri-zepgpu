@@ -66,6 +66,28 @@ class NodeTaskClient:
             {"error": error},
         )
 
+    async def log(
+        self,
+        assignment_id: str,
+        *,
+        event_type: str = "node_task_log",
+        message: str | None = None,
+        payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+            response = await client.post(
+                f"{self.base_url}/api/v1/node-tasks/{assignment_id}/logs",
+                params={"peer_id": self.peer_id},
+                json={
+                    "event_type": event_type,
+                    "message": message,
+                    "payload": payload or {},
+                },
+                headers=self._headers(),
+            )
+            response.raise_for_status()
+            return dict(response.json())
+
     async def _post_lifecycle(
         self,
         assignment_id: str,

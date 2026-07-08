@@ -251,10 +251,23 @@ class NodeTaskRepository:
 
         task = await self.session.get(Task, assignment.task_id)
         if task:
+            metadata = result_metadata or {}
             task.status = TaskStatus.COMPLETED
             task.completed_at = now
             task.metadata_json = dict(task.metadata_json or {})
-            task.metadata_json["remote_result"] = result_metadata or {}
+            task.metadata_json["remote_result"] = metadata
+
+            result_ref = (
+                metadata.get("result_ref")
+                or metadata.get("result_uri")
+                or metadata.get("storage_ref")
+            )
+            if result_ref:
+                task.result_ref = str(result_ref)
+
+            result_size_bytes = metadata.get("result_size_bytes")
+            if isinstance(result_size_bytes, int):
+                task.result_size_bytes = result_size_bytes
 
         if assignment.gpu_share_id:
             gpu_share = await self.session.get(GpuShare, assignment.gpu_share_id)
