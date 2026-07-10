@@ -109,3 +109,68 @@ async def test_worker_reports_failed_assignment_when_runner_fails() -> None:
         "fail:assignment-1",
         "log:node_task_failed:assignment-1",
     ]
+
+
+class FakeMultiTaskClient:
+    """Fake client that returns several pending assignments in one poll."""
+
+    def __init__(self, *, assignments: list[dict[str, Any]]) -> None:
+        self._assignments = assignments
+        self.poll_calls: list[str] = []
+        self.completed_ids: list[str] = []
+
+    async def poll_pending(self, *, limit: int = 1) -> list[dict[str, Any]]:
+        self.poll_calls.append(f"poll:{limit}")
+        return list(self._assignments)
+
+    async def accept(self, assignment_id: str) -> dict[str, Any]:
+        return {"assignment_id": assignment_id}
+
+    async def start(self, assignment_id: str) -> dict[str, Any]:
+        return {"assignment_id": assignment_id}
+
+    async def complete(
+        self,
+        assignment_id: str,
+        *,
+        result_metadata: dict[str, Any],
+    ) -> dict[str, Any]:
+        self.completed_ids.append(assignment_id)
+        return {"assignment_id": assignment_id, "status": "completed"}
+
+    async def fail(self, assignment_id: str, *, error: str) -> dict[str, Any]:
+        return {"assignment_id": assignment_id, "status": "failed", "error": error}
+
+    async def log(self, assignment_id: str, **_kwargs: Any) -> dict[str, Any]:
+        return {"assignment_id": assignment_id}
+
+
+@pytest.mark.asyncio
+async def test_worker_respects_poll_limit_and_processes_all_returned() -> None:
+    """run_once should loop through every assignment poll_pending returns,
+    not just the first one, and should request poll_limit from the client."""
+    client = FakeMultiTaskClient(
+        assignments=[
+            {"assignment_id": "assignment-1", "task_id": "task-1"},
+            {"assignment_id": "assignment-2", "task_id": "task-2"},
+        ]
+    )
+    worker = NodeTaskWorker(client=client, poll_limit=5)  # type: ignore[arg-type]
+
+    processed = await worker.run_once()
+
+    assert processed == 2
+    assert client.poll_calls == ["poll:5"]
+    assert client.completed_ids == ["assignment-1", "assignment-2"]
+
+
+@pytest.mark.asyncio
+async def test_worker_default_poll_limit_is_one() -> None:
+    """Regression guard: default construction should still poll for exactly
+    one assignment unless poll_limit is explicitly raised."""
+    client = FakeMultiTaskClient(assignments=[{"assignment_id": "a", "task_id": "t"}])
+    worker = NodeTaskWorker(client=client)  # type: ignore[arg-type]
+
+    await worker.run_once()
+
+    assert client.poll_calls == ["poll:1"]

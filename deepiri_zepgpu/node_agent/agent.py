@@ -40,25 +40,32 @@ def _cli_overrides(
     auth_token: str | None,
     heartbeat_interval_seconds: int | None,
     task_poll_interval_seconds: int | None,
+    task_poll_limit: int | None,
     endpoint: str | None,
     simulate: bool,
     enable_task_worker: bool,
 ) -> dict[str, Any]:
-    overrides: dict[str, Any] = {}
-    if api_base_url is not None:
-        overrides["api_base_url"] = api_base_url
-    if room_id is not None:
-        overrides["room_id"] = room_id
-    if peer_id is not None:
-        overrides["peer_id"] = peer_id
-    if auth_token is not None:
-        overrides["auth_token"] = auth_token
-    if heartbeat_interval_seconds is not None:
-        overrides["heartbeat_interval_seconds"] = heartbeat_interval_seconds
-    if task_poll_interval_seconds is not None:
-        overrides["task_poll_interval_seconds"] = task_poll_interval_seconds
-    if endpoint is not None:
-        overrides["endpoint"] = endpoint
+    """Build the config override dict from CLI flags.
+
+    Optional value-bearing flags (None means "not passed") are collapsed
+    into a single filter instead of one `if ... is not None` branch per
+    flag, to keep this from growing a branch every time a new CLI option
+    is added. The two boolean flags stay as explicit checks since `False`
+    is a valid "don't set" value for them, not an override.
+    """
+    optional_values: dict[str, Any] = {
+        "api_base_url": api_base_url,
+        "room_id": room_id,
+        "peer_id": peer_id,
+        "auth_token": auth_token,
+        "heartbeat_interval_seconds": heartbeat_interval_seconds,
+        "task_poll_interval_seconds": task_poll_interval_seconds,
+        "task_poll_limit": task_poll_limit,
+        "endpoint": endpoint,
+    }
+    overrides: dict[str, Any] = {
+        key: value for key, value in optional_values.items() if value is not None
+    }
     if simulate:
         overrides["simulation_mode"] = True
     if enable_task_worker:
@@ -77,6 +84,7 @@ def build_task_worker(config: NodeAgentConfig) -> NodeTaskWorker:
     return NodeTaskWorker(
         client=client,
         poll_interval_seconds=config.task_poll_interval_seconds,
+        poll_limit=config.task_poll_limit,
     )
 
 
@@ -126,6 +134,12 @@ def run_agent(config: NodeAgentConfig, *, once: bool = False, dry_run: bool = Fa
 @click.option("--auth-token", default=None, help="Bearer auth token")
 @click.option("--heartbeat-interval-seconds", default=None, type=int, help="Heartbeat interval")
 @click.option("--task-poll-interval-seconds", default=None, type=int, help="Task poll interval")
+@click.option(
+    "--task-poll-limit",
+    default=None,
+    type=int,
+    help="Max assignments to pull per poll (1-10)",
+)
 @click.option("--endpoint", default=None, help="Optional peer endpoint URL")
 @click.option("--once", is_flag=True, help="Send one heartbeat and exit")
 @click.option("--simulate", is_flag=True, help="Use simulated GPU metrics")
@@ -140,6 +154,7 @@ def main(
     auth_token: str | None,
     heartbeat_interval_seconds: int | None,
     task_poll_interval_seconds: int | None,
+    task_poll_limit: int | None,
     endpoint: str | None,
     once: bool,
     simulate: bool,
@@ -165,6 +180,7 @@ def main(
                 auth_token,
                 heartbeat_interval_seconds,
                 task_poll_interval_seconds,
+                task_poll_limit,
                 endpoint,
                 simulate,
                 enable_task_worker,

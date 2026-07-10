@@ -25,6 +25,7 @@ class NodeAgentConfig(BaseModel):
     auth_token: str
     heartbeat_interval_seconds: int = Field(default=10, ge=1)
     task_poll_interval_seconds: int = Field(default=5, ge=1)
+    task_poll_limit: int = Field(default=1, ge=1, le=10)
     enable_task_worker: bool = False
     simulation_mode: bool = False
     endpoint: str | None = None
@@ -76,6 +77,7 @@ def _apply_env_overrides(data: dict[str, Any]) -> dict[str, Any]:
         "NODE_AGENT_AUTH_TOKEN": "auth_token",
         "NODE_AGENT_HEARTBEAT_INTERVAL_SECONDS": "heartbeat_interval_seconds",
         "NODE_AGENT_TASK_POLL_INTERVAL_SECONDS": "task_poll_interval_seconds",
+        "NODE_AGENT_TASK_POLL_LIMIT": "task_poll_limit",
         "NODE_AGENT_ENABLE_TASK_WORKER": "enable_task_worker",
         "NODE_AGENT_SIMULATION_MODE": "simulation_mode",
         "NODE_AGENT_ENDPOINT": "endpoint",
@@ -85,7 +87,11 @@ def _apply_env_overrides(data: dict[str, Any]) -> dict[str, Any]:
         raw = os.environ.get(env_key)
         if raw is None or raw == "":
             continue
-        if field_name in {"heartbeat_interval_seconds", "task_poll_interval_seconds"}:
+        if field_name in {
+            "heartbeat_interval_seconds",
+            "task_poll_interval_seconds",
+            "task_poll_limit",
+        }:
             merged[field_name] = int(raw)
         elif field_name in {"simulation_mode", "enable_task_worker"}:
             merged[field_name] = _parse_bool(raw)
