@@ -55,6 +55,8 @@ class NodeTaskWorker:
                 message="Node agent accepted assignment",
             )
 
+            # If start() fails after accept() succeeds, the assignment can remain
+            # ACCEPTED until server-side AWOL/timeout reconciliation reclaims it.
             started = await self.client.start(assignment_id)
             await self._log_assignment_event(
                 assignment_id,
@@ -80,11 +82,9 @@ class NodeTaskWorker:
             try:
                 await self.client.fail(assignment_id, error=str(exc))
             except Exception:
-                # The failure report itself failed (e.g. network issue).
-                # Don't let this secondary error replace or swallow the
-                # original one -- log it distinctly and keep going, so
-                # the caller still sees the real cause. The assignment
-                # will sit in accepted/running state until server-side
+                # The failure report itself failed, such as from a network issue.
+                # Keep the original exception as the caller-visible failure. The
+                # assignment will remain in its current state until server-side
                 # AWOL/timeout reconciliation reclaims it.
                 logger.exception(
                     "Failed to report failure for node task assignment %s to "
@@ -109,12 +109,8 @@ class NodeTaskWorker:
         message: str,
         payload: dict[str, Any] | None = None,
     ) -> None:
-        log_method = getattr(self.client, "log", None)
-        if not callable(log_method):
-            return
-
         try:
-            await log_method(
+            await self.client.log(
                 assignment_id,
                 event_type=event_type,
                 message=message,

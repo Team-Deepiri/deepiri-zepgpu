@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import secrets
 from datetime import datetime
 from typing import Any
@@ -19,6 +20,8 @@ from deepiri_zepgpu.database.models.task import Task
 from deepiri_zepgpu.database.models.vpn_models import Peer
 from deepiri_zepgpu.database.repositories.node_task_repository import NodeTaskRepository
 from deepiri_zepgpu.vpn.repositories import PeerRepository, VpnNetworkRepository
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/node-tasks", tags=["Node Tasks"])
 
@@ -153,6 +156,24 @@ async def _task_for_assignment(
     return await db.get(Task, assignment.task_id)
 
 
+async def _notify_if_task_exists(
+    *,
+    task: Task | None,
+    assignment: NodeTaskAssignment,
+) -> None:
+    """Notify remote task listeners only when the parent task still exists."""
+    if task is None:
+        logger.warning(
+            "Skipping remote task terminal notification because task %s for "
+            "assignment %s was not found",
+            assignment.task_id,
+            assignment.id,
+        )
+        return
+
+    await notify_remote_task_terminal_state(task=task, assignment=assignment)
+
+
 @router.get(
     "/rooms/{room_id}/nodes/{peer_id}/tasks/pending",
     response_model=list[NodeTaskResponse],
@@ -264,7 +285,7 @@ async def complete_node_task(
     await db.commit()
     await db.refresh(assignment)
 
-    await notify_remote_task_terminal_state(task=task, assignment=assignment)
+    await _notify_if_task_exists(task=task, assignment=assignment)
     return _assignment_to_response(assignment)
 
 
@@ -289,7 +310,7 @@ async def fail_node_task(
     await db.commit()
     await db.refresh(assignment)
 
-    await notify_remote_task_terminal_state(task=task, assignment=assignment)
+    await _notify_if_task_exists(task=task, assignment=assignment)
     return _assignment_to_response(assignment)
 
 
@@ -314,6 +335,7 @@ async def log_node_task_event(
         "message": request.message,
         **request.payload,
     }
+
     await repo.record_event(
         assignment_id=assignment_id,
         event_type=request.event_type,
