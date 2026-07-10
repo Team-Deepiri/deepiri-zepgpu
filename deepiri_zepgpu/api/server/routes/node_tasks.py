@@ -7,16 +7,18 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from deepiri_zepgpu.api.server.dependencies import get_db_session
+from deepiri_zepgpu.api.server.dependencies import get_db_session, get_required_user
 from deepiri_zepgpu.api.server.remote_task_events import notify_remote_task_terminal_state
+from deepiri_zepgpu.database.models import User
 from deepiri_zepgpu.database.models.node_task_assignment import NodeTaskAssignment
 from deepiri_zepgpu.database.models.task import Task
 from deepiri_zepgpu.database.models.vpn_models import Peer
 from deepiri_zepgpu.database.repositories.node_task_repository import NodeTaskRepository
-from deepiri_zepgpu.vpn.repositories import PeerRepository
+from deepiri_zepgpu.vpn.repositories import PeerRepository, VpnNetworkRepository
 
 router = APIRouter(prefix="/node-tasks", tags=["Node Tasks"])
 
@@ -49,6 +51,34 @@ async def get_verified_peer(
         raise HTTPException(status_code=401, detail="Invalid peer credentials")
 
     return peer
+
+
+async def _require_room_member_for_result(
+    assignment: NodeTaskAssignment,
+    authorization: str | None,
+    db: AsyncSession,
+) -> None:
+    """Authorize a human dashboard caller to view a task result.
+
+    Used only on the peer_id-less path of get_node_task_result: the caller
+    must present a valid user JWT (the same Authorization header scheme
+    every other human-facing route in vpn.py expects) and be a member of
+    the room the assignment belongs to. Mirrors _ensure_network_member.
+    """
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Authentication required")
+    token = authorization.split(" ", 1)[1].strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+    user: User = await get_required_user(credentials=credentials, db=db)
+
+    network_repo = VpnNetworkRepository(db)
+    room_id = str(assignment.vpn_network_id)
+    user_networks = await network_repo.list_user_networks(str(user.id))
+    if not any(str(network.id) == room_id for network in user_networks):
+        raise HTTPException(status_code=403, detail="Not a member of this room")
 
 
 class NodeTaskResponse(BaseModel):
@@ -151,19 +181,17 @@ async def get_node_task_result(
     db: AsyncSession = Depends(get_db_session),
 ) -> NodeTaskResultResponse:
     repo = NodeTaskRepository(db)
+
     if peer_id:
-        # A node agent checking on its own assignment's result must prove
-        # it owns that peer_id, same as the mutating endpoints below.
         peer = await get_verified_peer(peer_id, authorization, db)
         assignment = await repo.get_for_peer(assignment_id=assignment_id, peer_id=str(peer.id))
+        if assignment is None:
+            raise HTTPException(status_code=404, detail="Assignment not found")
     else:
-        # TODO(auth): unscoped lookup by assignment_id alone with no peer_id
-        # and no human-user JWT check is still an open gap for dashboard/
-        # human callers. Wire in get_required_user + room-membership check
-        # here (see vpn.py's _ensure_network_member) before this ships.
         assignment = await repo.get_by_id(assignment_id)
-    if assignment is None:
-        raise HTTPException(status_code=404, detail="Assignment not found")
+        if assignment is None:
+            raise HTTPException(status_code=404, detail="Assignment not found")
+        await _require_room_member_for_result(assignment, authorization, db)
 
     task = await _task_for_assignment(db, assignment)
     if task is None:

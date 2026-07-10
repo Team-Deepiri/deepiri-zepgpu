@@ -111,6 +111,32 @@ async def test_worker_reports_failed_assignment_when_runner_fails() -> None:
     ]
 
 
+class FakeClientWhereFailAlsoFails(FakeTaskClient):
+    """fail() itself raises, simulating a network blip while reporting."""
+
+    async def fail(self, assignment_id: str, *, error: str) -> dict[str, Any]:
+        self.calls.append(f"fail:{assignment_id}")
+        raise RuntimeError("network down while reporting failure")
+
+
+@pytest.mark.asyncio
+async def test_worker_reraises_original_error_when_fail_report_itself_fails() -> None:
+    """The runner's original error must win over the secondary error from
+    reporting the failure, and the failure-report attempt + log event
+    should still both be attempted rather than silently skipped."""
+    client = FakeClientWhereFailAlsoFails()
+    worker = NodeTaskWorker(
+        client=client,  # type: ignore[arg-type]
+        runner=FailingRunner(),  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(RuntimeError, match="boom"):
+        await worker.run_once()
+
+    assert "fail:assignment-1" in client.calls
+    assert "log:node_task_failed:assignment-1" in client.calls
+
+
 class FakeMultiTaskClient:
     """Fake client that returns several pending assignments in one poll."""
 

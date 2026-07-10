@@ -76,7 +76,23 @@ class NodeTaskWorker:
             return completed
         except Exception as exc:
             logger.exception("Node task execution failed: %s", assignment_id)
-            await self.client.fail(assignment_id, error=str(exc))
+
+            try:
+                await self.client.fail(assignment_id, error=str(exc))
+            except Exception:
+                # The failure report itself failed (e.g. network issue).
+                # Don't let this secondary error replace or swallow the
+                # original one -- log it distinctly and keep going, so
+                # the caller still sees the real cause. The assignment
+                # will sit in accepted/running state until server-side
+                # AWOL/timeout reconciliation reclaims it.
+                logger.exception(
+                    "Failed to report failure for node task assignment %s to "
+                    "the coordinator; it will remain in its current state "
+                    "until server-side AWOL/timeout reconciliation reclaims it.",
+                    assignment_id,
+                )
+
             await self._log_assignment_event(
                 assignment_id,
                 event_type="node_task_failed",

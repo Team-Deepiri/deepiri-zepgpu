@@ -47,28 +47,22 @@ async def emit_remote_task_update(
     task: Task,
     assignment: NodeTaskAssignment,
 ) -> None:
-    """Broadcast a remote task update over the existing WebSocket manager."""
+    """Broadcast a remote task update over the existing WebSocket manager.
+
+    Talks to the manager's actual, concrete interface directly instead of
+    runtime-probing with hasattr() for method names: `send_personal_message`
+    when the task has an owning user, `broadcast` otherwise. The previous
+    version also probed for `broadcast_to_user`, but ConnectionManager has
+    never had that method -- that branch was dead code masking the fact
+    that the fallback chain didn't match the real manager's interface.
+    """
     payload = build_remote_task_update_payload(task=task, assignment=assignment)
     user_id = str(task.user_id) if task.user_id else None
-
     try:
-        if user_id and hasattr(manager, "send_personal_message"):
+        if user_id:
             await manager.send_personal_message(payload, user_id)
-            return
-
-        if user_id and hasattr(manager, "broadcast_to_user"):
-            await manager.broadcast_to_user(user_id, payload)
-            return
-
-        if hasattr(manager, "broadcast"):
+        else:
             await manager.broadcast(payload)
-            return
-
-        if hasattr(manager, "broadcast_all"):
-            await manager.broadcast_all(payload)
-            return
-
-        logger.warning("No compatible WebSocket broadcast method available")
     except Exception:
         logger.exception("Failed to emit remote task WebSocket update: %s", task.id)
 
@@ -81,9 +75,7 @@ async def send_remote_task_callback(
     """Send task callback webhook when a remote task reaches a terminal state."""
     if not task.callback_url:
         return
-
     payload = build_remote_task_update_payload(task=task, assignment=assignment)
-
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(str(task.callback_url), json=payload)
@@ -100,6 +92,5 @@ async def notify_remote_task_terminal_state(
     """Send callback and WebSocket notification for completed/failed remote tasks."""
     if task is None:
         return
-
     await emit_remote_task_update(task=task, assignment=assignment)
     await send_remote_task_callback(task=task, assignment=assignment)

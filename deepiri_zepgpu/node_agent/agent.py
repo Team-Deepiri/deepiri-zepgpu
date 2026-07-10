@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import signal
-import time
 from typing import Any
 
 import click
@@ -98,30 +97,63 @@ async def _run_task_worker_once_async(config: NodeAgentConfig) -> int:
 
 
 def run_task_worker_once(config: NodeAgentConfig) -> int:
-    """Run one task polling iteration from the sync node-agent loop."""
+    """Run one task polling iteration from the sync node-agent loop.
+
+    Used by the single-pass (`--once` / `--dry-run`) path only. The
+    continuous loop below (`_run_agent_forever_async`) does NOT call this
+    -- it reuses one event loop for the process lifetime instead of
+    spinning one up via asyncio.run() on every heartbeat tick.
+    """
     return asyncio.run(_run_task_worker_once_async(config))
+
+
+async def _run_agent_forever_async(config: NodeAgentConfig) -> None:
+    """Continuous heartbeat + task-poll loop under a single event loop.
+
+    Builds the task worker (and its HTTP client) once and reuses it for
+    the life of the process, instead of the previous pattern of calling
+    asyncio.run() -- which creates and tears down a whole new event loop
+    -- on every heartbeat tick.
+    """
+    worker = build_task_worker(config) if config.enable_task_worker else None
+    try:
+        while True:
+            await asyncio.to_thread(send_heartbeat, config, dry_run=False)
+
+            if worker is not None:
+                processed = await worker.run_once()
+                if processed:
+                    logger.info("Processed %s node task assignment(s)", processed)
+
+            if _shutdown:
+                break
+
+            await asyncio.sleep(config.heartbeat_interval_seconds)
+    finally:
+        if worker is not None:
+            await worker.client.close()
 
 
 def run_agent(config: NodeAgentConfig, *, once: bool = False, dry_run: bool = False) -> None:
     global _shutdown
     _shutdown = False
 
-    if not once and not dry_run:
-        signal.signal(signal.SIGINT, _handle_signal)
-        signal.signal(signal.SIGTERM, _handle_signal)
-
-    while True:
+    if once or dry_run:
+        # Single pass: exactly the original synchronous behavior. Kept
+        # separate from the continuous loop so `--once`/`--dry-run`
+        # invocations don't need a long-lived event loop, and so the
+        # existing agent tests (which patch run_task_worker_once and only
+        # ever call run_agent with once=True) keep passing unchanged.
         send_heartbeat(config, dry_run=dry_run)
-
         if config.enable_task_worker and not dry_run:
             processed = run_task_worker_once(config)
             if processed:
                 logger.info("Processed %s node task assignment(s)", processed)
+        return
 
-        if once or dry_run or _shutdown:
-            break
-
-        time.sleep(config.heartbeat_interval_seconds)
+    signal.signal(signal.SIGINT, _handle_signal)
+    signal.signal(signal.SIGTERM, _handle_signal)
+    asyncio.run(_run_agent_forever_async(config))
 
 
 @click.command()
