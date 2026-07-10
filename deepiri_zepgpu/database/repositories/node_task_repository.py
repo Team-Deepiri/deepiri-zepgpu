@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime
@@ -17,6 +18,8 @@ from deepiri_zepgpu.database.models.node_task_assignment import (
 )
 from deepiri_zepgpu.database.models.task import Task, TaskStatus
 from deepiri_zepgpu.database.models.vpn_models import GpuShare, GpuShareState
+
+logger = logging.getLogger(__name__)
 
 
 class NodeTaskRepository:
@@ -237,6 +240,12 @@ class NodeTaskRepository:
 
         gpu_share = await self.session.get(GpuShare, assignment.gpu_share_id)
         if not gpu_share:
+            logger.debug(
+                "GPU share %s not found for release (assignment %s); it may "
+                "already have been deactivated or deleted.",
+                assignment.gpu_share_id,
+                assignment.id,
+            )
             return
 
         gpu_share.state = GpuShareState.IDLE
