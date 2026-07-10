@@ -22,11 +22,13 @@ class NodeTaskWorker:
         runner: NodeTaskRunner | None = None,
         poll_interval_seconds: float = 5.0,
         poll_limit: int = 1,
+        max_failure_backoff_seconds: float = 60.0,
     ) -> None:
         self.client = client
         self.runner = runner or NodeTaskRunner()
         self.poll_interval_seconds = poll_interval_seconds
         self.poll_limit = poll_limit
+        self.max_failure_backoff_seconds = max_failure_backoff_seconds
         self._running = False
 
     async def run_once(self) -> int:
@@ -122,14 +124,27 @@ class NodeTaskWorker:
     async def run_forever(self) -> None:
         """Continuously poll for assignments until stopped."""
         self._running = True
+        consecutive_failures = 0
 
         while self._running:
             try:
                 await self.run_once()
+                consecutive_failures = 0
+                sleep_seconds = self.poll_interval_seconds
             except Exception:
-                logger.exception("Node task worker iteration failed")
+                consecutive_failures += 1
+                sleep_seconds = min(
+                    self.poll_interval_seconds * (2 ** min(consecutive_failures - 1, 6)),
+                    self.max_failure_backoff_seconds,
+                )
+                logger.exception(
+                    "Node task worker iteration failed; consecutive_failures=%s, "
+                    "retrying in %.2f seconds",
+                    consecutive_failures,
+                    sleep_seconds,
+                )
 
-            await asyncio.sleep(self.poll_interval_seconds)
+            await asyncio.sleep(sleep_seconds)
 
     def stop(self) -> None:
         self._running = False
