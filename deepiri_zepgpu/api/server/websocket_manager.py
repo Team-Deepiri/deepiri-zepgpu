@@ -90,6 +90,12 @@ class ConnectionManager:
         }
         await self.broadcast(message)
 
+    async def broadcast_all(self, message: dict[str, Any]) -> None:
+        """Broadcast a message to all connected WebSocket clients."""
+        for sockets in list(self._connections.values()):
+            for websocket in list(sockets):
+                await websocket.send_json(message)
+
     def get_connection_count(self) -> int:
         """Get total number of active connections."""
         return sum(len(conns) for conns in self._connections.values())

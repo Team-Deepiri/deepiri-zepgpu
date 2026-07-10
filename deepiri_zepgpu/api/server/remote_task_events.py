@@ -47,12 +47,7 @@ async def emit_remote_task_update(
     task: Task,
     assignment: NodeTaskAssignment,
 ) -> None:
-    """Broadcast a remote task update over the existing WebSocket manager.
-
-    The current manager implementation is intentionally reused instead of adding
-    another connection registry. This helper supports common manager method names
-    and falls back to the manager's connection map for MVP compatibility.
-    """
+    """Broadcast a remote task update over the existing WebSocket manager."""
     payload = build_remote_task_update_payload(task=task, assignment=assignment)
     user_id = str(task.user_id) if task.user_id else None
 
@@ -69,10 +64,11 @@ async def emit_remote_task_update(
             await manager.broadcast(payload)
             return
 
-        connections = getattr(manager, "_connections", {})
-        for sockets in connections.values():
-            for websocket in list(sockets):
-                await websocket.send_json(payload)
+        if hasattr(manager, "broadcast_all"):
+            await manager.broadcast_all(payload)
+            return
+
+        logger.warning("No compatible WebSocket broadcast method available")
     except Exception:
         logger.exception("Failed to emit remote task WebSocket update: %s", task.id)
 

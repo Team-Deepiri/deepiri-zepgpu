@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import TracebackType
 from typing import Any
 
 import httpx
@@ -24,6 +25,22 @@ class NodeTaskClient:
         self.peer_id = peer_id
         self.token = token
         self.timeout_seconds = timeout_seconds
+        self._client = httpx.AsyncClient(timeout=self.timeout_seconds)
+
+    async def __aenter__(self) -> NodeTaskClient:
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        await self.close()
+
+    async def close(self) -> None:
+        """Close the underlying HTTP client."""
+        await self._client.aclose()
 
     def _headers(self) -> dict[str, str]:
         if not self.token:
@@ -31,15 +48,14 @@ class NodeTaskClient:
         return {"Authorization": f"Bearer {self.token}"}
 
     async def poll_pending(self, *, limit: int = 1) -> list[dict[str, Any]]:
-        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
-            response = await client.get(
-                f"{self.base_url}/api/v1/node-tasks/rooms/"
-                f"{self.room_id}/nodes/{self.peer_id}/tasks/pending",
-                params={"limit": limit},
-                headers=self._headers(),
-            )
-            response.raise_for_status()
-            return list(response.json())
+        response = await self._client.get(
+            f"{self.base_url}/api/v1/node-tasks/rooms/"
+            f"{self.room_id}/nodes/{self.peer_id}/tasks/pending",
+            params={"limit": limit},
+            headers=self._headers(),
+        )
+        response.raise_for_status()
+        return list(response.json())
 
     async def accept(self, assignment_id: str) -> dict[str, Any]:
         return await self._post_lifecycle(assignment_id, "accept", {})
@@ -74,19 +90,18 @@ class NodeTaskClient:
         message: str | None = None,
         payload: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
-            response = await client.post(
-                f"{self.base_url}/api/v1/node-tasks/{assignment_id}/logs",
-                params={"peer_id": self.peer_id},
-                json={
-                    "event_type": event_type,
-                    "message": message,
-                    "payload": payload or {},
-                },
-                headers=self._headers(),
-            )
-            response.raise_for_status()
-            return dict(response.json())
+        response = await self._client.post(
+            f"{self.base_url}/api/v1/node-tasks/{assignment_id}/logs",
+            params={"peer_id": self.peer_id},
+            json={
+                "event_type": event_type,
+                "message": message,
+                "payload": payload or {},
+            },
+            headers=self._headers(),
+        )
+        response.raise_for_status()
+        return dict(response.json())
 
     async def _post_lifecycle(
         self,
@@ -94,12 +109,11 @@ class NodeTaskClient:
         action: str,
         payload: dict[str, Any],
     ) -> dict[str, Any]:
-        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
-            response = await client.post(
-                f"{self.base_url}/api/v1/node-tasks/{assignment_id}/{action}",
-                params={"peer_id": self.peer_id},
-                json=payload,
-                headers=self._headers(),
-            )
-            response.raise_for_status()
-            return dict(response.json())
+        response = await self._client.post(
+            f"{self.base_url}/api/v1/node-tasks/{assignment_id}/{action}",
+            params={"peer_id": self.peer_id},
+            json=payload,
+            headers=self._headers(),
+        )
+        response.raise_for_status()
+        return dict(response.json())

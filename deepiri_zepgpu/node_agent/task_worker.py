@@ -21,18 +21,20 @@ class NodeTaskWorker:
         client: NodeTaskClient,
         runner: NodeTaskRunner | None = None,
         poll_interval_seconds: float = 5.0,
+        poll_limit: int = 1,
     ) -> None:
         self.client = client
         self.runner = runner or NodeTaskRunner()
         self.poll_interval_seconds = poll_interval_seconds
+        self.poll_limit = poll_limit
         self._running = False
 
     async def run_once(self) -> int:
-        """Poll once and process available assignments.
+        """Poll once and process all available assignments.
 
         Returns the number of assignments processed.
         """
-        assignments = await self.client.poll_pending(limit=1)
+        assignments = await self.client.poll_pending(limit=self.poll_limit)
         processed = 0
 
         for assignment in assignments:

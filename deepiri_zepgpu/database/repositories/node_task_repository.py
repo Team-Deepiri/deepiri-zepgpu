@@ -230,6 +230,18 @@ class NodeTaskRepository:
         await self.session.flush()
         return assignment
 
+    async def _release_gpu_share(self, assignment: NodeTaskAssignment) -> None:
+        """Release the GPU share associated with a completed or failed assignment."""
+        if not assignment.gpu_share_id:
+            return
+
+        gpu_share = await self.session.get(GpuShare, assignment.gpu_share_id)
+        if not gpu_share:
+            return
+
+        gpu_share.state = GpuShareState.IDLE
+        gpu_share.current_task_id = None
+
     async def mark_completed(
         self,
         *,
@@ -269,11 +281,7 @@ class NodeTaskRepository:
             if isinstance(result_size_bytes, int):
                 task.result_size_bytes = result_size_bytes
 
-        if assignment.gpu_share_id:
-            gpu_share = await self.session.get(GpuShare, assignment.gpu_share_id)
-            if gpu_share:
-                gpu_share.state = GpuShareState.IDLE
-                gpu_share.current_task_id = None
+        await self._release_gpu_share(assignment)
 
         await self.record_event(
             assignment.id,
@@ -314,11 +322,7 @@ class NodeTaskRepository:
             task.error = error
             task.completed_at = now
 
-        if assignment.gpu_share_id:
-            gpu_share = await self.session.get(GpuShare, assignment.gpu_share_id)
-            if gpu_share:
-                gpu_share.state = GpuShareState.IDLE
-                gpu_share.current_task_id = None
+        await self._release_gpu_share(assignment)
 
         await self.record_event(
             assignment.id,

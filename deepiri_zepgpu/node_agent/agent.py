@@ -80,10 +80,18 @@ def build_task_worker(config: NodeAgentConfig) -> NodeTaskWorker:
     )
 
 
+async def _run_task_worker_once_async(config: NodeAgentConfig) -> int:
+    """Run one async task polling iteration and close the HTTP client."""
+    worker = build_task_worker(config)
+    try:
+        return await worker.run_once()
+    finally:
+        await worker.client.close()
+
+
 def run_task_worker_once(config: NodeAgentConfig) -> int:
     """Run one task polling iteration from the sync node-agent loop."""
-    worker = build_task_worker(config)
-    return asyncio.run(worker.run_once())
+    return asyncio.run(_run_task_worker_once_async(config))
 
 
 def run_agent(config: NodeAgentConfig, *, once: bool = False, dry_run: bool = False) -> None:
