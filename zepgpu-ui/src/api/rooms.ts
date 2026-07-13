@@ -14,6 +14,8 @@ import type {
   RoomConnectionConfig,
   RoomNode,
   RoomNodeGpu,
+  RoomDispatchRequest,
+  Task,
 } from '@/types'
 
 export const roomsApi = {
@@ -82,6 +84,11 @@ export const roomsApi = {
 
   getRoomConfig: async (roomId: string): Promise<RoomConnectionConfig> => {
     const { data } = await api.get<RoomConnectionConfig>(`/rooms/${roomId}/config`)
+    return data
+  },
+
+  dispatchTask: async (req: RoomDispatchRequest): Promise<Task> => {
+    const { data } = await api.post<Task>('/tasks', req)
     return data
   },
 }
