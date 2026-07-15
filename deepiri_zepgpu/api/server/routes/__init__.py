@@ -8,6 +8,7 @@ from deepiri_zepgpu.api.server.routes import (
     gpu,
     health,
     namespaces,
+    node_tasks,
     pipelines,
     rooms,
     schedules,
@@ -32,5 +33,6 @@ api_router.include_router(gpu.router, prefix="/gpu", tags=["GPU"])
 api_router.include_router(websocket.router, prefix="/ws", tags=["WebSocket"])
 api_router.include_router(rooms.router, tags=["GPU Rooms"])
 api_router.include_router(vpn.router, tags=["VPN"])
+api_router.include_router(node_tasks.router, tags=["Node Tasks"])
 
 __all__ = ["api_router"]

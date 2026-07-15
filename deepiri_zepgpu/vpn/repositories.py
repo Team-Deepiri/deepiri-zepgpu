@@ -187,6 +187,20 @@ class PeerRepository:
         peer.auth_token_encrypted = encrypt_value(token)
         await self.db.commit()
 
+    async def get_or_create_auth_token(self, peer: Peer) -> str:
+        """Return the peer's node-task auth token, generating one if missing.
+
+        Covers both freshly created peers (join/create flows) and peers
+        that existed before per-peer node-task auth was added, so any
+        call to fetch a peer's config transparently provisions a token.
+        """
+        existing = await self.get_auth_token(peer)
+        if existing:
+            return existing
+        token = secrets.token_urlsafe(32)
+        await self.set_auth_token(peer, token)
+        return token
+
     async def get_private_key(self, peer: Peer) -> str | None:
         if peer.wireguard_private_key_encrypted:
             return decrypt_value(peer.wireguard_private_key_encrypted)

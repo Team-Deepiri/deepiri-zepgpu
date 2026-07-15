@@ -21,6 +21,8 @@ def test_loads_json_config(tmp_path: Path) -> None:
                 "peer_id": "33333333-3333-4333-8333-333333333333",
                 "auth_token": "secret-token",
                 "heartbeat_interval_seconds": 15,
+                "task_poll_interval_seconds": 7,
+                "enable_task_worker": True,
             }
         ),
         encoding="utf-8",
@@ -29,6 +31,8 @@ def test_loads_json_config(tmp_path: Path) -> None:
     config = build_config(config_path=config_file)
     assert config.api_base_url == "http://localhost:8000"
     assert config.heartbeat_interval_seconds == 15
+    assert config.task_poll_interval_seconds == 7
+    assert config.enable_task_worker is True
 
 
 def test_env_overrides(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -45,10 +49,14 @@ def test_env_overrides(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         encoding="utf-8",
     )
     monkeypatch.setenv("NODE_AGENT_HEARTBEAT_INTERVAL_SECONDS", "20")
+    monkeypatch.setenv("NODE_AGENT_TASK_POLL_INTERVAL_SECONDS", "3")
+    monkeypatch.setenv("NODE_AGENT_ENABLE_TASK_WORKER", "true")
     monkeypatch.setenv("NODE_AGENT_SIMULATION_MODE", "true")
 
     config = build_config(config_path=config_file)
     assert config.heartbeat_interval_seconds == 20
+    assert config.task_poll_interval_seconds == 3
+    assert config.enable_task_worker is True
     assert config.simulation_mode is True
 
 
