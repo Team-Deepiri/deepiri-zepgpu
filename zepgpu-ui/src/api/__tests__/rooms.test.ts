@@ -105,4 +105,16 @@ describe('roomsApi (MSW)', () => {
     const created = await roomsApi.createRoom({ name: 'To Delete', description: null })
     await expect(roomsApi.deleteRoom(created.id)).resolves.toBeUndefined()
   })
+
+  it('dispatchTask posts room dispatch request', async () => {
+    const task = await roomsApi.dispatchTask({
+      room_id: fixtureRoom.id,
+      dispatch_mode: 'room_auto',
+      func_name: 'random.seed',
+      gpu_memory_mb: 1024,
+    })
+    expect(task.room_id).toBe(fixtureRoom.id)
+    expect(task.dispatch_mode).toBe('room_auto')
+    expect(task.assignment?.room_id).toBe(fixtureRoom.id)
+  })
 })

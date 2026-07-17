@@ -18,9 +18,52 @@ export interface Task {
   tags: string[]
   metadata: Record<string, unknown>
   result_url: string | null
+  room_id?: string | null
+  dispatch_mode?: DispatchMode
+  target_peer_id?: string | null
+  target_gpu_share_id?: string | null
+  assignment?: RoomTaskAssignment | null
 }
 
-export type TaskStatus = 'pending' | 'queued' | 'scheduled' | 'running' | 'completed' | 'failed' | 'cancelled' | 'timeout'
+export type TaskStatus =
+  | 'pending'
+  | 'queued'
+  | 'scheduled'
+  | 'assigned'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+  | 'timeout'
+
+export type DispatchMode = 'local' | 'room_auto' | 'room_specific_node'
+
+export type NodeAssignmentStatus =
+  | 'assigned'
+  | 'accepted'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+
+export interface RoomTaskAssignment {
+  assignment_id: string
+  room_id: string
+  peer_id: string
+  gpu_share_id: string
+  status: NodeAssignmentStatus
+}
+
+export interface NodeTaskResult {
+  assignment_id: string
+  task_id: string
+  status: TaskStatus
+  assignment_status: NodeAssignmentStatus
+  result_metadata: Record<string, unknown>
+  result_ref: string | null
+  result_size_bytes: number | null
+  error: string | null
+}
 
 export interface TaskCreateRequest {
   name?: string
@@ -39,6 +82,22 @@ export interface TaskCreateRequest {
   callback_url?: string
   namespace_id?: string
   service_name?: string
+  room_id?: string
+  dispatch_mode?: DispatchMode
+  target_peer_id?: string
+  target_gpu_share_id?: string
+}
+
+export interface RoomDispatchRequest {
+  func_name: string
+  room_id: string
+  dispatch_mode: 'room_auto' | 'room_specific_node'
+  target_peer_id?: string
+  target_gpu_share_id?: string
+  name?: string
+  gpu_memory_mb?: number
+  priority?: number
+  timeout_seconds?: number
 }
 
 export interface TaskListResponse {
@@ -630,7 +689,9 @@ export interface RoomNode {
   last_seen: string
   gpu_count: number
   available_gpu_count: number
+  /** Sum of total_memory_mb across active GPU shares on this node. */
   total_memory_mb: number
+  /** Sum of available_memory_mb across active GPU shares on this node (not single-GPU capacity). */
   available_memory_mb: number
 }
 
@@ -641,6 +702,7 @@ export interface RoomNodeGpu {
   device_index: number
   name: string | null
   total_memory_mb: number
+  /** Available memory on this single GPU share — used for per-task dispatch eligibility. */
   available_memory_mb: number
   compute_capability: string | null
   gpu_type: string

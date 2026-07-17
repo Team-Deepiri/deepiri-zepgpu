@@ -80,6 +80,13 @@ export const roomHandlers = [
     return HttpResponse.json(node)
   }),
 
+  http.get('/api/v1/rooms/:roomId/gpus', ({ params }) => {
+    if (params.roomId !== fixtureRoom.id) {
+      return HttpResponse.json({ detail: 'Room not found' }, { status: 404 })
+    }
+    return HttpResponse.json([fixtureRoomNodeGpu])
+  }),
+
   http.get('/api/v1/rooms/:roomId/nodes/:peerId/gpus', ({ params }) => {
     if (params.roomId !== fixtureRoom.id) {
       return HttpResponse.json({ detail: 'Room not found' }, { status: 404 })

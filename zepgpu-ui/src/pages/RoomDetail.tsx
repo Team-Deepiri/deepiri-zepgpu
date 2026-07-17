@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { format } from 'date-fns'
@@ -9,6 +10,8 @@ import InvitePanel from '@/components/rooms/InvitePanel'
 import RoomConfigPanel from '@/components/rooms/RoomConfigPanel'
 import RoomGpuPoolSummary from '@/components/rooms/RoomGpuPoolSummary'
 import RoomNodeList from '@/components/rooms/RoomNodeList'
+import RoomDispatchPanel from '@/components/rooms/RoomDispatchPanel'
+import RoomActivityLog from '@/components/rooms/RoomActivityLog'
 import type { RoomMember, RoomMemberStatus } from '@/types'
 
 function getErrorStatus(err: unknown): number | null {
@@ -55,6 +58,7 @@ function MemberRow({ member }: { member: RoomMember }) {
 
 export default function RoomDetail() {
   const { roomId } = useParams<{ roomId: string }>()
+  const [dispatchedTaskIds, setDispatchedTaskIds] = useState<string[]>([])
 
   const roomQuery = useQuery({
     queryKey: ['room', roomId],
@@ -69,6 +73,10 @@ export default function RoomDetail() {
     enabled: !!roomId && roomQuery.isSuccess,
     refetchInterval: 10000,
   })
+
+  const handleTaskDispatched = (taskId: string) => {
+    setDispatchedTaskIds((prev) => (prev.includes(taskId) ? prev : [taskId, ...prev]))
+  }
 
   if (!roomId) {
     return (
@@ -162,6 +170,11 @@ export default function RoomDetail() {
             </p>
           </div>
         </div>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <RoomDispatchPanel roomId={roomId} onTaskDispatched={handleTaskDispatched} />
+        <RoomActivityLog taskIds={dispatchedTaskIds} />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">

@@ -351,6 +351,23 @@ async def list_room_node_gpus(
     return [gpu_share_to_room_node_gpu_response(share) for share in room_shares]
 
 
+@router.get("/{room_id}/gpus", response_model=list[RoomNodeGpuResponse])
+async def list_room_gpus(
+    room_id: str,
+    user: User = Depends(get_required_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> list[RoomNodeGpuResponse]:
+    """List every GPU share in a room in a single request."""
+
+    network_repo = VpnNetworkRepository(db)
+    await _ensure_room_member(network_repo, str(user.id), room_id)
+
+    gpu_repo = GpuShareRepository(db)
+    shares = await gpu_repo.list_by_network(room_id)
+
+    return [gpu_share_to_room_node_gpu_response(share) for share in shares]
+
+
 @router.get("/{room_id}/gpu-pool", response_model=RoomGpuPoolSummary)
 async def get_room_gpu_pool(
     room_id: str,
