@@ -6,15 +6,16 @@ import RoomNodeCard from '@/components/rooms/RoomNodeCard'
 
 interface RoomNodeListProps {
   roomId: string
+  enablePolling?: boolean
 }
 
-export default function RoomNodeList({ roomId }: RoomNodeListProps) {
+export default function RoomNodeList({ roomId, enablePolling = true }: RoomNodeListProps) {
   const queryClient = useQueryClient()
 
   const nodesQuery = useQuery({
     queryKey: ['room-nodes', roomId],
     queryFn: () => roomsApi.getRoomNodes(roomId),
-    refetchInterval: 10000,
+    refetchInterval: enablePolling ? 10000 : false,
   })
 
   const onlineNodeCount = (nodesQuery.data ?? []).filter((n) => n.is_online).length
@@ -60,7 +61,12 @@ export default function RoomNodeList({ roomId }: RoomNodeListProps) {
       ) : (
         <ul className="space-y-3 max-h-[32rem] overflow-y-auto">
           {(nodesQuery.data ?? []).map((node) => (
-            <RoomNodeCard key={node.id} roomId={roomId} node={node} />
+            <RoomNodeCard
+              key={node.id}
+              roomId={roomId}
+              node={node}
+              enablePolling={enablePolling}
+            />
           ))}
         </ul>
       )}

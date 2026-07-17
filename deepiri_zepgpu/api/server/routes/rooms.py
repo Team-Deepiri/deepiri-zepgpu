@@ -11,8 +11,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from deepiri_zepgpu.api.server.dependencies import get_db_session, get_required_user
+from deepiri_zepgpu.api.server.room_events import emit_room_event
 from deepiri_zepgpu.database.models import User
-from deepiri_zepgpu.database.models.vpn_models import Peer, VpnInvite, VpnNetwork
+from deepiri_zepgpu.database.models.vpn_models import Peer, PeerOnlineStatus, VpnInvite, VpnNetwork
 from deepiri_zepgpu.rooms.mappers import (
     gpu_share_to_room_node_gpu_response,
     gpu_shares_to_room_pool_summary,
@@ -300,6 +301,8 @@ async def room_node_heartbeat(
     if str(peer.user_id) != str(user.id):
         raise HTTPException(status_code=403, detail="You cannot update this node")
 
+    was_online = peer.online_status == PeerOnlineStatus.ONLINE
+
     updated_peer = await peer_repo.heartbeat(
         peer_id=peer_id,
         is_online=data.is_online,
@@ -322,7 +325,29 @@ async def room_node_heartbeat(
         raise HTTPException(status_code=404, detail="Node not found")
 
     shares = await gpu_repo.list_by_peer(peer_id)
-    peer._room_gpu_shares = shares  # type: ignore[attr-defined]
+    room_shares = [share for share in shares if str(share.vpn_network_id) == str(room_id)]
+    refreshed_peer._room_gpu_shares = room_shares  # type: ignore[attr-defined]
+
+    node_payload = peer_to_room_node_response(refreshed_peer).model_dump(mode="json")
+    if data.is_online and not was_online:
+        await emit_room_event(room_id, "room_node_online", node_payload)
+    elif not data.is_online and was_online:
+        await emit_room_event(room_id, "room_node_offline", node_payload)
+    elif data.is_online:
+        await emit_room_event(room_id, "room_node_online", node_payload)
+
+    if data.gpu_status:
+        await emit_room_event(
+            room_id,
+            "room_gpu_update",
+            {
+                "peer_id": peer_id,
+                "gpus": [
+                    gpu_share_to_room_node_gpu_response(share).model_dump(mode="json")
+                    for share in room_shares
+                ],
+            },
+        )
 
     return peer_to_room_node_response(refreshed_peer)
 
@@ -520,9 +545,16 @@ async def join_room(
 
     await invite_repo.use(invite)
 
+    member = peer_to_room_member_response(peer)
+    await emit_room_event(
+        str(room.id),
+        "room_member_joined",
+        member.model_dump(mode="json"),
+    )
+
     return RoomJoinResponse(
         room=vpn_network_to_room_response(room),
-        member=peer_to_room_member_response(peer),
+        member=member,
         config_available=True,
     )
 

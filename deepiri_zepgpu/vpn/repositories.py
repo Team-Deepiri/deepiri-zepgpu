@@ -153,7 +153,7 @@ class PeerRepository:
             await self.db.refresh(peer)
         return peer
 
-    async def mark_awol_peers(self, timeout_seconds: int = 90) -> int:
+    async def mark_awol_peers(self, timeout_seconds: int = 90) -> list[Peer]:
         threshold = datetime.now(UTC) - timedelta(seconds=timeout_seconds)
         result = await self.db.execute(
             select(Peer).where(
@@ -167,7 +167,7 @@ class PeerRepository:
         for peer in peers:
             peer.online_status = PeerOnlineStatus.AWOL
         await self.db.commit()
-        return len(peers)
+        return peers
 
     async def delete(self, peer_id: str) -> bool:
         result = await self.db.execute(select(Peer).where(Peer.id == peer_id))

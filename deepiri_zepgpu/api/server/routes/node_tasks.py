@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from deepiri_zepgpu.api.server.dependencies import get_db_session, get_required_user
 from deepiri_zepgpu.api.server.remote_task_events import notify_remote_task_terminal_state
+from deepiri_zepgpu.api.server.room_events import assignment_payload, emit_room_event
 from deepiri_zepgpu.database.models import User
 from deepiri_zepgpu.database.models.node_task_assignment import NodeTaskAssignment
 from deepiri_zepgpu.database.models.task import Task
@@ -174,6 +175,28 @@ async def _notify_if_task_exists(
     await notify_remote_task_terminal_state(task=task, assignment=assignment)
 
 
+async def _emit_room_task_event(
+    *,
+    event_type: str,
+    task: Task | None,
+    assignment: NodeTaskAssignment,
+) -> None:
+    status = _task_status(task) if task is not None else "assigned"
+    await emit_room_event(
+        str(assignment.vpn_network_id),
+        event_type,
+        assignment_payload(
+            task_id=str(assignment.task_id),
+            assignment_id=str(assignment.id),
+            peer_id=str(assignment.peer_id) if assignment.peer_id else None,
+            gpu_share_id=str(assignment.gpu_share_id) if assignment.gpu_share_id else None,
+            status=status,
+            assignment_status=assignment.status.value,
+            error=assignment.error or (task.error if task is not None else None),
+        ),
+    )
+
+
 @router.get(
     "/rooms/{room_id}/nodes/{peer_id}/tasks/pending",
     response_model=list[NodeTaskResponse],
@@ -246,6 +269,11 @@ async def accept_node_task(
         raise HTTPException(status_code=404, detail="Assignment not found")
     await db.commit()
     await db.refresh(assignment)
+    await _emit_room_task_event(
+        event_type="room_task_started",
+        task=await _task_for_assignment(db, assignment),
+        assignment=assignment,
+    )
     return _assignment_to_response(assignment)
 
 
@@ -261,6 +289,11 @@ async def start_node_task(
         raise HTTPException(status_code=404, detail="Assignment not found")
     await db.commit()
     await db.refresh(assignment)
+    await _emit_room_task_event(
+        event_type="room_task_started",
+        task=await _task_for_assignment(db, assignment),
+        assignment=assignment,
+    )
     return _assignment_to_response(assignment)
 
 
@@ -286,6 +319,11 @@ async def complete_node_task(
     await db.refresh(assignment)
 
     await _notify_if_task_exists(task=task, assignment=assignment)
+    await _emit_room_task_event(
+        event_type="room_task_completed",
+        task=task,
+        assignment=assignment,
+    )
     return _assignment_to_response(assignment)
 
 
@@ -311,6 +349,11 @@ async def fail_node_task(
     await db.refresh(assignment)
 
     await _notify_if_task_exists(task=task, assignment=assignment)
+    await _emit_room_task_event(
+        event_type="room_task_failed",
+        task=task,
+        assignment=assignment,
+    )
     return _assignment_to_response(assignment)
 
 
