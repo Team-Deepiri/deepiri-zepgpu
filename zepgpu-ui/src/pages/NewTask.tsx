@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
 import { tasksApi } from '@/api/client'
+import { DEFAULT_GPU_MEMORY_MB } from '@/constants/tasks'
 import toast from 'react-hot-toast'
 
 export default function NewTask() {
@@ -10,7 +11,7 @@ export default function NewTask() {
     name: '',
     func_name: '',
     priority: 2,
-    gpu_memory_mb: 1024,
+    gpu_memory_mb: DEFAULT_GPU_MEMORY_MB,
     timeout_seconds: 3600,
     gpu_type: '',
     allow_fallback_cpu: true,
