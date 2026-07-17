@@ -2,15 +2,9 @@ import { useParams, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { tasksApi } from '@/api/client'
 import { nodeTasksApi } from '@/api/nodeTasks'
+import { AssignmentStatusBadge, TaskStatusBadge } from '@/components/tasks/StatusBadges'
+import { isActiveStatus } from '@/utils/taskStatus'
 import { ArrowLeft, Clock, Cpu, AlertCircle, CheckCircle2, Home } from 'lucide-react'
-import clsx from 'clsx'
-import type { TaskStatus } from '@/types'
-
-const ACTIVE_STATUSES: TaskStatus[] = ['pending', 'queued', 'scheduled', 'assigned', 'running']
-
-function isActiveStatus(status: TaskStatus | undefined): boolean {
-  return !!status && ACTIVE_STATUSES.includes(status)
-}
 
 export default function TaskDetail() {
   const { id } = useParams<{ id: string }>()
@@ -73,19 +67,7 @@ export default function TaskDetail() {
           <h1 className="text-3xl font-bold text-white">{task.name || task.id}</h1>
           <p className="text-slate-400 mt-1">Task ID: {task.id}</p>
         </div>
-        <span
-          className={clsx(
-            'px-4 py-2 text-sm font-medium rounded-full',
-            task.status === 'completed' ? 'bg-green-500/20 text-green-400' :
-            task.status === 'failed' ? 'bg-red-500/20 text-red-400' :
-            task.status === 'running' ? 'bg-blue-500/20 text-blue-400' :
-            task.status === 'assigned' ? 'bg-violet-500/20 text-violet-300' :
-            task.status === 'pending' ? 'bg-yellow-500/20 text-yellow-400' :
-            'bg-slate-600/50 text-slate-300'
-          )}
-        >
-          {task.status}
-        </span>
+        <TaskStatusBadge status={task.status} size="lg" />
       </div>
 
       {isRoomDispatch && (
@@ -131,7 +113,7 @@ export default function TaskDetail() {
                 </div>
                 <div>
                   <p className="text-slate-400">Status</p>
-                  <p className="text-white">{task.assignment.status}</p>
+                  <AssignmentStatusBadge status={task.assignment.status} />
                 </div>
                 <div>
                   <p className="text-slate-400">Peer</p>
@@ -162,7 +144,7 @@ export default function TaskDetail() {
             <span className="text-slate-400">GPU Device</span>
           </div>
           <p className="text-2xl font-bold text-white">
-            {task.gpu_device_id !== null ? `GPU ${task.gpu_device_id}` : '-'}
+            {task.gpu_device_id != null ? `GPU ${task.gpu_device_id}` : '-'}
           </p>
         </div>
 

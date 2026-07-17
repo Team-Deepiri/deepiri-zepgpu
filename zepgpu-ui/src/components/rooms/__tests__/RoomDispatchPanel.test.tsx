@@ -70,4 +70,22 @@ describe('RoomDispatchPanel', () => {
     const dispatchButton = screen.getByRole('button', { name: /Dispatch to room/i })
     expect(dispatchButton).toBeDisabled()
   })
+
+  it('validates GPU memory against reported room capacity', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <RoomDispatchPanel roomId={fixtureRoom.id} onTaskDispatched={onTaskDispatched} />,
+    )
+
+    const gpuMemoryInput = screen.getByLabelText(/GPU memory/i)
+    expect(await screen.findByText(/Maximum currently available: 24,576 MB/i)).toBeInTheDocument()
+    expect(gpuMemoryInput).toHaveAttribute('max', '24576')
+
+    await user.clear(gpuMemoryInput)
+    await user.type(gpuMemoryInput, '25000')
+
+    expect(gpuMemoryInput).toHaveValue(25000)
+    expect(screen.getByText(/exceeds currently available GPU memory/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Dispatch to room/i })).toBeDisabled()
+  })
 })

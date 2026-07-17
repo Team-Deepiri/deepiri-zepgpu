@@ -57,7 +57,7 @@ export interface RoomTaskAssignment {
 export interface NodeTaskResult {
   assignment_id: string
   task_id: string
-  status: string
+  status: TaskStatus
   assignment_status: NodeAssignmentStatus
   result_metadata: Record<string, unknown>
   result_ref: string | null

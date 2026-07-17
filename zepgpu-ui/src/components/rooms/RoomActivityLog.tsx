@@ -1,26 +1,15 @@
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Activity, ExternalLink } from 'lucide-react'
-import clsx from 'clsx'
 import { tasksApi } from '@/api/client'
 import { nodeTasksApi } from '@/api/nodeTasks'
-import type { NodeTaskResult, Task, TaskStatus } from '@/types'
+import { AssignmentStatusBadge, TaskStatusBadge } from '@/components/tasks/StatusBadges'
+import { isTerminalTaskStatus, shouldPollTask } from '@/utils/taskStatus'
+import type { NodeTaskResult } from '@/types'
 
 interface RoomActivityLogProps {
   roomId: string
   taskIds: string[]
-}
-
-const TERMINAL_TASK_STATUSES: TaskStatus[] = ['completed', 'failed', 'cancelled', 'timeout']
-
-function isTerminalTaskStatus(status: TaskStatus): boolean {
-  return TERMINAL_TASK_STATUSES.includes(status)
-}
-
-function shouldPollTask(task: Task | undefined): boolean {
-  if (!task) return true
-  if (isTerminalTaskStatus(task.status)) return false
-  return true
 }
 
 export default function RoomActivityLog({ roomId, taskIds }: RoomActivityLogProps) {
@@ -102,7 +91,7 @@ function ActivityRow({ roomId, taskId }: { roomId: string; taskId: string }) {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <StatusBadge status={task.status} />
+          <TaskStatusBadge status={task.status} />
           <Link
             to={`/tasks/${task.id}`}
             className="inline-flex items-center gap-1 text-xs text-cyan-400 hover:text-cyan-300"
@@ -114,12 +103,10 @@ function ActivityRow({ roomId, taskId }: { roomId: string; taskId: string }) {
       </div>
 
       {task.assignment && (
-        <p className="text-xs text-slate-400">
+        <div className="flex items-center gap-2 text-xs text-slate-400">
           Assignment:{' '}
-          <span className={clsx('font-medium', assignmentStatusColor(task.assignment.status))}>
-            {task.assignment.status}
-          </span>
-        </p>
+          <AssignmentStatusBadge status={task.assignment.status} />
+        </div>
       )}
 
       {task.error && (
@@ -159,30 +146,4 @@ function RemoteResultSummary({ result }: { result: NodeTaskResult }) {
       {result.error && <p className="text-red-400">{result.error}</p>}
     </div>
   )
-}
-
-function StatusBadge({ status }: { status: TaskStatus }) {
-  return (
-    <span
-      className={clsx(
-        'text-xs px-2 py-0.5 rounded-full font-medium',
-        status === 'completed' && 'bg-green-500/20 text-green-400',
-        status === 'failed' && 'bg-red-500/20 text-red-400',
-        status === 'running' && 'bg-blue-500/20 text-blue-400',
-        status === 'assigned' && 'bg-violet-500/20 text-violet-300',
-        (status === 'pending' || status === 'queued' || status === 'scheduled') &&
-          'bg-yellow-500/20 text-yellow-400',
-        (status === 'cancelled' || status === 'timeout') && 'bg-slate-600/50 text-slate-300',
-      )}
-    >
-      {status}
-    </span>
-  )
-}
-
-function assignmentStatusColor(status: string): string {
-  if (status === 'completed') return 'text-green-400'
-  if (status === 'failed' || status === 'cancelled') return 'text-red-400'
-  if (status === 'running' || status === 'accepted') return 'text-blue-400'
-  return 'text-violet-300'
 }
