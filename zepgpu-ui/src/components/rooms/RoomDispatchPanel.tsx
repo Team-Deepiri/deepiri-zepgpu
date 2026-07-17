@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useEffect, useMemo, useState } from 'react'
+import { useMutation, useQueries, useQuery } from '@tanstack/react-query'
 import { Play, Send } from 'lucide-react'
 import toast from 'react-hot-toast'
 import clsx from 'clsx'
@@ -14,15 +14,24 @@ interface RoomDispatchPanelProps {
 
 type RoomDispatchMode = 'room_auto' | 'room_specific_node'
 
+const DEFAULT_GPU_MEMORY_MB = 1024
+
 function isDispatchableNode(node: RoomNode): boolean {
   return node.is_online && node.is_gpu_host && node.available_gpu_count > 0
+}
+
+function maxAvailableGpuMemory(gpus: RoomNodeGpu[]): number | undefined {
+  const capacities = gpus
+    .filter((gpu) => gpu.is_active && gpu.available_memory_mb > 0)
+    .map((gpu) => gpu.available_memory_mb)
+  return capacities.length > 0 ? Math.max(...capacities) : undefined
 }
 
 export default function RoomDispatchPanel({ roomId, onTaskDispatched }: RoomDispatchPanelProps) {
   const [dispatchMode, setDispatchMode] = useState<RoomDispatchMode>('room_auto')
   const [name, setName] = useState('')
-  const [funcName, setFuncName] = useState('random.seed')
-  const [gpuMemoryMb, setGpuMemoryMb] = useState(1024)
+  const [funcName, setFuncName] = useState('')
+  const [gpuMemoryMb, setGpuMemoryMb] = useState(DEFAULT_GPU_MEMORY_MB)
   const [targetPeerId, setTargetPeerId] = useState('')
   const [targetGpuShareId, setTargetGpuShareId] = useState('')
 
@@ -39,6 +48,15 @@ export default function RoomDispatchPanel({ roomId, onTaskDispatched }: RoomDisp
 
   const selectedNode = dispatchableNodes.find((node) => node.id === targetPeerId)
 
+  const autoGpuQueries = useQueries({
+    queries: dispatchableNodes.map((node) => ({
+      queryKey: ['room-node-gpus', roomId, node.id],
+      queryFn: () => roomsApi.getRoomNodeGpus(roomId, node.id),
+      enabled: dispatchMode === 'room_auto',
+      refetchInterval: 10000,
+    })),
+  })
+
   const gpusQuery = useQuery({
     queryKey: ['room-node-gpus', roomId, targetPeerId],
     queryFn: () => roomsApi.getRoomNodeGpus(roomId, targetPeerId),
@@ -51,21 +69,29 @@ export default function RoomDispatchPanel({ roomId, onTaskDispatched }: RoomDisp
     [gpusQuery.data],
   )
 
+  const autoAvailableGpus = useMemo(
+    () =>
+      autoGpuQueries
+        .flatMap((query) => query.data ?? [])
+        .filter((gpu) => gpu.is_active && gpu.available_memory_mb > 0),
+    [autoGpuQueries],
+  )
+
   const maxGpuMemoryMb = useMemo(() => {
     if (dispatchMode === 'room_specific_node') {
       const targetGpu = availableGpus.find((gpu) => gpu.id === targetGpuShareId)
       if (targetGpu) return targetGpu.available_memory_mb
-      if (availableGpus.length > 0) {
-        return Math.max(...availableGpus.map((gpu) => gpu.available_memory_mb))
-      }
-      return undefined
+      return maxAvailableGpuMemory(availableGpus)
     }
 
-    const nodeCapacities = dispatchableNodes
-      .map((node) => node.available_memory_mb)
-      .filter((memoryMb) => memoryMb > 0)
-    return nodeCapacities.length > 0 ? Math.max(...nodeCapacities) : undefined
-  }, [availableGpus, dispatchMode, dispatchableNodes, targetGpuShareId])
+    return maxAvailableGpuMemory(autoAvailableGpus)
+  }, [autoAvailableGpus, availableGpus, dispatchMode, targetGpuShareId])
+
+  useEffect(() => {
+    if (maxGpuMemoryMb != null && gpuMemoryMb > maxGpuMemoryMb) {
+      setGpuMemoryMb(maxGpuMemoryMb)
+    }
+  }, [gpuMemoryMb, maxGpuMemoryMb])
 
   const exceedsAvailableMemory =
     maxGpuMemoryMb != null && gpuMemoryMb > maxGpuMemoryMb
@@ -169,6 +195,7 @@ export default function RoomDispatchPanel({ roomId, onTaskDispatched }: RoomDisp
               id="dispatch-func"
               type="text"
               className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white font-mono"
+              placeholder="package.module.function"
               value={funcName}
               onChange={(e) => setFuncName(e.target.value)}
             />
@@ -188,7 +215,7 @@ export default function RoomDispatchPanel({ roomId, onTaskDispatched }: RoomDisp
             />
             {maxGpuMemoryMb != null && (
               <p className="text-xs text-slate-500 mt-1">
-                Maximum currently available: {maxGpuMemoryMb.toLocaleString()} MB
+                Max per GPU currently available: {maxGpuMemoryMb.toLocaleString()} MB
               </p>
             )}
             {exceedsAvailableMemory && (

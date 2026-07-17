@@ -3,17 +3,18 @@ import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import RoomDispatchPanel from '@/components/rooms/RoomDispatchPanel'
 import { renderWithProviders } from '@/test/test-utils'
-import { fixtureRoom, fixtureRoomNode } from '@/test/fixtures/rooms'
+import { fixtureRoom, fixtureRoomNode, fixtureRoomNodeGpu } from '@/test/fixtures/rooms'
 
-const { getRoomNodesMock, dispatchTaskMock } = vi.hoisted(() => ({
+const { getRoomNodesMock, getRoomNodeGpusMock, dispatchTaskMock } = vi.hoisted(() => ({
   getRoomNodesMock: vi.fn(),
+  getRoomNodeGpusMock: vi.fn(),
   dispatchTaskMock: vi.fn(),
 }))
 
 vi.mock('@/api/rooms', () => ({
   roomsApi: {
     getRoomNodes: getRoomNodesMock,
-    getRoomNodeGpus: vi.fn().mockResolvedValue([]),
+    getRoomNodeGpus: getRoomNodeGpusMock,
     dispatchTask: dispatchTaskMock,
   },
 }))
@@ -24,6 +25,7 @@ describe('RoomDispatchPanel', () => {
   beforeEach(() => {
     onTaskDispatched.mockClear()
     getRoomNodesMock.mockResolvedValue([fixtureRoomNode])
+    getRoomNodeGpusMock.mockResolvedValue([fixtureRoomNodeGpu])
     dispatchTaskMock.mockResolvedValue({
       id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
       status: 'assigned',
@@ -37,7 +39,11 @@ describe('RoomDispatchPanel', () => {
 
     expect(screen.getByRole('heading', { name: /Dispatch task/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Auto-select GPU/i })).toBeInTheDocument()
-    expect(screen.getByLabelText(/Function/i)).toHaveValue('random.seed')
+    expect(screen.getByLabelText(/Function/i)).toHaveValue('')
+    expect(screen.getByLabelText(/Function/i)).toHaveAttribute(
+      'placeholder',
+      'package.module.function',
+    )
   })
 
   it('dispatches room_auto task', async () => {
@@ -46,6 +52,7 @@ describe('RoomDispatchPanel', () => {
       <RoomDispatchPanel roomId={fixtureRoom.id} onTaskDispatched={onTaskDispatched} />,
     )
 
+    await user.type(screen.getByLabelText(/Function/i), 'random.seed')
     await user.click(screen.getByRole('button', { name: /Dispatch to room/i }))
 
     await waitFor(() => {
@@ -71,21 +78,23 @@ describe('RoomDispatchPanel', () => {
     expect(dispatchButton).toBeDisabled()
   })
 
-  it('validates GPU memory against reported room capacity', async () => {
+  it('validates GPU memory against single-GPU capacity, not node sums', async () => {
     const user = userEvent.setup()
     renderWithProviders(
       <RoomDispatchPanel roomId={fixtureRoom.id} onTaskDispatched={onTaskDispatched} />,
     )
 
-    const gpuMemoryInput = screen.getByLabelText(/GPU memory/i)
-    expect(await screen.findByText(/Maximum currently available: 24,576 MB/i)).toBeInTheDocument()
-    expect(gpuMemoryInput).toHaveAttribute('max', '24576')
+    // Node sum is 24576; single GPU fixture reports 18000.
+    expect(
+      await screen.findByText(/Max per GPU currently available: 18,000 MB/i),
+    ).toBeInTheDocument()
+    expect(screen.getByLabelText(/GPU memory/i)).toHaveAttribute('max', '18000')
 
-    await user.clear(gpuMemoryInput)
-    await user.type(gpuMemoryInput, '25000')
+    await user.clear(screen.getByLabelText(/GPU memory/i))
+    await user.type(screen.getByLabelText(/GPU memory/i), '19000')
 
-    expect(gpuMemoryInput).toHaveValue(25000)
-    expect(screen.getByText(/exceeds currently available GPU memory/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Dispatch to room/i })).toBeDisabled()
+    await waitFor(() => {
+      expect(screen.getByLabelText(/GPU memory/i)).toHaveValue(18000)
+    })
   })
 })

@@ -689,7 +689,9 @@ export interface RoomNode {
   last_seen: string
   gpu_count: number
   available_gpu_count: number
+  /** Sum of total_memory_mb across active GPU shares on this node. */
   total_memory_mb: number
+  /** Sum of available_memory_mb across active GPU shares on this node (not single-GPU capacity). */
   available_memory_mb: number
 }
 
@@ -700,6 +702,7 @@ export interface RoomNodeGpu {
   device_index: number
   name: string | null
   total_memory_mb: number
+  /** Available memory on this single GPU share — used for per-task dispatch eligibility. */
   available_memory_mb: number
   compute_capability: string | null
   gpu_type: string
