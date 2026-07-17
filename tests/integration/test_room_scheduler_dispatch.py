@@ -70,7 +70,10 @@ async def test_execute_task_skips_assigned_room_dispatch() -> None:
         status = type("S", (), {"value": "assigned"})()
 
     task = FakeTask()
-    if task.dispatch_mode in {"room_auto", "room_specific_node"} and task.status.value == "assigned":
+    if (
+        task.dispatch_mode in {"room_auto", "room_specific_node"}
+        and task.status.value == "assigned"
+    ):
         result = {
             "status": "deferred",
             "task_id": "task-1",

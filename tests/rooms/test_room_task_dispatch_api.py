@@ -46,7 +46,9 @@ async def test_create_task_room_auto_assigns_without_celery(monkeypatch) -> None
     room_id = uuid4()
     user = SimpleNamespace(id=str(uuid4()))
     enqueued: list[str] = []
-    monkeypatch.setattr(task_routes, "enqueue_task_to_celery", lambda task_id: enqueued.append(task_id))
+    monkeypatch.setattr(
+        task_routes, "enqueue_task_to_celery", lambda task_id: enqueued.append(task_id)
+    )
 
     assignment = task_routes.TaskAssignmentResponse(
         assignment_id=str(uuid4()),
@@ -56,7 +58,9 @@ async def test_create_task_room_auto_assigns_without_celery(monkeypatch) -> None
         status="assigned",
     )
     dispatch_result = SimpleNamespace(
-        assignment=SimpleNamespace(id=assignment.assignment_id, status=SimpleNamespace(value="assigned")),
+        assignment=SimpleNamespace(
+            id=assignment.assignment_id, status=SimpleNamespace(value="assigned")
+        ),
         peer_id=assignment.peer_id,
         gpu_share_id=assignment.gpu_share_id,
         vpn_network_id=str(room_id),

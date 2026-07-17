@@ -90,6 +90,16 @@ class ConnectionManager:
         }
         await self.broadcast(message)
 
+    async def broadcast_all(self, message: dict[str, Any]) -> None:
+        """Broadcast a message to every connected client.
+
+        Alias for broadcast(). Kept as an explicit public method so callers
+        that specifically probe for `broadcast_all` (e.g. remote_task_events'
+        fallback chain) have a stable name to depend on, without duplicating
+        the locking/error-handling logic that broadcast() already has.
+        """
+        await self.broadcast(message)
+
     def get_connection_count(self) -> int:
         """Get total number of active connections."""
         return sum(len(conns) for conns in self._connections.values())

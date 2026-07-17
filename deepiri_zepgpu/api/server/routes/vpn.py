@@ -198,6 +198,8 @@ async def get_wireguard_config(
     if not private_key:
         raise HTTPException(status_code=500, detail="Private key not found")
 
+    auth_token = await peer_repo.get_or_create_auth_token(peer)
+
     config_text = generate_peer_config(
         vpn_ip=peer.vpn_ip,
         private_key=private_key,
@@ -209,6 +211,7 @@ async def get_wireguard_config(
         config_text=config_text,
         vpn_ip=peer.vpn_ip,
         peer_id=str(peer.id),
+        auth_token=auth_token,
     )
 
 
@@ -396,6 +399,8 @@ async def join_network(
 
     await invite_repo.use(invite)
 
+    auth_token = await peer_repo.get_or_create_auth_token(peer)
+
     config_text = generate_peer_config(
         vpn_ip=vpn_ip,
         private_key=private_key,
@@ -407,6 +412,7 @@ async def join_network(
         config_text=config_text,
         vpn_ip=vpn_ip,
         peer_id=str(peer.id),
+        auth_token=auth_token,
     )
 
 

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -46,8 +45,10 @@ def make_peer(
     is_gpu_host: bool = True,
     awol: bool = False,
 ) -> SimpleNamespace:
-    status = PeerOnlineStatus.AWOL if awol else (
-        PeerOnlineStatus.ONLINE if online else PeerOnlineStatus.OFFLINE
+    status = (
+        PeerOnlineStatus.AWOL
+        if awol
+        else (PeerOnlineStatus.ONLINE if online else PeerOnlineStatus.OFFLINE)
     )
     return SimpleNamespace(
         id=peer_id or str(uuid4()),
@@ -72,7 +73,7 @@ def make_share(
     idle: bool = True,
     gpu_type: str = "nvidia",
 ) -> SimpleNamespace:
-    pid = peer_id or str(peer.id) if peer else str(uuid4())
+    pid = peer_id or (str(peer.id) if peer else str(uuid4()))
     rid = room_id or str(uuid4())
     return SimpleNamespace(
         id=share_id or str(uuid4()),

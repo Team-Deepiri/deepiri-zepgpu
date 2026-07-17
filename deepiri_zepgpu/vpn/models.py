@@ -18,13 +18,6 @@ class PeerRegisterRequest(PeerBase):
     is_relay: bool = False
 
 
-class PeerHeartbeatRequest(BaseModel):
-    peer_id: str
-    gpu_status: list[GpuStatusPayload] = Field(default_factory=list)
-    is_online: bool = True
-    endpoint: str | None = None
-
-
 class GpuStatusPayload(BaseModel):
     device_index: int
     name: str | None = None
@@ -34,6 +27,13 @@ class GpuStatusPayload(BaseModel):
     gpu_type: str = "nvidia"
     state: str = "idle"
     utilization_percent: float | None = None
+
+
+class PeerHeartbeatRequest(BaseModel):
+    peer_id: str
+    gpu_status: list[GpuStatusPayload] = Field(default_factory=list)
+    is_online: bool = True
+    endpoint: str | None = None
 
 
 class PeerResponse(BaseModel):
@@ -104,6 +104,7 @@ class VpnConfigResponse(BaseModel):
     config_text: str
     vpn_ip: str
     peer_id: str
+    auth_token: str
 
 
 class NetworkInviteRequest(BaseModel):

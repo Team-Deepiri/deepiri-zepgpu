@@ -37,8 +37,12 @@ def test_rank_eligible_shares_prefers_higher_memory_and_lower_utilization(
     peer_a = make_peer(room_id=room_id)
     peer_b = make_peer(room_id=room_id)
     shares = [
-        make_share(peer=peer_a, room_id=room_id, available_memory_mb=4096, utilization_percent=20.0),
-        make_share(peer=peer_b, room_id=room_id, available_memory_mb=8192, utilization_percent=30.0),
+        make_share(
+            peer=peer_a, room_id=room_id, available_memory_mb=4096, utilization_percent=20.0
+        ),
+        make_share(
+            peer=peer_b, room_id=room_id, available_memory_mb=8192, utilization_percent=30.0
+        ),
         make_share(peer=peer_b, room_id=room_id, available_memory_mb=8192, utilization_percent=5.0),
     ]
 
