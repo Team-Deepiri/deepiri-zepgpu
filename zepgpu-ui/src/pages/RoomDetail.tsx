@@ -174,7 +174,7 @@ export default function RoomDetail() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <RoomDispatchPanel roomId={roomId} onTaskDispatched={handleTaskDispatched} />
-        <RoomActivityLog roomId={roomId} taskIds={dispatchedTaskIds} />
+        <RoomActivityLog taskIds={dispatchedTaskIds} />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">

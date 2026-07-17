@@ -2,7 +2,6 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import RoomActivityLog from '@/components/rooms/RoomActivityLog'
 import { renderWithProviders } from '@/test/test-utils'
-import { fixtureRoom } from '@/test/fixtures/rooms'
 import { fixtureDispatchedTask } from '@/test/fixtures/tasks'
 
 const { getTaskMock } = vi.hoisted(() => ({
@@ -32,14 +31,12 @@ describe('RoomActivityLog', () => {
   })
 
   it('shows empty state when no tasks dispatched', () => {
-    renderWithProviders(<RoomActivityLog roomId={fixtureRoom.id} taskIds={[]} />)
+    renderWithProviders(<RoomActivityLog taskIds={[]} />)
     expect(screen.getByText(/Dispatched tasks appear here/i)).toBeInTheDocument()
   })
 
   it('renders dispatched task status', async () => {
-    renderWithProviders(
-      <RoomActivityLog roomId={fixtureRoom.id} taskIds={[fixtureDispatchedTask.id]} />,
-    )
+    renderWithProviders(<RoomActivityLog taskIds={[fixtureDispatchedTask.id]} />)
 
     expect(await screen.findByText(fixtureDispatchedTask.name!)).toBeInTheDocument()
     expect(screen.getAllByText('assigned').length).toBeGreaterThanOrEqual(1)

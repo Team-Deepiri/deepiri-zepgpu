@@ -5,16 +5,20 @@ import RoomDispatchPanel from '@/components/rooms/RoomDispatchPanel'
 import { renderWithProviders } from '@/test/test-utils'
 import { fixtureRoom, fixtureRoomNode, fixtureRoomNodeGpu } from '@/test/fixtures/rooms'
 
-const { getRoomNodesMock, getRoomNodeGpusMock, dispatchTaskMock } = vi.hoisted(() => ({
-  getRoomNodesMock: vi.fn(),
-  getRoomNodeGpusMock: vi.fn(),
-  dispatchTaskMock: vi.fn(),
-}))
+const { getRoomNodesMock, getRoomNodeGpusMock, getRoomGpusMock, dispatchTaskMock } = vi.hoisted(
+  () => ({
+    getRoomNodesMock: vi.fn(),
+    getRoomNodeGpusMock: vi.fn(),
+    getRoomGpusMock: vi.fn(),
+    dispatchTaskMock: vi.fn(),
+  }),
+)
 
 vi.mock('@/api/rooms', () => ({
   roomsApi: {
     getRoomNodes: getRoomNodesMock,
     getRoomNodeGpus: getRoomNodeGpusMock,
+    getRoomGpus: getRoomGpusMock,
     dispatchTask: dispatchTaskMock,
   },
 }))
@@ -26,6 +30,7 @@ describe('RoomDispatchPanel', () => {
     onTaskDispatched.mockClear()
     getRoomNodesMock.mockResolvedValue([fixtureRoomNode])
     getRoomNodeGpusMock.mockResolvedValue([fixtureRoomNodeGpu])
+    getRoomGpusMock.mockResolvedValue([fixtureRoomNodeGpu])
     dispatchTaskMock.mockResolvedValue({
       id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
       status: 'assigned',
@@ -78,7 +83,7 @@ describe('RoomDispatchPanel', () => {
     expect(dispatchButton).toBeDisabled()
   })
 
-  it('validates GPU memory against single-GPU capacity, not node sums', async () => {
+  it('validates GPU memory against single-GPU capacity via a single room GPUs request', async () => {
     const user = userEvent.setup()
     renderWithProviders(
       <RoomDispatchPanel roomId={fixtureRoom.id} onTaskDispatched={onTaskDispatched} />,
@@ -90,11 +95,29 @@ describe('RoomDispatchPanel', () => {
     ).toBeInTheDocument()
     expect(screen.getByLabelText(/GPU memory/i)).toHaveAttribute('max', '18000')
 
+    // Auto mode uses one room-wide request, not per-node fan-out.
+    expect(getRoomGpusMock).toHaveBeenCalledWith(fixtureRoom.id)
+    expect(getRoomNodeGpusMock).not.toHaveBeenCalled()
+
     await user.clear(screen.getByLabelText(/GPU memory/i))
     await user.type(screen.getByLabelText(/GPU memory/i), '19000')
 
     await waitFor(() => {
       expect(screen.getByLabelText(/GPU memory/i)).toHaveValue(18000)
     })
+  })
+
+  it('shows required-field feedback for an empty function on blur', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <RoomDispatchPanel roomId={fixtureRoom.id} onTaskDispatched={onTaskDispatched} />,
+    )
+
+    const funcInput = screen.getByLabelText(/Function/i)
+    await user.click(funcInput)
+    await user.tab()
+
+    expect(await screen.findByText(/Function is required\./i)).toBeInTheDocument()
+    expect(funcInput).toHaveAttribute('aria-invalid', 'true')
   })
 })

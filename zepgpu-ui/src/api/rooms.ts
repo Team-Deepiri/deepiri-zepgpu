@@ -63,6 +63,11 @@ export const roomsApi = {
     return data
   },
 
+  getRoomGpus: async (roomId: string): Promise<RoomNodeGpu[]> => {
+    const { data } = await api.get<RoomNodeGpu[]>(`/rooms/${roomId}/gpus`)
+    return data
+  },
+
   createRoomInvite: async (roomId: string, req: RoomInviteCreateRequest): Promise<RoomInvite> => {
     const { data } = await api.post<RoomInvite>(`/rooms/${roomId}/invites`, req)
     return data

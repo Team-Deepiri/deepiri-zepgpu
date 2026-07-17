@@ -8,11 +8,10 @@ import { isTerminalTaskStatus, shouldPollTask } from '@/utils/taskStatus'
 import type { NodeTaskResult } from '@/types'
 
 interface RoomActivityLogProps {
-  roomId: string
   taskIds: string[]
 }
 
-export default function RoomActivityLog({ roomId, taskIds }: RoomActivityLogProps) {
+export default function RoomActivityLog({ taskIds }: RoomActivityLogProps) {
   return (
     <section className="rounded-xl border border-slate-700/80 bg-slate-800/40 p-5">
       <h2 className="text-sm font-semibold text-slate-200 flex items-center gap-2 mb-4">
@@ -27,7 +26,7 @@ export default function RoomActivityLog({ roomId, taskIds }: RoomActivityLogProp
       ) : (
         <ul className="space-y-3">
           {taskIds.map((taskId) => (
-            <ActivityRow key={taskId} roomId={roomId} taskId={taskId} />
+            <ActivityRow key={taskId} taskId={taskId} />
           ))}
         </ul>
       )}
@@ -35,7 +34,7 @@ export default function RoomActivityLog({ roomId, taskIds }: RoomActivityLogProp
   )
 }
 
-function ActivityRow({ roomId, taskId }: { roomId: string; taskId: string }) {
+function ActivityRow({ taskId }: { taskId: string }) {
   const taskQuery = useQuery({
     queryKey: ['task', taskId],
     queryFn: () => tasksApi.get(taskId),
@@ -70,10 +69,6 @@ function ActivityRow({ roomId, taskId }: { roomId: string; taskId: string }) {
         Failed to load task {taskId.slice(0, 8)}…
       </li>
     )
-  }
-
-  if (task.room_id && task.room_id !== roomId) {
-    return null
   }
 
   return (

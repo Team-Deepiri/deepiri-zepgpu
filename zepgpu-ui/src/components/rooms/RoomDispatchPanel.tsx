@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useMutation, useQueries, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { Play, Send } from 'lucide-react'
 import toast from 'react-hot-toast'
 import clsx from 'clsx'
 import { roomsApi } from '@/api/rooms'
 import { getRoomErrorMessage } from '@/utils/roomErrors'
+import { DEFAULT_GPU_MEMORY_MB } from '@/constants/tasks'
 import type { RoomNode, RoomNodeGpu } from '@/types'
 
 interface RoomDispatchPanelProps {
@@ -13,8 +14,6 @@ interface RoomDispatchPanelProps {
 }
 
 type RoomDispatchMode = 'room_auto' | 'room_specific_node'
-
-const DEFAULT_GPU_MEMORY_MB = 1024
 
 function isDispatchableNode(node: RoomNode): boolean {
   return node.is_online && node.is_gpu_host && node.available_gpu_count > 0
@@ -31,6 +30,7 @@ export default function RoomDispatchPanel({ roomId, onTaskDispatched }: RoomDisp
   const [dispatchMode, setDispatchMode] = useState<RoomDispatchMode>('room_auto')
   const [name, setName] = useState('')
   const [funcName, setFuncName] = useState('')
+  const [funcTouched, setFuncTouched] = useState(false)
   const [gpuMemoryMb, setGpuMemoryMb] = useState(DEFAULT_GPU_MEMORY_MB)
   const [targetPeerId, setTargetPeerId] = useState('')
   const [targetGpuShareId, setTargetGpuShareId] = useState('')
@@ -48,13 +48,11 @@ export default function RoomDispatchPanel({ roomId, onTaskDispatched }: RoomDisp
 
   const selectedNode = dispatchableNodes.find((node) => node.id === targetPeerId)
 
-  const autoGpuQueries = useQueries({
-    queries: dispatchableNodes.map((node) => ({
-      queryKey: ['room-node-gpus', roomId, node.id],
-      queryFn: () => roomsApi.getRoomNodeGpus(roomId, node.id),
-      enabled: dispatchMode === 'room_auto',
-      refetchInterval: 10000,
-    })),
+  const roomGpusQuery = useQuery({
+    queryKey: ['room-gpus', roomId],
+    queryFn: () => roomsApi.getRoomGpus(roomId),
+    enabled: dispatchMode === 'room_auto',
+    refetchInterval: 10000,
   })
 
   const gpusQuery = useQuery({
@@ -69,14 +67,6 @@ export default function RoomDispatchPanel({ roomId, onTaskDispatched }: RoomDisp
     [gpusQuery.data],
   )
 
-  const autoAvailableGpus = useMemo(
-    () =>
-      autoGpuQueries
-        .flatMap((query) => query.data ?? [])
-        .filter((gpu) => gpu.is_active && gpu.available_memory_mb > 0),
-    [autoGpuQueries],
-  )
-
   const maxGpuMemoryMb = useMemo(() => {
     if (dispatchMode === 'room_specific_node') {
       const targetGpu = availableGpus.find((gpu) => gpu.id === targetGpuShareId)
@@ -84,8 +74,8 @@ export default function RoomDispatchPanel({ roomId, onTaskDispatched }: RoomDisp
       return maxAvailableGpuMemory(availableGpus)
     }
 
-    return maxAvailableGpuMemory(autoAvailableGpus)
-  }, [autoAvailableGpus, availableGpus, dispatchMode, targetGpuShareId])
+    return maxAvailableGpuMemory(roomGpusQuery.data ?? [])
+  }, [availableGpus, dispatchMode, roomGpusQuery.data, targetGpuShareId])
 
   useEffect(() => {
     if (maxGpuMemoryMb != null && gpuMemoryMb > maxGpuMemoryMb) {
@@ -95,6 +85,8 @@ export default function RoomDispatchPanel({ roomId, onTaskDispatched }: RoomDisp
 
   const exceedsAvailableMemory =
     maxGpuMemoryMb != null && gpuMemoryMb > maxGpuMemoryMb
+
+  const funcMissing = funcTouched && !funcName.trim()
 
   const dispatchMutation = useMutation({
     mutationFn: () =>
@@ -132,16 +124,17 @@ export default function RoomDispatchPanel({ roomId, onTaskDispatched }: RoomDisp
   }
 
   const handleDispatch = () => {
+    if (!funcName.trim()) {
+      setFuncTouched(true)
+      toast.error('Function is required')
+      return
+    }
     if (dispatchMode === 'room_specific_node' && !targetPeerId) {
-      toast.error(getRoomErrorMessage(new Error('Select a target node')))
+      toast.error('Select a target node')
       return
     }
     if (exceedsAvailableMemory) {
-      toast.error(
-        getRoomErrorMessage(
-          new Error(`GPU memory request exceeds available capacity (${maxGpuMemoryMb} MB)`),
-        ),
-      )
+      toast.error(`GPU memory request exceeds available capacity (${maxGpuMemoryMb} MB)`)
       return
     }
     dispatchMutation.mutate()
@@ -194,11 +187,19 @@ export default function RoomDispatchPanel({ roomId, onTaskDispatched }: RoomDisp
             <input
               id="dispatch-func"
               type="text"
-              className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white font-mono"
+              className={clsx(
+                'w-full bg-slate-900 border rounded-lg px-3 py-2 text-sm text-white font-mono',
+                funcMissing ? 'border-red-500' : 'border-slate-600',
+              )}
               placeholder="package.module.function"
               value={funcName}
               onChange={(e) => setFuncName(e.target.value)}
+              onBlur={() => setFuncTouched(true)}
+              aria-invalid={funcMissing}
             />
+            {funcMissing && (
+              <p className="text-xs text-red-400 mt-1">Function is required.</p>
+            )}
           </div>
           <div>
             <label className="block text-xs text-slate-500 mb-1" htmlFor="dispatch-gpu-mem">
