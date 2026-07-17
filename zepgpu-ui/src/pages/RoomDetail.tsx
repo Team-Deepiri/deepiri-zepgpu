@@ -12,6 +12,7 @@ import RoomGpuPoolSummary from '@/components/rooms/RoomGpuPoolSummary'
 import RoomNodeList from '@/components/rooms/RoomNodeList'
 import RoomDispatchPanel from '@/components/rooms/RoomDispatchPanel'
 import RoomActivityLog from '@/components/rooms/RoomActivityLog'
+import { useRoomWebSocket } from '@/hooks/useRoomWebSocket'
 import type { RoomMember, RoomMemberStatus } from '@/types'
 
 function getErrorStatus(err: unknown): number | null {
@@ -59,6 +60,8 @@ function MemberRow({ member }: { member: RoomMember }) {
 export default function RoomDetail() {
   const { roomId } = useParams<{ roomId: string }>()
   const [dispatchedTaskIds, setDispatchedTaskIds] = useState<string[]>([])
+  const { status: wsStatus } = useRoomWebSocket(roomId)
+  const enablePolling = wsStatus !== 'connected'
 
   const roomQuery = useQuery({
     queryKey: ['room', roomId],
@@ -71,7 +74,7 @@ export default function RoomDetail() {
     queryKey: ['room-members', roomId],
     queryFn: () => roomsApi.getRoomMembers(roomId!),
     enabled: !!roomId && roomQuery.isSuccess,
-    refetchInterval: 10000,
+    refetchInterval: enablePolling ? 10000 : false,
   })
 
   const handleTaskDispatched = (taskId: string) => {
@@ -167,14 +170,28 @@ export default function RoomDetail() {
               Host <span className="font-mono text-slate-400">{room.host_id}</span>
               {' · '}
               Created {format(new Date(room.created_at), 'MMM d, yyyy')}
+              {' · '}
+              <span
+                className={clsx(
+                  wsStatus === 'connected' && 'text-green-400',
+                  wsStatus === 'connecting' && 'text-amber-400',
+                  wsStatus === 'disconnected' && 'text-slate-500',
+                )}
+              >
+                Live {wsStatus}
+              </span>
             </p>
           </div>
         </div>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <RoomDispatchPanel roomId={roomId} onTaskDispatched={handleTaskDispatched} />
-        <RoomActivityLog taskIds={dispatchedTaskIds} />
+        <RoomDispatchPanel
+          roomId={roomId}
+          onTaskDispatched={handleTaskDispatched}
+          enablePolling={enablePolling}
+        />
+        <RoomActivityLog taskIds={dispatchedTaskIds} enablePolling={enablePolling} />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -202,11 +219,11 @@ export default function RoomDetail() {
 
         <section className="rounded-xl border border-slate-700/80 bg-slate-800/40 p-5">
           <h2 className="text-sm font-semibold text-slate-200 mb-4">GPU pool</h2>
-          <RoomGpuPoolSummary roomId={roomId} />
+          <RoomGpuPoolSummary roomId={roomId} enablePolling={enablePolling} />
         </section>
       </div>
 
-      <RoomNodeList roomId={roomId} />
+      <RoomNodeList roomId={roomId} enablePolling={enablePolling} />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="rounded-xl border border-slate-700/80 bg-slate-800/40 p-5">

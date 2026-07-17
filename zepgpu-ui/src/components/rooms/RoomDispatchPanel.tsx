@@ -11,6 +11,7 @@ import type { RoomNode, RoomNodeGpu } from '@/types'
 interface RoomDispatchPanelProps {
   roomId: string
   onTaskDispatched: (taskId: string) => void
+  enablePolling?: boolean
 }
 
 type RoomDispatchMode = 'room_auto' | 'room_specific_node'
@@ -26,7 +27,11 @@ function maxAvailableGpuMemory(gpus: RoomNodeGpu[]): number | undefined {
   return capacities.length > 0 ? Math.max(...capacities) : undefined
 }
 
-export default function RoomDispatchPanel({ roomId, onTaskDispatched }: RoomDispatchPanelProps) {
+export default function RoomDispatchPanel({
+  roomId,
+  onTaskDispatched,
+  enablePolling = true,
+}: RoomDispatchPanelProps) {
   const [dispatchMode, setDispatchMode] = useState<RoomDispatchMode>('room_auto')
   const [name, setName] = useState('')
   const [funcName, setFuncName] = useState('')
@@ -38,7 +43,7 @@ export default function RoomDispatchPanel({ roomId, onTaskDispatched }: RoomDisp
   const nodesQuery = useQuery({
     queryKey: ['room-nodes', roomId],
     queryFn: () => roomsApi.getRoomNodes(roomId),
-    refetchInterval: 10000,
+    refetchInterval: enablePolling ? 10000 : false,
   })
 
   const dispatchableNodes = useMemo(
@@ -52,14 +57,14 @@ export default function RoomDispatchPanel({ roomId, onTaskDispatched }: RoomDisp
     queryKey: ['room-gpus', roomId],
     queryFn: () => roomsApi.getRoomGpus(roomId),
     enabled: dispatchMode === 'room_auto',
-    refetchInterval: 10000,
+    refetchInterval: enablePolling ? 10000 : false,
   })
 
   const gpusQuery = useQuery({
     queryKey: ['room-node-gpus', roomId, targetPeerId],
     queryFn: () => roomsApi.getRoomNodeGpus(roomId, targetPeerId),
     enabled: dispatchMode === 'room_specific_node' && !!targetPeerId,
-    refetchInterval: 10000,
+    refetchInterval: enablePolling ? 10000 : false,
   })
 
   const availableGpus = useMemo(

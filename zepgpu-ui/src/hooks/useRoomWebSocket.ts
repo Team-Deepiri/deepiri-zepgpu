@@ -27,11 +27,13 @@ function invalidateForEvent(
   if (type === 'room_node_online' || type === 'room_node_offline') {
     void queryClient.invalidateQueries({ queryKey: ['room-nodes', roomId] })
     void queryClient.invalidateQueries({ queryKey: ['room-gpu-pool', roomId] })
+    void queryClient.invalidateQueries({ queryKey: ['room-members', roomId] })
     return
   }
 
   if (type === 'room_gpu_update') {
     void queryClient.invalidateQueries({ queryKey: ['room-gpu-pool', roomId] })
+    void queryClient.invalidateQueries({ queryKey: ['room-gpus', roomId] })
     const peerId = typeof payload.peer_id === 'string' ? payload.peer_id : undefined
     if (peerId) {
       void queryClient.invalidateQueries({ queryKey: ['room-node-gpus', roomId, peerId] })
@@ -108,12 +110,13 @@ export function useRoomWebSocket(roomId: string | undefined): {
           return
         }
 
-        if (message.type === 'connected' || message.type === 'subscribed') {
+        if (message.type === 'subscribed') {
           setStatus('connected')
           return
         }
 
         if (message.type === 'room_error') {
+          setStatus('disconnected')
           return
         }
 

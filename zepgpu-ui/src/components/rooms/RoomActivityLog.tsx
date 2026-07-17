@@ -9,9 +9,13 @@ import type { NodeTaskResult } from '@/types'
 
 interface RoomActivityLogProps {
   taskIds: string[]
+  enablePolling?: boolean
 }
 
-export default function RoomActivityLog({ taskIds }: RoomActivityLogProps) {
+export default function RoomActivityLog({
+  taskIds,
+  enablePolling = true,
+}: RoomActivityLogProps) {
   return (
     <section className="rounded-xl border border-slate-700/80 bg-slate-800/40 p-5">
       <h2 className="text-sm font-semibold text-slate-200 flex items-center gap-2 mb-4">
@@ -26,7 +30,7 @@ export default function RoomActivityLog({ taskIds }: RoomActivityLogProps) {
       ) : (
         <ul className="space-y-3">
           {taskIds.map((taskId) => (
-            <ActivityRow key={taskId} taskId={taskId} />
+            <ActivityRow key={taskId} taskId={taskId} enablePolling={enablePolling} />
           ))}
         </ul>
       )}
@@ -34,11 +38,18 @@ export default function RoomActivityLog({ taskIds }: RoomActivityLogProps) {
   )
 }
 
-function ActivityRow({ taskId }: { taskId: string }) {
+function ActivityRow({
+  taskId,
+  enablePolling,
+}: {
+  taskId: string
+  enablePolling: boolean
+}) {
   const taskQuery = useQuery({
     queryKey: ['task', taskId],
     queryFn: () => tasksApi.get(taskId),
-    refetchInterval: (query) => (shouldPollTask(query.state.data) ? 3000 : false),
+    refetchInterval: (query) =>
+      enablePolling && shouldPollTask(query.state.data) ? 3000 : false,
   })
 
   const task = taskQuery.data

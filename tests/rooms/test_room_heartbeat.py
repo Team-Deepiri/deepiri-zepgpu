@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
@@ -155,6 +156,8 @@ def test_room_node_heartbeat_updates_peer_and_upserts_gpu(
         "GpuShareRepository",
         lambda db: FakeGpuShareRepository(db),
     )
+    emit_event = AsyncMock()
+    monkeypatch.setattr(rooms, "emit_room_event", emit_event)
 
     response = asyncio.run(
         rooms.room_node_heartbeat(
@@ -204,6 +207,59 @@ def test_room_node_heartbeat_updates_peer_and_upserts_gpu(
     assert response.room_id == room_id
     assert response.status == "connected"
     assert response.is_gpu_host is True
+    assert [call.args[1] for call in emit_event.await_args_list] == [
+        "room_node_online",
+        "room_gpu_update",
+    ]
+    assert emit_event.await_args_list[0].args[0] == str(room_id)
+    assert emit_event.await_args_list[0].args[2]["id"] == str(peer_id)
+    assert emit_event.await_args_list[1].args[2]["peer_id"] == str(peer_id)
+    assert emit_event.await_args_list[1].args[2]["gpus"][0]["available_memory_mb"] == 18000
+
+
+def test_room_node_heartbeat_emits_offline_transition(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user_id = uuid4()
+    room_id = uuid4()
+    peer_id = uuid4()
+    room = _make_room(room_id)
+    peer = _make_peer(peer_id=peer_id, room_id=room_id, user_id=user_id)
+    peer.online_status = rooms.PeerOnlineStatus.ONLINE
+
+    monkeypatch.setattr(
+        rooms,
+        "VpnNetworkRepository",
+        lambda db: FakeNetworkRepository(db, room=room),
+    )
+    monkeypatch.setattr(
+        rooms,
+        "PeerRepository",
+        lambda db: FakePeerRepository(db, peer=peer),
+    )
+    monkeypatch.setattr(
+        rooms,
+        "GpuShareRepository",
+        lambda db: FakeGpuShareRepository(db),
+    )
+    emit_event = AsyncMock()
+    monkeypatch.setattr(rooms, "emit_room_event", emit_event)
+
+    response = asyncio.run(
+        rooms.room_node_heartbeat(
+            room_id=str(room_id),
+            peer_id=str(peer_id),
+            data=RoomNodeHeartbeatRequest(is_online=False),
+            user=SimpleNamespace(id=user_id),
+            db=object(),
+        )
+    )
+
+    assert response.status == "disconnected"
+    emit_event.assert_awaited_once()
+    assert emit_event.await_args.args[0] == str(room_id)
+    assert emit_event.await_args.args[1] == "room_node_offline"
+    assert emit_event.await_args.args[2]["id"] == str(peer_id)
 
 
 def test_room_node_heartbeat_rejects_peer_from_another_room(

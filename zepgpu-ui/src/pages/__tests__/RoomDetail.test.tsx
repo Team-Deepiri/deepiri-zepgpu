@@ -5,11 +5,13 @@ import { renderWithProviders } from '@/test/test-utils'
 import { fixtureGpuPool, fixtureMember, fixtureRoom } from '@/test/fixtures/rooms'
 import { RoomApiError } from '@/utils/roomErrors'
 
-const { getRoomMock, getRoomMembersMock, getRoomGpuPoolMock } = vi.hoisted(() => ({
-  getRoomMock: vi.fn(),
-  getRoomMembersMock: vi.fn(),
-  getRoomGpuPoolMock: vi.fn(),
-}))
+const { getRoomMock, getRoomMembersMock, getRoomGpuPoolMock, useRoomWebSocketMock } =
+  vi.hoisted(() => ({
+    getRoomMock: vi.fn(),
+    getRoomMembersMock: vi.fn(),
+    getRoomGpuPoolMock: vi.fn(),
+    useRoomWebSocketMock: vi.fn(),
+  }))
 
 vi.mock('@/api/rooms', () => ({
   roomsApi: {
@@ -28,11 +30,39 @@ vi.mock('@/components/rooms/RoomConfigPanel', () => ({
 }))
 
 vi.mock('@/components/rooms/RoomGpuPoolSummary', () => ({
-  default: () => <div data-testid="gpu-pool-summary">GPU pool summary</div>,
+  default: ({ enablePolling }: { enablePolling?: boolean }) => (
+    <div data-testid="gpu-pool-summary" data-enable-polling={String(enablePolling)}>
+      GPU pool summary
+    </div>
+  ),
 }))
 
 vi.mock('@/components/rooms/RoomNodeList', () => ({
-  default: () => <div data-testid="node-list">Node list</div>,
+  default: ({ enablePolling }: { enablePolling?: boolean }) => (
+    <div data-testid="node-list" data-enable-polling={String(enablePolling)}>
+      Node list
+    </div>
+  ),
+}))
+
+vi.mock('@/components/rooms/RoomDispatchPanel', () => ({
+  default: ({ enablePolling }: { enablePolling?: boolean }) => (
+    <div data-testid="dispatch-panel" data-enable-polling={String(enablePolling)}>
+      Dispatch panel
+    </div>
+  ),
+}))
+
+vi.mock('@/components/rooms/RoomActivityLog', () => ({
+  default: ({ enablePolling }: { enablePolling?: boolean }) => (
+    <div data-testid="activity-log" data-enable-polling={String(enablePolling)}>
+      Activity log
+    </div>
+  ),
+}))
+
+vi.mock('@/hooks/useRoomWebSocket', () => ({
+  useRoomWebSocket: useRoomWebSocketMock,
 }))
 
 describe('RoomDetail page', () => {
@@ -40,6 +70,7 @@ describe('RoomDetail page', () => {
     getRoomMock.mockResolvedValue(fixtureRoom)
     getRoomMembersMock.mockResolvedValue([fixtureMember])
     getRoomGpuPoolMock.mockResolvedValue(fixtureGpuPool)
+    useRoomWebSocketMock.mockReturnValue({ status: 'disconnected' })
   })
 
   it('renders room header and sections', async () => {
@@ -75,5 +106,25 @@ describe('RoomDetail page', () => {
     })
 
     expect(await screen.findByText('Access denied')).toBeInTheDocument()
+  })
+
+  it.each([
+    ['connected', false],
+    ['connecting', true],
+    ['disconnected', true],
+  ] as const)('shows Live %s and sets polling fallback to %s', async (status, enablePolling) => {
+    useRoomWebSocketMock.mockReturnValue({ status })
+
+    renderWithProviders(<RoomDetail />, {
+      route: `/rooms/${fixtureRoom.id}`,
+    })
+
+    expect(await screen.findByText(`Live ${status}`)).toBeInTheDocument()
+    for (const testId of ['gpu-pool-summary', 'node-list', 'dispatch-panel', 'activity-log']) {
+      expect(screen.getByTestId(testId)).toHaveAttribute(
+        'data-enable-polling',
+        String(enablePolling),
+      )
+    }
   })
 })

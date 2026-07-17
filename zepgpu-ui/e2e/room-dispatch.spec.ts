@@ -21,6 +21,7 @@ describe('Room dispatch', () => {
   test('dispatches a room_auto task from the panel', async ({ page }) => {
     await page.goto(`/rooms/${SAMPLE_ROOM_ID}`)
     await page.getByLabel('Task name (optional)').fill('E2E room dispatch')
+    await page.getByLabel('Function').fill('random.seed')
     await page.getByRole('button', { name: 'Dispatch to room' }).click()
     await expect(page.getByText(/E2E room dispatch|assigned/i)).toBeVisible({ timeout: 10000 })
   })

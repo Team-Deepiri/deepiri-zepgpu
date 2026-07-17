@@ -17,4 +17,25 @@ describe('Room WebSocket live updates', () => {
       timeout: 10000,
     })
   })
+
+  test('receives a room task event after dispatch', async ({ page }) => {
+    const assignedEvent = new Promise<void>((resolve) => {
+      page.on('websocket', (socket) => {
+        socket.on('framereceived', ({ payload }) => {
+          if (String(payload).includes('"type":"room_task_assigned"')) {
+            resolve()
+          }
+        })
+      })
+    })
+
+    await page.goto(`/rooms/${SAMPLE_ROOM_ID}`)
+    await expect(page.getByText(/Live connected/i)).toBeVisible({ timeout: 10000 })
+    await page.getByLabel('Task name (optional)').fill('E2E WebSocket dispatch')
+    await page.getByLabel('Function').fill('random.seed')
+    await page.getByRole('button', { name: 'Dispatch to room' }).click()
+
+    await assignedEvent
+    await expect(page.getByText(/E2E WebSocket dispatch|assigned/i)).toBeVisible()
+  })
 })
