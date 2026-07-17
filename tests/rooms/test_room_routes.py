@@ -24,6 +24,7 @@ def test_room_routes_are_registered() -> None:
     assert "/api/v1/rooms/{room_id}/nodes/{peer_id}" in paths
     assert "/api/v1/rooms/{room_id}/nodes/{peer_id}/heartbeat" in paths
     assert "/api/v1/rooms/{room_id}/nodes/{peer_id}/gpus" in paths
+    assert "/api/v1/rooms/{room_id}/gpus" in paths
 
 
 def test_list_rooms_requires_authentication() -> None:
@@ -129,6 +130,13 @@ def test_room_node_heartbeat_requires_authentication() -> None:
 
 def test_list_room_node_gpus_requires_authentication() -> None:
     response = client.get("/api/v1/rooms/test-room-id/nodes/test-peer-id/gpus")
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Authentication required"
+
+
+def test_list_room_gpus_requires_authentication() -> None:
+    response = client.get("/api/v1/rooms/test-room-id/gpus")
 
     assert response.status_code == 401
     assert response.json()["detail"] == "Authentication required"
