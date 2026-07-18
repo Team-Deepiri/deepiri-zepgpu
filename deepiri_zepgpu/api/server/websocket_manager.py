@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
-from typing import Any, Optional
 from collections import defaultdict
+from typing import Any
 
-from fastapi import WebSocket, WebSocketDisconnect
+from fastapi import WebSocket
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +15,7 @@ logger = logging.getLogger(__name__)
 class ConnectionManager:
     """Manages WebSocket connections for real-time updates."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._connections: dict[str, list[WebSocket]] = defaultdict(list)
         self._lock = asyncio.Lock()
 
@@ -51,7 +50,7 @@ class ConnectionManager:
         """Broadcast message to all connected clients."""
         async with self._lock:
             all_connections = []
-            for user_id, connections in self._connections.items():
+            for _user_id, connections in self._connections.items():
                 all_connections.extend(connections)
 
         for connection in all_connections:
@@ -60,7 +59,9 @@ class ConnectionManager:
             except Exception as e:
                 logger.error(f"Error broadcasting message: {e}")
 
-    async def broadcast_task_update(self, task_id: str, status: str, user_id: str, data: dict[str, Any] | None = None) -> None:
+    async def broadcast_task_update(
+        self, task_id: str, status: str, user_id: str, data: dict[str, Any] | None = None
+    ) -> None:
         """Broadcast task status update."""
         message = {
             "type": "task_update",
@@ -87,6 +88,16 @@ class ConnectionManager:
             "queue_length": queue_length,
             "pending_tasks": pending_tasks,
         }
+        await self.broadcast(message)
+
+    async def broadcast_all(self, message: dict[str, Any]) -> None:
+        """Broadcast a message to every connected client.
+
+        Alias for broadcast(). Kept as an explicit public method so callers
+        that specifically probe for `broadcast_all` (e.g. remote_task_events'
+        fallback chain) have a stable name to depend on, without duplicating
+        the locking/error-handling logic that broadcast() already has.
+        """
         await self.broadcast(message)
 
     def get_connection_count(self) -> int:

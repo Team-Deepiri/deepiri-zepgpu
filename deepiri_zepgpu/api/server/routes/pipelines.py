@@ -5,20 +5,20 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from deepiri_zepgpu.api.server.dependencies import get_current_user, get_db_session
 from deepiri_zepgpu.database.models import Pipeline
-from deepiri_zepgpu.database.repositories import PipelineRepository
 from deepiri_zepgpu.database.models.pipeline import PipelineStatus as DBPipelineStatus
-
+from deepiri_zepgpu.database.repositories import PipelineRepository
 
 router = APIRouter()
 
 
 class PipelineStageRequest(BaseModel):
     """Pipeline stage request."""
+
     name: str
     func_name: str | None = None
     args: dict[str, Any] = {}
@@ -30,6 +30,7 @@ class PipelineStageRequest(BaseModel):
 
 class PipelineCreateRequest(BaseModel):
     """Pipeline creation request."""
+
     name: str
     description: str | None = None
     stages: list[PipelineStageRequest]
@@ -37,6 +38,7 @@ class PipelineCreateRequest(BaseModel):
 
 class PipelineResponse(BaseModel):
     """Pipeline response."""
+
     id: str
     name: str
     description: str | None
@@ -58,6 +60,7 @@ class PipelineResponse(BaseModel):
 
 class PipelineListResponse(BaseModel):
     """Pipeline list response."""
+
     pipelines: list[PipelineResponse]
     total: int
     limit: int
@@ -72,7 +75,7 @@ async def create_pipeline(
 ) -> PipelineResponse:
     """Create a new pipeline."""
     import uuid
-    
+
     stages_data = [
         {
             "name": stage.name,
@@ -85,7 +88,7 @@ async def create_pipeline(
         }
         for stage in request.stages
     ]
-    
+
     pipeline = Pipeline(
         id=uuid.uuid4(),
         user_id=current_user.id if current_user else None,
@@ -95,10 +98,10 @@ async def create_pipeline(
         stage_statuses={stage.name: "pending" for stage in request.stages},
         status=DBPipelineStatus.CREATED,
     )
-    
+
     db.add(pipeline)
     await db.flush()
-    
+
     return PipelineResponse(
         id=str(pipeline.id),
         name=pipeline.name,
@@ -127,14 +130,14 @@ async def list_pipelines(
 ) -> PipelineListResponse:
     """List pipelines."""
     repo = PipelineRepository(db)
-    
+
     pipelines = await repo.list_by_user(
         user_id=current_user.id,
         status=DBPipelineStatus(status_filter) if status_filter else None,
         limit=limit,
         offset=offset,
     )
-    
+
     return PipelineListResponse(
         pipelines=[
             PipelineResponse(
@@ -170,13 +173,13 @@ async def get_pipeline(
     """Get pipeline by ID."""
     repo = PipelineRepository(db)
     pipeline = await repo.get_by_id(pipeline_id)
-    
+
     if not pipeline:
         raise HTTPException(status_code=404, detail="Pipeline not found")
-    
+
     if current_user and pipeline.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
-    
+
     return PipelineResponse(
         id=pipeline.id,
         name=pipeline.name,
@@ -204,19 +207,19 @@ async def run_pipeline(
 ) -> dict:
     """Run a pipeline."""
     from deepiri_zepgpu.queue.tasks import execute_pipeline
-    
+
     repo = PipelineRepository(db)
     pipeline = await repo.get_by_id(pipeline_id)
-    
+
     if not pipeline:
         raise HTTPException(status_code=404, detail="Pipeline not found")
-    
+
     if current_user and pipeline.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
-    
+
     await repo.mark_running(pipeline_id)
     background_tasks.add_task(execute_pipeline.delay, pipeline_id)
-    
+
     return {"message": "Pipeline started", "pipeline_id": pipeline_id}
 
 
@@ -229,11 +232,11 @@ async def delete_pipeline(
     """Delete a pipeline."""
     repo = PipelineRepository(db)
     pipeline = await repo.get_by_id(pipeline_id)
-    
+
     if not pipeline:
         raise HTTPException(status_code=404, detail="Pipeline not found")
-    
+
     if current_user and pipeline.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
-    
+
     await repo.delete(pipeline_id)

@@ -8,7 +8,11 @@ from typing import Any
 
 from deepiri_zepgpu.compute_ledger.block import GENESIS_PREV_HASH, ComputeBlock
 from deepiri_zepgpu.compute_ledger.hashing import canonical_json, sha256_hex
-from deepiri_zepgpu.compute_ledger.keys import derive_keypair_from_seed, sign_message, verify_signature
+from deepiri_zepgpu.compute_ledger.keys import (
+    derive_keypair_from_seed,
+    sign_message,
+    verify_signature,
+)
 from deepiri_zepgpu.compute_ledger.merkle import merkle_proof, merkle_root, verify_merkle_proof
 from deepiri_zepgpu.compute_ledger.transaction import ComputeTransaction, TxType
 
@@ -114,7 +118,7 @@ def write_golden_fixture(path: Path | None = None) -> Path:
     return target
 
 
-def verify_golden_fixture(path: Path | None = None) -> dict[str, Any]:
+def verify_golden_fixture(path: Path | None = None) -> dict[str, Any]:  # noqa: C901
     """Compare live golden computation against committed fixture."""
     target = path or default_fixture_path()
     if not target.exists():
@@ -124,7 +128,7 @@ def verify_golden_fixture(path: Path | None = None) -> dict[str, Any]:
     mismatches: list[str] = []
 
     def _walk(prefix: str, a: Any, b: Any) -> None:
-        if type(a) != type(b) and not (isinstance(a, (int, float)) and isinstance(b, (int, float))):
+        if type(a) != type(b) and not (isinstance(a, int | float) and isinstance(b, int | float)):
             mismatches.append(f"{prefix}: type {type(a).__name__} != {type(b).__name__}")
             return
         if isinstance(a, dict):
@@ -139,7 +143,7 @@ def verify_golden_fixture(path: Path | None = None) -> dict[str, Any]:
             if len(a) != len(b):
                 mismatches.append(f"{prefix}: len {len(a)} != {len(b)}")
             else:
-                for i, (x, y) in enumerate(zip(a, b)):
+                for i, (x, y) in enumerate(zip(a, b, strict=True)):
                     _walk(f"{prefix}[{i}]", x, y)
         elif a != b:
             mismatches.append(f"{prefix}: {a!r} != {b!r}")

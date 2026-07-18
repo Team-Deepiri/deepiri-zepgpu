@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import functools
-from typing import Any, Callable, Optional, TypeVar
+from collections.abc import Callable
+from typing import Any, TypeVar
 
 T = TypeVar("T")
 
@@ -44,12 +45,12 @@ async def retry_async(
                 await asyncio.sleep(current_delay)
                 current_delay *= backoff
 
-    raise last_exception
+    raise last_exception  # type: ignore[misc]
 
 
 async def wait_for(
     coro: Any,
-    timeout: Optional[float] = None,
+    timeout: float | None = None,
     default: Any = None,
 ) -> Any:
     """Wait for coroutine with timeout, returning default on timeout."""
@@ -57,7 +58,7 @@ async def wait_for(
         if timeout:
             return await asyncio.wait_for(coro, timeout=timeout)
         return await coro
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return default
 
 
@@ -83,7 +84,7 @@ class AsyncBatchProcessor:
         batch_size: int = 10,
         max_concurrent: int = 4,
         delay_between_batches: float = 0.1,
-    ):
+    ) -> None:
         self._batch_size = batch_size
         self._max_concurrent = max_concurrent
         self._delay = delay_between_batches
@@ -97,7 +98,7 @@ class AsyncBatchProcessor:
         results = []
 
         for i in range(0, len(items), self._batch_size):
-            batch = items[i:i + self._batch_size]
+            batch = items[i : i + self._batch_size]
 
             batch_results = await gather_with_concurrency(
                 self._max_concurrent,
@@ -114,7 +115,7 @@ class AsyncBatchProcessor:
 class AsyncEventBus:
     """Simple async event bus."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._subscribers: dict[str, list[Callable[[Any], None]]] = {}
 
     def subscribe(self, event: str, handler: Callable[[Any], None]) -> None:
@@ -141,23 +142,25 @@ class AsyncEventBus:
 class AsyncCache:
     """Simple async cache with TTL."""
 
-    def __init__(self, ttl_seconds: float = 60.0):
+    def __init__(self, ttl_seconds: float = 60.0) -> None:
         self._cache: dict[str, tuple[Any, float]] = {}
         self._ttl = ttl_seconds
 
-    async def get(self, key: str) -> Optional[Any]:
+    async def get(self, key: str) -> Any | None:
         """Get value from cache."""
         if key in self._cache:
             value, expiry = self._cache[key]
             import time
+
             if time.time() < expiry:
                 return value
             del self._cache[key]
         return None
 
-    async def set(self, key: str, value: Any, ttl: Optional[float] = None) -> None:
+    async def set(self, key: str, value: Any, ttl: float | None = None) -> None:
         """Set value in cache."""
         import time
+
         expiry = time.time() + (ttl or self._ttl)
         self._cache[key] = (value, expiry)
 
@@ -172,6 +175,7 @@ class AsyncCache:
     async def cleanup(self) -> int:
         """Remove expired entries. Returns count of removed entries."""
         import time
+
         now = time.time()
         expired = [k for k, (_, expiry) in self._cache.items() if now >= expiry]
         for key in expired:

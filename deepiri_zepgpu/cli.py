@@ -3,16 +3,16 @@
 
 import asyncio
 import sys
-from typing import Optional
 
 try:
     import click
+
     HAS_CLICK = True
 except ImportError:
     HAS_CLICK = False
 
 
-def main():
+def main() -> None:
     """Main CLI entry point."""
     if HAS_CLICK:
         cli()
@@ -20,7 +20,7 @@ def main():
         basic_cli()
 
 
-def basic_cli():
+def basic_cli() -> None:
     """Basic CLI without click."""
     if len(sys.argv) < 2:
         print("Usage: deepiri-gpu <command> [options]")
@@ -39,14 +39,16 @@ def basic_cli():
     if command == "serve":
         print("Starting server...")
         from deepiri_zepgpu.cli import serve
+
         asyncio.run(serve())
     elif command == "gpu":
-        from deepiri_zepgpu.utils.gpu_utils import get_gpu_info
         import json
+
+        from deepiri_zepgpu.utils.gpu_utils import get_gpu_info
+
         info = get_gpu_info()
         print(json.dumps(info, indent=2))
     elif command == "vpn":
-        from deepiri_zepgpu.vpn import cli as vpn_cli
         if len(sys.argv) < 3:
             print("Usage: deepiri-gpu vpn <subcommand>")
             print("  join     Join a VPN network")
@@ -58,6 +60,7 @@ def basic_cli():
         subcommand = sys.argv[2]
         if subcommand == "status":
             from deepiri_zepgpu.vpn.cli import vpn as vpn_group
+
             vpn_group()
         else:
             print(f"Unknown vpn subcommand: {subcommand}")
@@ -68,97 +71,108 @@ def basic_cli():
 
 
 if HAS_CLICK:
+
     @click.group()
-    def cli():
+    def cli() -> None:
         """DeepIRI ZepGPU - Serverless GPU Framework."""
         pass
 
     @cli.command()
     @click.option("--host", default="0.0.0.0", help="Host to bind to")
     @click.option("--port", default=8000, help="Port to bind to")
-    def serve(host, port):
+    def serve(host: str, port: int) -> None:
         """Start the API server."""
         from deepiri_zepgpu.cli import serve as serve_func
+
         asyncio.run(serve_func(host, port))
 
     @cli.command()
     @click.argument("function")
     @click.option("--gpu-memory", default=1024, help="GPU memory in MB")
     @click.option("--timeout", default=3600, help="Timeout in seconds")
-    def submit(function, gpu_memory, timeout):
+    def submit(function: str, gpu_memory: int, timeout: int) -> None:
         """Submit a GPU task."""
         print(f"Submitting task: {function}")
 
     @cli.command()
     @click.option("--user", help="Filter by user ID")
     @click.option("--status", help="Filter by status")
-    def list(user, status):
+    def list(user: str | None, status: str | None) -> None:
         """List tasks."""
         print("Listing tasks...")
 
     @cli.command()
     @click.argument("task_id")
-    def status(task_id):
+    def status(task_id: str) -> None:
         """Show task status."""
         print(f"Status for task: {task_id}")
 
     @cli.command()
     @click.argument("task_id")
-    def cancel(task_id):
+    def cancel(task_id: str) -> None:
         """Cancel a task."""
         print(f"Cancelling task: {task_id}")
 
     @cli.command()
-    def gpu():
+    def gpu() -> None:
         """Show GPU information."""
-        from deepiri_zepgpu.utils.gpu_utils import get_gpu_info
         import json
+
+        from deepiri_zepgpu.utils.gpu_utils import get_gpu_info
+
         info = get_gpu_info()
         print(json.dumps(info, indent=2))
 
     @cli.command()
-    def db_upgrade():
+    def db_upgrade() -> None:
         """Run database migrations (upgrade)."""
         import subprocess
+
         subprocess.run(["alembic", "upgrade", "head"])
 
     @cli.command()
-    def db_downgrade():
+    def db_downgrade() -> None:
         """Run database migrations (downgrade)."""
         import subprocess
+
         subprocess.run(["alembic", "downgrade", "-1"])
 
     @cli.command()
-    def db_create():
+    def db_create() -> None:
         """Create database tables."""
         import subprocess
+
         subprocess.run(["alembic", "upgrade", "head"])
 
     @cli.command()
-    def db_history():
+    def db_history() -> None:
         """Show migration history."""
         import subprocess
+
         subprocess.run(["alembic", "history", "--verbose"])
 
     @cli.command()
-    def beat_sync():
+    def beat_sync() -> None:
         """Sync schedules to Celery Beat."""
         from deepiri_zepgpu.queue.beat_sync import beat_scheduler_sync
+
         synced = beat_scheduler_sync.sync_all_schedules()
         print(f"Synced {synced} schedules to Celery Beat")
 
     @cli.command()
     @click.option("--schedule-id", required=True, help="Schedule ID to trigger")
-    def beat_trigger(schedule_id):
+    def beat_trigger(schedule_id: str) -> None:
         """Trigger a scheduled task to run immediately."""
         from deepiri_zepgpu.queue.tasks import execute_scheduled_task
+
         result = execute_scheduled_task.delay(schedule_id)
         print(f"Triggered schedule {schedule_id}, task ID: {result.id}")
 
     @cli.command()
-    def beat_status():
+    def beat_status() -> None:
         """Show Celery Beat schedule status."""
         from deepiri_zepgpu.queue.beat_sync import beat_scheduler_sync
+
         schedules = beat_scheduler_sync.get_beat_schedule()
         if schedules:
             print(f"Active schedules in beat: {len(schedules)}")
@@ -168,64 +182,86 @@ if HAS_CLICK:
             print("No active schedules in beat")
 
     @cli.command()
-    def celery_worker():
+    def celery_worker() -> None:
         """Start a Celery worker."""
         import subprocess
         import sys
-        sys.exit(subprocess.call([
-            "celery", "-A", "deepiri_zepgpu.queue.celery_app",
-            "worker", "--loglevel=info", "--queues=gpu_tasks,schedules"
-        ]))
+
+        sys.exit(
+            subprocess.call(
+                [
+                    "celery",
+                    "-A",
+                    "deepiri_zepgpu.queue.celery_app",
+                    "worker",
+                    "--loglevel=info",
+                    "--queues=gpu_tasks,schedules",
+                ]
+            )
+        )
 
     @cli.command()
-    def celery_beat():
+    def celery_beat() -> None:
         """Start Celery Beat scheduler."""
         import subprocess
         import sys
-        sys.exit(subprocess.call([
-            "celery", "-A", "deepiri_zepgpu.queue.celery_app",
-            "beat", "--loglevel=info"
-        ]))
+
+        sys.exit(
+            subprocess.call(
+                ["celery", "-A", "deepiri_zepgpu.queue.celery_app", "beat", "--loglevel=info"]
+            )
+        )
 
     @cli.command()
     @click.option("--num-gpus", default=2, help="Number of GPUs required")
     @click.option("--name", required=True, help="Gang task name")
     @click.option("--priority", default=2, help="Task priority (1-5)")
-    def gang_create(num_gpus, name, priority):
+    def gang_create(num_gpus: int, name: str, priority: int) -> None:
         """Create a new gang scheduled task."""
-        from deepiri_zepgpu.queue.tasks import execute_gang_task
         import uuid
+
+        from deepiri_zepgpu.queue.tasks import execute_gang_task
+
         gang_id = str(uuid.uuid4())
-        result = execute_gang_task.delay(gang_id)
+        execute_gang_task.delay(gang_id)
         print(f"Created gang task {gang_id} with name '{name}', {num_gpus} GPUs")
 
     @cli.command()
-    def gang_list():
+    def gang_list() -> None:
         """List pending gang tasks."""
         print("Listing gang tasks...")
 
     @cli.command()
-    def preempt_check():
+    def preempt_check() -> None:
         """Trigger preemption check manually."""
         from deepiri_zepgpu.queue.tasks import check_and_preempt
+
         result = check_and_preempt.delay()
         print(f"Preemption check triggered, task ID: {result.id}")
 
     @cli.command()
-    def fair_share_status():
+    def fair_share_status() -> None:
         """Show fair share scheduling status."""
         from deepiri_zepgpu.queue.tasks import get_fair_share_weights
+
         result = get_fair_share_weights.delay()
         weights = result.get(timeout=10)
         print("Fair Share Weights:")
         for user_id, data in weights.get("weights", {}).items():
             print(f"  {user_id}: weight={data['weight']:.2f}, used={data['gpu_seconds_used']:.0f}s")
 
-    from deepiri_zepgpu.vpn import cli as vpn_cli_module
-    from deepiri_zepgpu.vpn.cli import check_wireguard_installed, install_wireguard, apply_wireguard_config, get_vpn_ip, remove_wireguard_config, get_config_dir, vpn_settings
+    from deepiri_zepgpu.vpn.cli import (
+        apply_wireguard_config,
+        check_wireguard_installed,
+        get_config_dir,
+        get_vpn_ip,
+        install_wireguard,
+        remove_wireguard_config,
+        vpn_settings,
+    )
 
     @cli.group()
-    def vpn():
+    def vpn() -> None:
         """ZepGPU VPN - GPU sharing network management."""
         pass
 
@@ -233,9 +269,8 @@ if HAS_CLICK:
     @click.option("--config", type=click.Path(exists=True), help="Path to WireGuard .conf file")
     @click.option("--relay-url", default=vpn_settings.relay_api_url, help="Relay server URL")
     @click.option("--interface", default="wg0", help="WireGuard interface name")
-    def vpn_join(config, relay_url, interface):
+    def vpn_join(config: str | None, relay_url: str, interface: str) -> None:
         """Join a VPN network."""
-        from deepiri_zepgpu.vpn.cli import check_wireguard_installed, install_wireguard
         if not check_wireguard_installed():
             print("WireGuard is not installed.")
             install_wireguard()
@@ -252,7 +287,7 @@ if HAS_CLICK:
 
     @vpn.command()
     @click.option("--interface", default="wg0", help="WireGuard interface name")
-    def vpn_leave(interface):
+    def vpn_leave(interface: str) -> None:
         """Leave the current VPN network."""
         if remove_wireguard_config(interface):
             click.echo(f"Disconnected from VPN ({interface})")
@@ -261,9 +296,10 @@ if HAS_CLICK:
 
     @vpn.command()
     @click.option("--interface", default="wg0", help="WireGuard interface name")
-    def vpn_status(interface):
+    def vpn_status(interface: str) -> None:
         """Show VPN connection status."""
         import subprocess
+
         result = subprocess.run(["wg", "show", interface], capture_output=True, text=True)
         if result.returncode == 0 and result.stdout.strip():
             click.echo(f"WireGuard interface [{interface}]:")
@@ -277,10 +313,13 @@ if HAS_CLICK:
 
     @vpn.command()
     @click.option("--relay-url", default=vpn_settings.relay_api_url, help="Relay server URL")
-    @click.option("--api-token", envvar="ZEPGPU_API_TOKEN", default=None, help="Bearer token for relay")
-    def gpu_pool(relay_url, api_token):
+    @click.option(
+        "--api-token", envvar="ZEPGPU_API_TOKEN", default=None, help="Bearer token for relay"
+    )
+    def gpu_pool(relay_url: str, api_token: str | None) -> None:
         """List GPUs available in the network pool."""
         import httpx
+
         from deepiri_zepgpu.vpn.cli import vpn_api_url
 
         if not api_token:
@@ -294,13 +333,15 @@ if HAS_CLICK:
             )
             response.raise_for_status()
             data = response.json()
-            click.echo(f"GPU Pool:")
+            click.echo("GPU Pool:")
             click.echo(f"  Total GPUs: {data['total_gpus']}")
             click.echo(f"  Total Memory: {data['total_memory_mb'] // 1024}GB")
             click.echo(f"  Available Memory: {data['available_memory_mb'] // 1024}GB")
             click.echo(f"  Online Peers: {data['online_peers']}")
             for gpu in data.get("gpu_breakdown", []):
-                click.echo(f"  [{gpu['username']}] {gpu['name']} - {gpu['total_memory_mb'] // 1024}GB - {gpu['state']}")
+                click.echo(
+                    f"  [{gpu['username']}] {gpu['name']} - {gpu['total_memory_mb'] // 1024}GB - {gpu['state']}"
+                )
         except Exception as e:
             click.echo(f"Failed to fetch GPU pool: {e}", err=True)
 
@@ -308,15 +349,15 @@ if HAS_CLICK:
     @click.option("--relay-url", default=vpn_settings.relay_api_url, help="Relay server URL")
     @click.option("--interface", default="wg0", help="WireGuard interface name")
     @click.option("--peer-id", envvar="ZEPGPU_PEER_ID", default=None, help="Peer UUID from join")
-    def advertise(relay_url, interface, peer_id):
+    def advertise(relay_url: str, interface: str, peer_id: str | None) -> None:
         """Advertise local GPUs to the relay server."""
         from deepiri_zepgpu.vpn.cli import (
-            check_wireguard_installed,
-            install_wireguard,
             get_vpn_ip,
-            vpn_api_url,
+            install_wireguard,
             load_peer_id,
+            vpn_api_url,
         )
+
         if not check_wireguard_installed():
             click.echo("WireGuard is not installed.")
             install_wireguard()
@@ -327,13 +368,17 @@ if HAS_CLICK:
             return
         resolved = peer_id or load_peer_id()
         if not resolved:
-            click.echo("Set --peer-id or ZEPGPU_PEER_ID, or join with --code to save peer id.", err=True)
+            click.echo(
+                "Set --peer-id or ZEPGPU_PEER_ID, or join with --code to save peer id.", err=True
+            )
             return
         click.echo(f"Advertising GPUs to {relay_url}... (Ctrl+C to stop)")
 
-        async def advertise_loop():
-            from deepiri_zepgpu.vpn.peer_node import discover_local_gpus
+        async def advertise_loop() -> None:
             import httpx
+
+            from deepiri_zepgpu.vpn.peer_node import discover_local_gpus
+
             while True:
                 gpus = discover_local_gpus()
                 if gpus:
@@ -360,13 +405,13 @@ if HAS_CLICK:
             click.echo("\nStopped.")
 
     @cli.group()
-    def ledger():
+    def ledger() -> None:
         """Permissioned compute ledger (status, verify, sync)."""
         pass
 
     @ledger.command("status")
     @click.option("--network-id", default=None, help="VPN network UUID for scoped chain")
-    def ledger_status_cmd(network_id):
+    def ledger_status_cmd(network_id: str | None) -> None:
         """Show ledger tip / quorum status."""
         from deepiri_zepgpu.compute_ledger.cli_ops import dump_json, ledger_status
 
@@ -374,7 +419,7 @@ if HAS_CLICK:
 
     @ledger.command("verify")
     @click.option("--network-id", default=None, help="VPN network UUID for scoped chain")
-    def ledger_verify_cmd(network_id):
+    def ledger_verify_cmd(network_id: str | None) -> None:
         """Verify hash linkage, PoA signatures, and credit replay."""
         from deepiri_zepgpu.compute_ledger.cli_ops import dump_json, ledger_verify
 
@@ -386,7 +431,7 @@ if HAS_CLICK:
     @click.option("--network-id", default=None, help="VPN network UUID for scoped chain")
     @click.option("--from-height", default=0, type=int, help="Start height")
     @click.option("--limit", default=100, type=int, help="Max headers")
-    def ledger_sync_headers_cmd(network_id, from_height, limit):
+    def ledger_sync_headers_cmd(network_id: str | None, from_height: int, limit: int) -> None:
         """Export compact headers for light-client sync."""
         from deepiri_zepgpu.compute_ledger.cli_ops import dump_json, ledger_sync_headers
 
@@ -396,11 +441,14 @@ if HAS_CLICK:
     @click.option("--offline", is_flag=True, help="Skip DB scenarios (golden + crypto only)")
     @click.option("--json-out", type=click.Path(), default=None, help="Write JSON report path")
     @click.option("--md-out", type=click.Path(), default=None, help="Write Markdown report path")
-    def ledger_revolution_audit_cmd(offline, json_out, md_out):
+    def ledger_revolution_audit_cmd(
+        offline: bool, json_out: str | None, md_out: str | None
+    ) -> None:
         """Run revolutionary verification: golden vectors, adversary suite, credit economy."""
         from pathlib import Path
 
         from deepiri_zepgpu.compute_ledger.revolution import run_revolution_audit
+        from deepiri_zepgpu.compute_ledger.revolution.audit import RevolutionAuditResult
         from deepiri_zepgpu.compute_ledger.revolution.report import (
             render_console_summary,
             write_audit_json,
@@ -408,7 +456,7 @@ if HAS_CLICK:
         )
         from deepiri_zepgpu.database.session import get_db_context
 
-        async def _run():
+        async def _run() -> RevolutionAuditResult:
             if offline:
                 return await run_revolution_audit(None, include_db=False)
             async with get_db_context() as db:

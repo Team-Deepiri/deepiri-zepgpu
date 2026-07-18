@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 try:
     import redis
 except ImportError:  # pragma: no cover
@@ -17,11 +15,11 @@ _PREFIX = "zepgpu:vpn:gpu_share:"
 class RemoteGpuLock:
     """Best-effort distributed lock per gpu_share id."""
 
-    def __init__(self, url: Optional[str] = None):
+    def __init__(self, url: str | None = None):
         self._url = url or settings.redis.url
-        self._client: Optional["redis.Redis"] = None
+        self._client: redis.Redis | None = None
 
-    def _conn(self) -> Optional["redis.Redis"]:
+    def _conn(self) -> redis.Redis | None:
         if redis is None:
             return None
         if self._client is None:

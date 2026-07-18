@@ -31,6 +31,10 @@ class BlockHeader:
 
     @classmethod
     def from_block(cls, block: ComputeBlock) -> BlockHeader:
+        approvals: list[dict[str, str]] = [
+            approval.to_dict() if hasattr(approval, "to_dict") else approval  # type: ignore[misc]
+            for approval in block.approvals
+        ]
         return cls(
             height=block.height,
             hash=block.hash,
@@ -40,7 +44,7 @@ class BlockHeader:
             state_root=block.state_root,
             validator=block.validator,
             validator_signature=block.validator_signature,
-            approvals=[a.to_dict() if hasattr(a, "to_dict") else a for a in block.approvals],
+            approvals=approvals,
             finalized=block.finalized,
         )
 
@@ -74,9 +78,7 @@ def verify_header_signatures(
 
     approvals = list(header.approvals)
     if not any(a.get("validator") == header.validator for a in approvals):
-        approvals.append(
-            {"validator": header.validator, "signature": header.validator_signature}
-        )
+        approvals.append({"validator": header.validator, "signature": header.validator_signature})
 
     seen: set[str] = set()
     for approval in approvals:

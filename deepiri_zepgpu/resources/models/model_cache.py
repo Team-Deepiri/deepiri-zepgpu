@@ -5,10 +5,10 @@ from __future__ import annotations
 import hashlib
 import pickle
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
-from pathlib import Path
-from typing import Any, Callable, Generic, TypeVar, Optional
+from datetime import UTC, datetime
+from typing import Any, Generic, TypeVar
 
 T = TypeVar("T")
 
@@ -16,12 +16,13 @@ T = TypeVar("T")
 @dataclass
 class ModelMetadata:
     """Metadata for a cached model."""
+
     name: str
     version: str
     checksum: str
     size_bytes: int
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    last_accessed: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    last_accessed: datetime = field(default_factory=lambda: datetime.now(UTC))
     load_count: int = 0
 
 
@@ -41,7 +42,7 @@ class ModelCache(Generic[T]):
         name: str,
         model: T,
         version: str = "1.0.0",
-        metadata: Optional[dict[str, Any]] = None,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         """Add a model to the cache."""
         with self._lock:
@@ -58,16 +59,16 @@ class ModelCache(Generic[T]):
                 checksum=checksum,
                 size_bytes=int(size_mb * 1024 * 1024),
             )
-            self._current_size_mb += size_mb
+            self._current_size_mb += size_mb  # type: ignore[assignment]
             self._access_order.append(name)
 
-    def get(self, name: str) -> Optional[T]:
+    def get(self, name: str) -> T | None:
         """Get a model from the cache."""
         with self._lock:
             if name not in self._cache:
                 return None
 
-            self._metadata[name].last_accessed = datetime.utcnow()
+            self._metadata[name].last_accessed = datetime.now(UTC)
             self._metadata[name].load_count += 1
 
             self._access_order.remove(name)
@@ -89,7 +90,7 @@ class ModelCache(Generic[T]):
             del self._cache[name]
             del self._metadata[name]
             self._access_order.remove(name)
-            self._current_size_mb -= size_mb
+            self._current_size_mb -= size_mb  # type: ignore[assignment]
             return True
 
     def clear(self) -> None:
@@ -124,7 +125,11 @@ class ModelCache(Generic[T]):
                 "models_cached": len(self._cache),
                 "size_mb": self._current_size_mb,
                 "max_size_mb": self._max_size_mb,
-                "utilization_percent": (self._current_size_mb / self._max_size_mb * 100) if self._max_size_mb > 0 else 0,
+                "utilization_percent": (
+                    (self._current_size_mb / self._max_size_mb * 100)
+                    if self._max_size_mb > 0
+                    else 0
+                ),
                 "models": [
                     {
                         "name": m.name,
@@ -138,18 +143,18 @@ class ModelCache(Generic[T]):
             }
 
 
-class ModelRegistry:
+class ModelRegistry(Generic[T]):
     """Registry for managing model loaders and versions."""
 
-    def __init__(self, cache: Optional[ModelCache] = None):
-        self._cache = cache or ModelCache()
-        self._loaders: dict[str, Callable[[], T]] = {}
+    def __init__(self, cache: ModelCache[T] | None = None):
+        self._cache: ModelCache[T] = cache or ModelCache[T]()
+        self._loaders: dict[str, Callable[..., T]] = {}
         self._lock = threading.RLock()
 
     def register(
         self,
         name: str,
-        loader: Callable[[], T],
+        loader: Callable[..., T],
     ) -> None:
         """Register a model loader."""
         with self._lock:
@@ -160,7 +165,7 @@ class ModelRegistry:
         name: str,
         force_reload: bool = False,
         **kwargs: Any,
-    ) -> Optional[T]:
+    ) -> T | None:
         """Load a model, using cache if available."""
         if not force_reload:
             cached = self._cache.get(name)
@@ -171,15 +176,15 @@ class ModelRegistry:
         if loader is None:
             raise KeyError(f"No loader registered for model: {name}")
 
-        model = loader(**kwargs)
+        model: T = loader(**kwargs)
 
         self._cache.put(name, model)
 
         return model
 
-    def preload(self, names: list[str]) -> dict[str, Optional[T]]:
+    def preload(self, names: list[str]) -> dict[str, T | None]:
         """Preload multiple models."""
-        results = {}
+        results: dict[str, T | None] = {}
         for name in names:
             try:
                 results[name] = self.load(name)
@@ -188,6 +193,6 @@ class ModelRegistry:
                 print(f"Failed to preload {name}: {e}")
         return results
 
-    def get_cache(self) -> ModelCache:
+    def get_cache(self) -> ModelCache[T]:
         """Get the model cache."""
         return self._cache

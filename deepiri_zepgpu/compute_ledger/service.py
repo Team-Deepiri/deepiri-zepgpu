@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 def _parse_ts(value: str | datetime) -> datetime:
     if isinstance(value, datetime):
-        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
@@ -334,9 +334,8 @@ class LedgerService:
         errors: list[str] = []
         all_txs: list[ComputeTransaction] = []
         prev_hash = GENESIS_PREV_HASH
-        expected_height = 0
 
-        for row in blocks:
+        for expected_height, row in enumerate(blocks):
             block = self._block_to_domain(row)
             # Finalized history is checked for crypto integrity of its approval set.
             # Current settings.ledger.quorum_threshold applies to new seals, not retroactively.
@@ -358,7 +357,6 @@ class LedgerService:
             except LedgerValidationError as exc:
                 errors.append(f"height={expected_height}: {exc}")
             prev_hash = block.hash
-            expected_height += 1
             if block.finalized:
                 all_txs.extend(block.transactions)
 
@@ -517,12 +515,12 @@ class LedgerService:
         state: CreditState | None,
     ) -> None:
         from sqlalchemy import select
+
         from deepiri_zepgpu.database.models.ledger import LedgerTransaction
+        from deepiri_zepgpu.database.uuid_util import as_uuid
 
         for tx in block.transactions:
-            from uuid import UUID as _UUID
-
-            tx_uuid = _UUID(str(tx.id))
+            tx_uuid = as_uuid(tx.id)
             existing = await self.db.execute(
                 select(LedgerTransaction).where(LedgerTransaction.id == tx_uuid)
             )
@@ -567,23 +565,33 @@ class LedgerService:
             tx_type=TxType(row.tx_type.value if hasattr(row.tx_type, "value") else row.tx_type),
             sender=row.sender,
             nonce=int(row.nonce),
-            timestamp=row.timestamp.isoformat() if isinstance(row.timestamp, datetime) else str(row.timestamp),
+            timestamp=(
+                row.timestamp.isoformat()
+                if isinstance(row.timestamp, datetime)
+                else str(row.timestamp)
+            ),
             payload=dict(row.payload or {}),
             signature=row.signature,
         )
 
     def _block_to_domain(self, row: Any) -> ComputeBlock:
-        txs = [self._row_to_tx(t) for t in sorted(row.transactions or [], key=lambda x: x.position or 0)]
+        txs = [
+            self._row_to_tx(t)
+            for t in sorted(row.transactions or [], key=lambda x: x.position or 0)
+        ]
         approvals_raw = row.approvals or []
         approvals = [
-            ValidatorApproval.from_dict(a) if isinstance(a, dict) else a
-            for a in approvals_raw
+            ValidatorApproval.from_dict(a) if isinstance(a, dict) else a for a in approvals_raw
         ]
         return ComputeBlock(
             id=str(row.id),
             height=row.height,
             previous_hash=row.previous_hash,
-            timestamp=row.timestamp.isoformat() if isinstance(row.timestamp, datetime) else str(row.timestamp),
+            timestamp=(
+                row.timestamp.isoformat()
+                if isinstance(row.timestamp, datetime)
+                else str(row.timestamp)
+            ),
             transactions=txs,
             transactions_root=row.transactions_root,
             state_root=row.state_root,

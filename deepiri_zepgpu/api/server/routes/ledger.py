@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from deepiri_zepgpu.api.server.dependencies import get_db_session, get_required_user
+from deepiri_zepgpu.compute_ledger.bridge import BridgeService
 from deepiri_zepgpu.compute_ledger.chain_id import chain_id_for_network
-from deepiri_zepgpu.compute_ledger.keys import generate_keypair, sign_message
+from deepiri_zepgpu.compute_ledger.keys import generate_keypair
 from deepiri_zepgpu.compute_ledger.poa import LedgerValidationError
 from deepiri_zepgpu.compute_ledger.schemas import (
     ApprovalResponse,
@@ -35,7 +36,6 @@ from deepiri_zepgpu.compute_ledger.schemas import (
     VerifyResponse,
 )
 from deepiri_zepgpu.compute_ledger.service import LedgerService, new_signed_transaction
-from deepiri_zepgpu.compute_ledger.bridge import BridgeService
 from deepiri_zepgpu.compute_ledger.transaction import ComputeTransaction, TxType
 from deepiri_zepgpu.config import settings
 from deepiri_zepgpu.database.models import User
@@ -289,7 +289,7 @@ async def submit_transaction(
     if not data.get("id"):
         data["id"] = str(uuid4())
     if not data.get("timestamp"):
-        data["timestamp"] = datetime.now(timezone.utc).isoformat()
+        data["timestamp"] = datetime.now(UTC).isoformat()
     data["tx_type"] = tx_type.value
     tx = ComputeTransaction.from_dict(data)
     try:
@@ -353,7 +353,7 @@ async def attest_peer_job_completed(
         "tx_type": TxType.JOB_COMPLETED.value,
         "sender": body.sender,
         "nonce": body.nonce,
-        "timestamp": body.timestamp or datetime.now(timezone.utc).isoformat(),
+        "timestamp": body.timestamp or datetime.now(UTC).isoformat(),
         "payload": body.payload,
         "signature": body.signature,
     }

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import AsyncGenerator, Optional
+from collections.abc import AsyncGenerator
 
 import jwt
 from fastapi import Depends, HTTPException, status
@@ -12,7 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from deepiri_zepgpu.config import settings
 from deepiri_zepgpu.database.models import User
 from deepiri_zepgpu.database.session import AsyncSessionLocal
-
 
 security = HTTPBearer(auto_error=False)
 
@@ -31,47 +30,48 @@ async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def get_current_user(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
     db: AsyncSession = Depends(get_db_session),
-) -> Optional[User]:
+) -> User | None:
     """Get current authenticated user."""
     if not credentials:
         return None
-    
+
     try:
         payload = jwt.decode(
             credentials.credentials,
             settings.auth.secret_key,
             algorithms=[settings.auth.algorithm],
         )
-        
+
         user_id = payload.get("sub")
         if not user_id:
             return None
-        
+
         from sqlalchemy import select
+
         result = await db.execute(select(User).where(User.id == user_id))
         user = result.scalar_one_or_none()
-        
+
         if user and not user.is_active:
             return None
-        
+
         return user
-        
-    except jwt.ExpiredSignatureError:
+
+    except jwt.ExpiredSignatureError as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token has expired",
-        )
-    except jwt.JWTError:
+        ) from e
+    except jwt.JWTError as e:  # type: ignore[attr-defined]
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token",
-        )
+        ) from e
 
 
 async def get_required_user(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
     db: AsyncSession = Depends(get_db_session),
 ) -> User:
     """Get current authenticated user (required)."""
@@ -86,10 +86,10 @@ async def get_required_user(
 
 class RoleChecker:
     """Role-based access control."""
-    
+
     def __init__(self, allowed_roles: list[str]):
         self.allowed_roles = allowed_roles
-    
+
     async def __call__(
         self,
         user: User = Depends(get_required_user),

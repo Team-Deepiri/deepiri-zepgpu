@@ -58,7 +58,7 @@ class CreditState:
         return [b.to_dict() for b in sorted(self.balances.values(), key=lambda x: x.account)]
 
 
-def apply_transaction(state: CreditState, tx: ComputeTransaction) -> CreditState:
+def apply_transaction(state: CreditState, tx: ComputeTransaction) -> CreditState:  # noqa: C901
     """Apply a single transaction to credit state (mutates and returns state)."""
     last_nonce = state.nonces.get(tx.sender, -1)
     if tx.nonce <= last_nonce:

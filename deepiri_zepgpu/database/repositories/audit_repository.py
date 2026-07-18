@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta
-from typing import Any, Sequence
+from collections.abc import Sequence
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,7 +43,7 @@ class AuditRepository:
             user_agent=user_agent,
             status_code=status_code,
             error_message=error_message,
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(UTC),
         )
         self.session.add(log)
         await self.session.flush()
@@ -50,9 +51,7 @@ class AuditRepository:
 
     async def get_by_id(self, log_id: str) -> AuditLog | None:
         """Get audit log by ID."""
-        result = await self.session.execute(
-            select(AuditLog).where(AuditLog.id == log_id)
-        )
+        result = await self.session.execute(select(AuditLog).where(AuditLog.id == log_id))
         return result.scalar_one_or_none()
 
     async def list_by_user(
@@ -64,12 +63,12 @@ class AuditRepository:
     ) -> Sequence[AuditLog]:
         """List audit logs for a user."""
         query = select(AuditLog).where(AuditLog.user_id == user_id)
-        
+
         if action:
             query = query.where(AuditLog.action == action)
-        
+
         query = query.order_by(AuditLog.created_at.desc()).limit(limit).offset(offset)
-        
+
         result = await self.session.execute(query)
         return result.scalars().all()
 
@@ -118,10 +117,7 @@ class AuditRepository:
     ) -> Sequence[AuditLog]:
         """List recent audit logs."""
         result = await self.session.execute(
-            select(AuditLog)
-            .order_by(AuditLog.created_at.desc())
-            .limit(limit)
-            .offset(offset)
+            select(AuditLog).order_by(AuditLog.created_at.desc()).limit(limit).offset(offset)
         )
         return result.scalars().all()
 
@@ -132,10 +128,10 @@ class AuditRepository:
     ) -> int:
         """Count audit logs by action."""
         query = select(func.count(AuditLog.id)).where(AuditLog.action == action)
-        
+
         if since:
             query = query.where(AuditLog.created_at >= since)
-        
+
         result = await self.session.execute(query)
         return result.scalar() or 0
 
@@ -146,23 +142,22 @@ class AuditRepository:
     ) -> int:
         """Count audit logs for a user."""
         query = select(func.count(AuditLog.id)).where(AuditLog.user_id == user_id)
-        
+
         if since:
             query = query.where(AuditLog.created_at >= since)
-        
+
         result = await self.session.execute(query)
         return result.scalar() or 0
 
     async def delete_old(self, days: int = 90) -> int:
         """Delete old audit logs."""
-        cutoff = datetime.utcnow() - timedelta(days=days)
-        
+        cutoff = datetime.now(UTC) - timedelta(days=days)
+
         from sqlalchemy import delete
-        result = await self.session.execute(
-            delete(AuditLog).where(AuditLog.created_at < cutoff)
-        )
+
+        result = await self.session.execute(delete(AuditLog).where(AuditLog.created_at < cutoff))
         await self.session.flush()
-        return result.rowcount or 0
+        return result.rowcount or 0  # type: ignore[attr-defined]
 
     async def log_task_action(
         self,

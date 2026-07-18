@@ -79,7 +79,7 @@ class LedgerBlock(UUIDMixin, Base):
         nullable=False,
     )
 
-    transactions: Mapped[list["LedgerTransaction"]] = relationship(
+    transactions: Mapped[list[LedgerTransaction]] = relationship(
         "LedgerTransaction",
         back_populates="block",
         lazy="selectin",
@@ -121,7 +121,7 @@ class LedgerTransaction(UUIDMixin, Base):
         nullable=False,
     )
 
-    block: Mapped["LedgerBlock | None"] = relationship("LedgerBlock", back_populates="transactions")
+    block: Mapped[LedgerBlock | None] = relationship("LedgerBlock", back_populates="transactions")
 
     __table_args__ = (
         UniqueConstraint("chain_id", "sender", "nonce", name="uq_ledger_tx_sender_nonce"),

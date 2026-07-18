@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
-from typing import Any, Optional, Sequence
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import func, select, update
@@ -75,14 +76,14 @@ class LedgerRepository:
         await self.db.flush()
         return validator
 
-    async def get_tip(self, chain_id: str, *, finalized_only: bool = True) -> Optional[LedgerBlock]:
+    async def get_tip(self, chain_id: str, *, finalized_only: bool = True) -> LedgerBlock | None:
         query = select(LedgerBlock).where(LedgerBlock.chain_id == chain_id)
         if finalized_only:
             query = query.where(LedgerBlock.finalized.is_(True))
         result = await self.db.execute(query.order_by(LedgerBlock.height.desc()).limit(1))
         return result.scalar_one_or_none()
 
-    async def get_unfinalized_tip(self, chain_id: str) -> Optional[LedgerBlock]:
+    async def get_unfinalized_tip(self, chain_id: str) -> LedgerBlock | None:
         result = await self.db.execute(
             select(LedgerBlock)
             .options(selectinload(LedgerBlock.transactions))
@@ -95,7 +96,7 @@ class LedgerRepository:
         )
         return result.scalar_one_or_none()
 
-    async def get_block_by_height(self, chain_id: str, height: int) -> Optional[LedgerBlock]:
+    async def get_block_by_height(self, chain_id: str, height: int) -> LedgerBlock | None:
         result = await self.db.execute(
             select(LedgerBlock)
             .options(selectinload(LedgerBlock.transactions))
@@ -103,7 +104,7 @@ class LedgerRepository:
         )
         return result.scalar_one_or_none()
 
-    async def get_block_by_hash(self, block_hash: str) -> Optional[LedgerBlock]:
+    async def get_block_by_hash(self, block_hash: str) -> LedgerBlock | None:
         result = await self.db.execute(
             select(LedgerBlock)
             .options(selectinload(LedgerBlock.transactions))
@@ -285,7 +286,7 @@ class LedgerRepository:
         )
         return list(result.scalars().all())
 
-    async def get_balance(self, chain_id: str, account: str) -> Optional[LedgerBalance]:
+    async def get_balance(self, chain_id: str, account: str) -> LedgerBalance | None:
         result = await self.db.execute(
             select(LedgerBalance).where(
                 LedgerBalance.chain_id == chain_id,

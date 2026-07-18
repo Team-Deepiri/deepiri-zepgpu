@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -135,7 +135,7 @@ async def run_revolution_audit(
         passed = passed and bool(economy and economy.passed) and db_ok
 
     return RevolutionAuditResult(
-        generated_at=datetime.now(timezone.utc).isoformat(),
+        generated_at=datetime.now(UTC).isoformat(),
         golden=golden,
         crypto_adversary=crypto,
         economy=economy,

@@ -10,7 +10,7 @@ from sqlalchemy import Enum
 E = TypeVar("E", bound=PyEnum)
 
 
-def str_enum(enum_cls: type[E], **kwargs):
+def str_enum(enum_cls: type[E], **kwargs: object) -> Enum:
     """VARCHAR-backed enum matching Alembic String(50) columns (not Postgres ENUM types)."""
     return Enum(
         enum_cls,

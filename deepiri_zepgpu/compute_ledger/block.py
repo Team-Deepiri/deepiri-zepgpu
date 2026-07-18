@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -37,7 +37,7 @@ class ComputeBlock:
     previous_hash: str
     transactions: list[ComputeTransaction]
     validator: str
-    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    timestamp: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     id: str = field(default_factory=lambda: str(uuid4()))
     transactions_root: str = ""
     state_root: str = ""
@@ -80,7 +80,9 @@ class ComputeBlock:
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data["transactions"] = [tx.to_dict() for tx in self.transactions]
-        data["approvals"] = [a.to_dict() if isinstance(a, ValidatorApproval) else a for a in self.approvals]
+        data["approvals"] = [
+            a.to_dict() if isinstance(a, ValidatorApproval) else a for a in self.approvals
+        ]
         return data
 
     @classmethod

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
 
 from deepiri_zepgpu.compute_ledger.revolution.audit import RevolutionAuditResult
 
@@ -53,9 +52,7 @@ def write_audit_markdown(result: RevolutionAuditResult, path: Path) -> Path:
         ]
     )
     for o in d["crypto_adversary"]["outcomes"]:
-        lines.append(
-            f"| `{o['name']}` | {'✅' if o['blocked'] else '❌'} | {o['detail'][:80]} |"
-        )
+        lines.append(f"| `{o['name']}` | {'✅' if o['blocked'] else '❌'} | {o['detail'][:80]} |")
 
     if d.get("economy"):
         lines.extend(
@@ -72,16 +69,14 @@ def write_audit_markdown(result: RevolutionAuditResult, path: Path) -> Path:
             ]
         )
         for s in d["economy"]["steps"]:
-            lines.append(
-                f"| `{s['name']}` | {'✅' if s['ok'] else '❌'} | {s['detail'][:80]} |"
-            )
+            lines.append(f"| `{s['name']}` | {'✅' if s['ok'] else '❌'} | {s['detail'][:80]} |")
 
     if d.get("db_adversary_steps"):
-        lines.extend(["", "## DB-backed adversary probes", "", "| Probe | OK | Detail |", "|---|---|---|"])
+        lines.extend(
+            ["", "## DB-backed adversary probes", "", "| Probe | OK | Detail |", "|---|---|---|"]
+        )
         for s in d["db_adversary_steps"]:
-            lines.append(
-                f"| `{s['name']}` | {'✅' if s['ok'] else '❌'} | {s['detail'][:80]} |"
-            )
+            lines.append(f"| `{s['name']}` | {'✅' if s['ok'] else '❌'} | {s['detail'][:80]} |")
 
     lines.extend(
         [

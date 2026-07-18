@@ -56,9 +56,7 @@ def validate_approvals(
         raise LedgerValidationError("Proposer approval missing")
 
     if len(seen) < quorum_threshold:
-        raise LedgerValidationError(
-            f"Quorum not met: have {len(seen)}, need {quorum_threshold}"
-        )
+        raise LedgerValidationError(f"Quorum not met: have {len(seen)}, need {quorum_threshold}")
 
 
 def validate_block(
@@ -95,13 +93,7 @@ def validate_block(
     if not verify_signature(block.validator, block.hash, block.validator_signature):
         raise LedgerValidationError("Invalid block validator signature")
 
-    if require_quorum:
-        validate_approvals(
-            block,
-            authorized_validators=authorized_validators,
-            quorum_threshold=quorum_threshold,
-        )
-    elif block.finalized:
+    if require_quorum or block.finalized:
         validate_approvals(
             block,
             authorized_validators=authorized_validators,

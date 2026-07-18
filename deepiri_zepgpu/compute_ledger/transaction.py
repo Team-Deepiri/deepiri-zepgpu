@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 from uuid import uuid4
@@ -31,7 +31,7 @@ class ComputeTransaction:
     sender: str
     nonce: int
     payload: dict[str, Any]
-    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    timestamp: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     id: str = field(default_factory=lambda: str(uuid4()))
     signature: str = ""
 

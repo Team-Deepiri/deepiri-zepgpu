@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
-from typing import Any, Optional
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
-from deepiri_zepgpu.core.task import Task, TaskStatus
 from deepiri_zepgpu.core.scheduler import TaskScheduler
+from deepiri_zepgpu.core.task import Task, TaskStatus
 
 
 class TaskQuery:
@@ -15,11 +16,11 @@ class TaskQuery:
     def __init__(self, scheduler: TaskScheduler):
         self._scheduler = scheduler
 
-    def get_task(self, task_id: str) -> Optional[Task]:
+    def get_task(self, task_id: str) -> Task | None:
         """Get task by ID."""
         return self._scheduler.get_task(task_id)
 
-    def get_status(self, task_id: str) -> Optional[str]:
+    def get_status(self, task_id: str) -> str | None:
         """Get task status as string."""
         task = self.get_task(task_id)
         return task.status.value if task else None
@@ -27,7 +28,11 @@ class TaskQuery:
     def is_complete(self, task_id: str) -> bool:
         """Check if task is complete (success or failure)."""
         task = self.get_task(task_id)
-        return task.status in {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED}
+        return task is not None and task.status in {
+            TaskStatus.COMPLETED,
+            TaskStatus.FAILED,
+            TaskStatus.CANCELLED,
+        }
 
     def is_success(self, task_id: str) -> bool:
         """Check if task completed successfully."""
@@ -43,19 +48,19 @@ class TaskQuery:
             raise RuntimeError(f"Task {task_id} not completed: {task.status.value}")
         return task.result
 
-    def get_error(self, task_id: str) -> Optional[str]:
+    def get_error(self, task_id: str) -> str | None:
         """Get task error message if failed."""
         task = self.get_task(task_id)
         return task.error if task else None
 
-    def get_execution_time(self, task_id: str) -> Optional[float]:
+    def get_execution_time(self, task_id: str) -> float | None:
         """Get task execution time in seconds."""
         task = self.get_task(task_id)
         if not task or not task.started_at or not task.completed_at:
             return None
         return (task.completed_at - task.started_at).total_seconds()
 
-    def get_wait_time(self, task_id: str) -> Optional[float]:
+    def get_wait_time(self, task_id: str) -> float | None:
         """Get time spent waiting in queue."""
         task = self.get_task(task_id)
         if not task or not task.created_at or not task.started_at:
@@ -64,37 +69,37 @@ class TaskQuery:
 
     def list_tasks(
         self,
-        user_id: Optional[str] = None,
-        status: Optional[TaskStatus] = None,
+        user_id: str | None = None,
+        status: TaskStatus | None = None,
         limit: int = 100,
     ) -> list[Task]:
         """List tasks with filtering."""
         tasks = self._scheduler.list_tasks(user_id, status)
         return tasks[:limit]
 
-    def list_running_tasks(self, user_id: Optional[str] = None) -> list[Task]:
+    def list_running_tasks(self, user_id: str | None = None) -> list[Task]:
         """List currently running tasks."""
         return self.list_tasks(user_id=user_id, status=TaskStatus.RUNNING)
 
-    def list_pending_tasks(self, user_id: Optional[str] = None) -> list[Task]:
+    def list_pending_tasks(self, user_id: str | None = None) -> list[Task]:
         """List pending tasks."""
         return self.list_tasks(user_id=user_id, status=TaskStatus.QUEUED)
 
     def list_user_tasks(
         self,
         user_id: str,
-        status: Optional[TaskStatus] = None,
+        status: TaskStatus | None = None,
     ) -> list[Task]:
         """List all tasks for a specific user."""
         return self.list_tasks(user_id=user_id, status=status)
 
     def get_task_history(
         self,
-        user_id: Optional[str] = None,
+        user_id: str | None = None,
         hours: int = 24,
     ) -> list[Task]:
         """Get task history for the specified time period."""
-        cutoff = datetime.utcnow() - timedelta(hours=hours)
+        cutoff = datetime.now(UTC) - timedelta(hours=hours)
         tasks = self.list_tasks(user_id=user_id)
         return [t for t in tasks if t.created_at >= cutoff]
 
@@ -130,14 +135,14 @@ class TaskWatcher:
     def __init__(self, query: TaskQuery, poll_interval: float = 0.5):
         self._query = query
         self._poll_interval = poll_interval
-        self._callbacks: dict[str, list[callable]] = {}
+        self._callbacks: dict[str, list[tuple[str, Callable]]] = {}
 
     def watch(
         self,
         task_id: str,
-        on_complete: Optional[callable] = None,
-        on_error: Optional[callable] = None,
-        on_progress: Optional[callable] = None,
+        on_complete: Callable | None = None,
+        on_error: Callable | None = None,
+        on_progress: Callable | None = None,
     ) -> None:
         """Register callbacks for task events."""
         if task_id not in self._callbacks:
@@ -152,6 +157,7 @@ class TaskWatcher:
     async def wait_for_completion(self, task_id: str) -> Task:
         """Wait for task to complete."""
         import asyncio
+
         while True:
             task = self._query.get_task(task_id)
             if not task:

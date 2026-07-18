@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 
@@ -22,7 +22,7 @@ def relay_vpn_path(suffix: str) -> str:
 class RelayVpnClient:
     """Authenticated client for relay VPN routes."""
 
-    def __init__(self, base_url: Optional[str] = None, token: Optional[str] = None):
+    def __init__(self, base_url: str | None = None, token: str | None = None):
         self._base = (base_url or relay_api_base()).rstrip("/")
         self._token = token
 

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 from deepiri_zepgpu.compute_ledger.block import GENESIS_PREV_HASH, ComputeBlock
 from deepiri_zepgpu.compute_ledger.hashing import canonical_json, sha256_hex
@@ -51,7 +52,9 @@ class AdversaryReport:
 def _expect_blocked(name: str, category: str, fn: Callable[[], None]) -> AttackOutcome:
     try:
         fn()
-        return AttackOutcome(name=name, blocked=False, detail="attack succeeded (BAD)", category=category)
+        return AttackOutcome(
+            name=name, blocked=False, detail="attack succeeded (BAD)", category=category
+        )
     except (LedgerValidationError, ValueError, AssertionError) as exc:
         return AttackOutcome(name=name, blocked=True, detail=str(exc), category=category)
 
@@ -63,7 +66,12 @@ def _signed_tx(priv: str, pub: str, *, nonce: int = 0) -> ComputeTransaction:
         sender=pub,
         nonce=nonce,
         timestamp="2026-01-01T00:00:00+00:00",
-        payload={"task_id": "adv", "provider_account": "p", "consumer_account": "c", "gpu_seconds": 1.0},
+        payload={
+            "task_id": "adv",
+            "provider_account": "p",
+            "consumer_account": "c",
+            "gpu_seconds": 1.0,
+        },
     )
     tx.signature = sign_message(priv, canonical_json(tx.signing_payload()))
     return tx
@@ -165,7 +173,9 @@ def run_cryptographic_adversary_suite() -> AdversaryReport:
             quorum_threshold=1,
         )
 
-    report.outcomes.append(_expect_blocked("transactions_root_mismatch", "integrity", _broken_merkle))
+    report.outcomes.append(
+        _expect_blocked("transactions_root_mismatch", "integrity", _broken_merkle)
+    )
 
     def _broken_hash_link() -> None:
         validate_block(
@@ -205,7 +215,9 @@ def run_cryptographic_adversary_suite() -> AdversaryReport:
         assert verify_signature(pub, b"other", tx.signature)
 
     report.outcomes.append(
-        _expect_blocked("signature_replay_on_wrong_message", "crypto", _replay_signature_on_wrong_message)
+        _expect_blocked(
+            "signature_replay_on_wrong_message", "crypto", _replay_signature_on_wrong_message
+        )
     )
 
     # Sanity: honest block must still validate

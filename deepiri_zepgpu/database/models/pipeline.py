@@ -6,7 +6,7 @@ import enum
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import BigInteger, Column, DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 
 class PipelineStatus(str, enum.Enum):
     """Pipeline execution status."""
+
     PENDING = "pending"
     CREATED = "created"
     RUNNING = "running"
@@ -29,6 +30,7 @@ class PipelineStatus(str, enum.Enum):
 
 class PipelineStageStatus(str, enum.Enum):
     """Pipeline stage status."""
+
     PENDING = "pending"
     WAITING = "waiting"
     RUNNING = "running"
@@ -39,44 +41,44 @@ class PipelineStageStatus(str, enum.Enum):
 
 class Pipeline(UUIDMixin, TimestampMixin, Base):
     """Multi-stage pipeline model."""
-    
+
     __tablename__ = "pipelines"
-    
+
     user_id: Mapped[str | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=True,
         index=True,
     )
-    
+
     name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    
+
     status: Mapped[PipelineStatus] = mapped_column(
         str_enum(PipelineStatus),
         default=PipelineStatus.PENDING,
         nullable=False,
         index=True,
     )
-    
+
     stages: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False)
-    
+
     stage_results: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     stage_statuses: Mapped[dict[str, str] | None] = mapped_column(JSONB, nullable=True)
-    
+
     current_stage: Mapped[str | None] = mapped_column(String(255), nullable=True)
     completed_stages: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    
+
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    
+
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    
+
     total_execution_time_ms: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    
+
     metadata_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
-    
-    user: Mapped["User | None"] = relationship("User", back_populates="pipelines")
+
+    user: Mapped[User | None] = relationship("User", back_populates="pipelines")
 
     @property
     def total_stages(self) -> int:

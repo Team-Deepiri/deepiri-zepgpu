@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import json
-from typing import Optional
 
 from deepiri_zepgpu.compute_ledger.service import LedgerService
 from deepiri_zepgpu.database.session import get_db_context
 
 
-async def ledger_status(network_id: Optional[str] = None) -> dict:
+async def ledger_status(network_id: str | None = None) -> dict:
     async with get_db_context() as db:
         service = LedgerService(db, network_id=network_id)
         await service.ensure_initialized()
@@ -29,14 +28,14 @@ async def ledger_status(network_id: Optional[str] = None) -> dict:
         }
 
 
-async def ledger_verify(network_id: Optional[str] = None) -> dict:
+async def ledger_verify(network_id: str | None = None) -> dict:
     async with get_db_context() as db:
         service = LedgerService(db, network_id=network_id)
         return await service.verify_chain()
 
 
 async def ledger_sync_headers(
-    network_id: Optional[str] = None,
+    network_id: str | None = None,
     from_height: int = 0,
     limit: int = 100,
 ) -> dict:

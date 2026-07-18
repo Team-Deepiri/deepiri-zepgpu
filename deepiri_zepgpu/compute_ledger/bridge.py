@@ -9,9 +9,7 @@ from uuid import uuid4
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from deepiri_zepgpu.compute_ledger.hashing import canonical_json, sha256_hex
-from deepiri_zepgpu.compute_ledger.keys import sign_message
 from deepiri_zepgpu.compute_ledger.light_client import BlockHeader, verify_tx_inclusion
-from deepiri_zepgpu.compute_ledger.merkle import MerkleProof
 from deepiri_zepgpu.compute_ledger.poa import LedgerValidationError
 from deepiri_zepgpu.compute_ledger.service import LedgerService, new_signed_transaction
 from deepiri_zepgpu.compute_ledger.transaction import TxType
@@ -92,7 +90,7 @@ class BridgeService:
         )
         burn_result = await src.submit_transaction(burn_tx)
         burn_block = burn_result.get("block")
-        if not burn_block or not burn_block.get("finalized", True):
+        if not burn_block or burn_block.get("finalized") is not True:
             raise LedgerValidationError(
                 "Burn block not finalized; increase quorum cosigners or approve first"
             )
@@ -109,9 +107,11 @@ class BridgeService:
         # Replay protection: reject if mint already used this receipt on dest
         sealed = await dst.repo.list_sealed_transactions(dst.chain_id, finalized_only=True)
         for row in sealed:
-            if row.tx_type.value == TxType.BRIDGE_MINT.value:
-                if (row.payload or {}).get("receipt_id") == receipt:
-                    raise LedgerValidationError("Bridge receipt already minted on destination")
+            if (
+                row.tx_type.value == TxType.BRIDGE_MINT.value
+                and (row.payload or {}).get("receipt_id") == receipt
+            ):
+                raise LedgerValidationError("Bridge receipt already minted on destination")
 
         dst_priv, dst_pub = dst.validator_keys()
         mint_nonce = (await dst.repo.get_max_nonce(dst.chain_id, dst_pub)) + 1
@@ -146,7 +146,7 @@ class BridgeService:
                 "validator": burn_block["validator"],
                 "validator_signature": burn_block["validator_signature"],
                 "approvals": burn_block.get("approvals") or [],
-                "finalized": burn_block.get("finalized", True),
+                "finalized": bool(burn_block.get("finalized")),
             }
         )
         if not verify_tx_inclusion(header=header, proof=proof["proof"]):

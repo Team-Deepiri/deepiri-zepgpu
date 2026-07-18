@@ -7,15 +7,15 @@ import secrets
 import threading
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
-from typing import Optional
 
 import jwt
 
 
 class UserRole(Enum):
     """User roles for access control."""
+
     ADMIN = "admin"
     RESEARCHER = "researcher"
     USER = "user"
@@ -25,34 +25,38 @@ class UserRole(Enum):
 @dataclass
 class User:
     """User account representation."""
+
     user_id: str
     username: str
     email: str
     role: UserRole = UserRole.USER
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    last_login: Optional[datetime] = None
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    last_login: datetime | None = None
     is_active: bool = True
-    quota: dict[str, int] = field(default_factory=lambda: {
-        "max_tasks": 100,
-        "max_gpu_hours": 24,
-        "max_concurrent_tasks": 4,
-    })
+    quota: dict[str, int] = field(
+        default_factory=lambda: {
+            "max_tasks": 100,
+            "max_gpu_hours": 24,
+            "max_concurrent_tasks": 4,
+        }
+    )
     metadata: dict = field(default_factory=dict)
 
 
 @dataclass
 class AuthToken:
     """Authentication token."""
+
     token: str
     user_id: str
     expires_at: datetime
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 class UserManager:
     """Manages user accounts and authentication."""
 
-    def __init__(self, secret_key: Optional[str] = None):
+    def __init__(self, secret_key: str | None = None):
         self._secret_key = secret_key or secrets.token_hex(32)
         self._users: dict[str, User] = {}
         self._tokens: dict[str, AuthToken] = {}
@@ -64,9 +68,9 @@ class UserManager:
         self,
         username: str,
         email: str,
-        password: Optional[str] = None,
+        password: str | None = None,
         role: UserRole = UserRole.USER,
-        quota: Optional[dict[str, int]] = None,
+        quota: dict[str, int] | None = None,
     ) -> User:
         """Create a new user."""
         with self._lock:
@@ -81,7 +85,7 @@ class UserManager:
                 username=username,
                 email=email,
                 role=role,
-                quota=quota,
+                quota=quota,  # type: ignore[arg-type]
             )
 
             self._users[user_id] = user
@@ -90,12 +94,12 @@ class UserManager:
 
             return user
 
-    def get_user(self, user_id: str) -> Optional[User]:
+    def get_user(self, user_id: str) -> User | None:
         """Get user by ID."""
         with self._lock:
             return self._users.get(user_id)
 
-    def get_user_by_username(self, username: str) -> Optional[User]:
+    def get_user_by_username(self, username: str) -> User | None:
         """Get user by username."""
         with self._lock:
             user_id = self._username_index.get(username)
@@ -105,7 +109,7 @@ class UserManager:
         self,
         username: str,
         password: str,
-    ) -> Optional[str]:
+    ) -> str | None:
         """Authenticate user and return token."""
         user = self.get_user_by_username(username)
         if not user or not user.is_active:
@@ -114,7 +118,7 @@ class UserManager:
         if not self._verify_password(password, user.user_id):
             return None
 
-        user.last_login = datetime.utcnow()
+        user.last_login = datetime.now(UTC)
         return self.create_token(user.user_id)
 
     def create_token(self, user_id: str, expires_hours: int = 24) -> str:
@@ -124,7 +128,7 @@ class UserManager:
             if not user:
                 raise ValueError("User not found")
 
-            expires_at = datetime.utcnow().timestamp() + (expires_hours * 3600)
+            expires_at = datetime.now(UTC).timestamp() + (expires_hours * 3600)
             token = jwt.encode(
                 {
                     "user_id": user_id,
@@ -143,7 +147,7 @@ class UserManager:
 
             return token
 
-    def verify_token(self, token: str) -> Optional[str]:
+    def verify_token(self, token: str) -> str | None:
         """Verify token and return user_id."""
         try:
             payload = jwt.decode(token, self._secret_key, algorithms=["HS256"])
@@ -159,15 +163,19 @@ class UserManager:
                 return True
             return False
 
-    def _hash_password(self, password: str, salt: Optional[str] = None) -> str:
+    def _hash_password(self, password: str, salt: str | None = None) -> str:
         """Hash password with salt."""
         salt = salt or secrets.token_hex(16)
-        return hashlib.pbkdf2_hmac(
-            "sha256",
-            password.encode(),
-            salt.encode(),
-            100000,
-        ).hex() + ":" + salt
+        return (
+            hashlib.pbkdf2_hmac(
+                "sha256",
+                password.encode(),
+                salt.encode(),
+                100000,
+            ).hex()
+            + ":"
+            + salt
+        )
 
     def _verify_password(self, password: str, user_id: str) -> bool:
         """Verify password for user."""
@@ -176,11 +184,11 @@ class UserManager:
     def update_user(
         self,
         user_id: str,
-        email: Optional[str] = None,
-        role: Optional[UserRole] = None,
-        quota: Optional[dict[str, int]] = None,
-        is_active: Optional[bool] = None,
-    ) -> Optional[User]:
+        email: str | None = None,
+        role: UserRole | None = None,
+        quota: dict[str, int] | None = None,
+        is_active: bool | None = None,
+    ) -> User | None:
         """Update user attributes."""
         with self._lock:
             user = self._users.get(user_id)
@@ -209,16 +217,13 @@ class UserManager:
             del self._username_index[user.username]
             del self._email_index[user.email]
 
-            tokens_to_remove = [
-                t for t, token in self._tokens.items()
-                if token.user_id == user_id
-            ]
+            tokens_to_remove = [t for t, token in self._tokens.items() if token.user_id == user_id]
             for token in tokens_to_remove:
                 del self._tokens[token]
 
             return True
 
-    def list_users(self, role: Optional[UserRole] = None) -> list[User]:
+    def list_users(self, role: UserRole | None = None) -> list[User]:
         """List all users."""
         with self._lock:
             users = list(self._users.values())
