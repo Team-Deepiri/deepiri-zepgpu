@@ -33,6 +33,10 @@ describe('roomsApi (MSW)', () => {
     expect(members[0].display_name).toBe('host-user')
   })
 
+  it('leaveRoom completes without a response body', async () => {
+    await expect(roomsApi.leaveRoom(fixtureRoom.id)).resolves.toBeUndefined()
+  })
+
   it('getRoomGpuPool returns pool summary', async () => {
     const pool = await roomsApi.getRoomGpuPool(fixtureRoom.id)
     expect(pool.total_gpus).toBe(4)

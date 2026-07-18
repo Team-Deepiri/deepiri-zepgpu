@@ -107,3 +107,27 @@ async def test_unsubscribe_all() -> None:
 
     assert mgr.get_room_subscriber_count(room_a) == 0
     assert mgr.get_room_subscriber_count(room_b) == 0
+
+
+@pytest.mark.asyncio
+async def test_unsubscribe_user_from_room_removes_all_user_sockets_only() -> None:
+    mgr = ConnectionManager()
+    room_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    user_socket_a = _fake_ws()
+    user_socket_b = _fake_ws()
+    other_socket = _fake_ws()
+
+    await mgr.connect(user_socket_a, "user-1")
+    await mgr.connect(user_socket_b, "user-1")
+    await mgr.connect(other_socket, "user-2")
+    await mgr.subscribe_room(user_socket_a, room_id)
+    await mgr.subscribe_room(user_socket_b, room_id)
+    await mgr.subscribe_room(other_socket, room_id)
+
+    await mgr.unsubscribe_user_from_room("user-1", room_id)
+    await mgr.broadcast_to_room(room_id, {"type": "room_node_online", "room_id": room_id})
+
+    user_socket_a.send_json.assert_not_awaited()
+    user_socket_b.send_json.assert_not_awaited()
+    other_socket.send_json.assert_awaited_once()
+    assert mgr.get_room_subscriber_count(room_id) == 1

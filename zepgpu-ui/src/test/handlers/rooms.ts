@@ -55,6 +55,13 @@ export const roomHandlers = [
     return HttpResponse.json([fixtureMember])
   }),
 
+  http.delete('/api/v1/rooms/:roomId/members/me', ({ params }) => {
+    if (params.roomId !== fixtureRoom.id) {
+      return HttpResponse.json({ detail: 'Room not found' }, { status: 404 })
+    }
+    return new HttpResponse(null, { status: 204 })
+  }),
+
   http.get('/api/v1/rooms/:roomId/gpu-pool', ({ params }) => {
     if (params.roomId !== fixtureRoom.id) {
       return HttpResponse.json({ detail: 'Room not found' }, { status: 404 })

@@ -1,8 +1,0 @@
-node_modules
-dist
-coverage
-.git
-.gitignore
-*.md
-.vscode
-.cursor

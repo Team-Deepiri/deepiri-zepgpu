@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import clsx from 'clsx'
-import { ArrowLeft, Home, UserPlus, Users, Shield } from 'lucide-react'
+import { ArrowLeft, Home, LogOut, UserPlus, Users, Shield } from 'lucide-react'
+import toast from 'react-hot-toast'
 import { getRoomErrorMessage, getRoomErrorStatus } from '@/utils/roomErrors'
 import { roomsApi } from '@/api/rooms'
 import InvitePanel from '@/components/rooms/InvitePanel'
@@ -13,6 +14,7 @@ import RoomNodeList from '@/components/rooms/RoomNodeList'
 import RoomDispatchPanel from '@/components/rooms/RoomDispatchPanel'
 import RoomActivityLog from '@/components/rooms/RoomActivityLog'
 import { useRoomWebSocket } from '@/hooks/useRoomWebSocket'
+import { useAuthStore } from '@/stores/authStore'
 import type { RoomMember, RoomMemberStatus } from '@/types'
 
 function getErrorStatus(err: unknown): number | null {
@@ -59,6 +61,9 @@ function MemberRow({ member }: { member: RoomMember }) {
 
 export default function RoomDetail() {
   const { roomId } = useParams<{ roomId: string }>()
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const currentUser = useAuthStore((state) => state.user)
   const [dispatchedTaskIds, setDispatchedTaskIds] = useState<string[]>([])
   const { status: wsStatus } = useRoomWebSocket(roomId)
   const enablePolling = wsStatus !== 'connected'
@@ -79,6 +84,24 @@ export default function RoomDetail() {
 
   const handleTaskDispatched = (taskId: string) => {
     setDispatchedTaskIds((prev) => (prev.includes(taskId) ? prev : [taskId, ...prev]))
+  }
+
+  const leaveRoom = useMutation({
+    mutationFn: () => roomsApi.leaveRoom(roomId!),
+    onSuccess: () => {
+      toast.success('Left room')
+      void queryClient.invalidateQueries({ queryKey: ['rooms'] })
+      navigate('/rooms')
+    },
+    onError: (err) => {
+      toast.error(getRoomErrorMessage(err, 'Failed to leave room'))
+    },
+  })
+
+  const handleLeaveRoom = () => {
+    if (window.confirm('Leave this room? You will need a new invite to rejoin.')) {
+      leaveRoom.mutate()
+    }
   }
 
   if (!roomId) {
@@ -134,6 +157,7 @@ export default function RoomDetail() {
   }
 
   const room = roomQuery.data
+  const canLeaveRoom = !!currentUser && currentUser.id !== room.host_id
 
   return (
     <div className="space-y-8 max-w-6xl">
@@ -182,6 +206,17 @@ export default function RoomDetail() {
               </span>
             </p>
           </div>
+          {canLeaveRoom && (
+            <button
+              type="button"
+              onClick={handleLeaveRoom}
+              disabled={leaveRoom.isPending}
+              className="ml-auto inline-flex items-center gap-2 rounded-lg border border-red-500/40 px-3 py-2 text-sm font-medium text-red-300 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <LogOut className="h-4 w-4" />
+              {leaveRoom.isPending ? 'Leaving…' : 'Leave room'}
+            </button>
+          )}
         </div>
       </div>
 

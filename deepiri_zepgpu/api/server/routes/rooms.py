@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from deepiri_zepgpu.api.server.dependencies import get_db_session, get_required_user
 from deepiri_zepgpu.api.server.room_events import emit_room_event
+from deepiri_zepgpu.api.server.websocket_manager import manager
 from deepiri_zepgpu.database.models import User
 from deepiri_zepgpu.database.models.vpn_models import Peer, PeerOnlineStatus, VpnInvite, VpnNetwork
 from deepiri_zepgpu.rooms.mappers import (
@@ -138,6 +139,15 @@ async def _get_current_user_peer(
     return None
 
 
+async def _get_room_host_id(peer_repo: PeerRepository, room_id: str) -> UUID | None:
+    """Return the relay peer owner's user ID for a room."""
+    peers = await peer_repo.get_by_network(room_id)
+    for peer in peers:
+        if peer.is_relay:
+            return UUID(str(peer.user_id))
+    return None
+
+
 @router.post("", response_model=RoomResponse, status_code=status.HTTP_201_CREATED)
 async def create_room(
     data: RoomCreateRequest,
@@ -197,7 +207,9 @@ async def get_room(
 
     network_repo = VpnNetworkRepository(db)
     room = await _ensure_room_member(network_repo, str(user.id), room_id)
-    return vpn_network_to_room_response(room)
+    peer_repo = PeerRepository(db)
+    host_id = await _get_room_host_id(peer_repo, room_id)
+    return vpn_network_to_room_response(room, host_id=host_id)
 
 
 @router.delete("/{room_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -234,6 +246,38 @@ async def list_room_members(
     peer_repo = PeerRepository(db)
     peers = await peer_repo.get_by_network(room_id)
     return [peer_to_room_member_response(peer) for peer in peers]
+
+
+@router.delete("/{room_id}/members/me", status_code=status.HTTP_204_NO_CONTENT)
+async def leave_room(
+    room_id: str,
+    user: User = Depends(get_required_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> Response:
+    """Remove the current user's peer membership from a room."""
+
+    network_repo = VpnNetworkRepository(db)
+    await _ensure_room_member(network_repo, str(user.id), room_id)
+
+    peer_repo = PeerRepository(db)
+    peer = await _get_current_user_peer(peer_repo, str(user.id), room_id)
+    if not peer:
+        raise HTTPException(status_code=404, detail="Room membership not found")
+    if peer.is_relay:
+        raise HTTPException(
+            status_code=409,
+            detail="The room host cannot leave; archive the room instead",
+        )
+
+    member_payload = peer_to_room_member_response(peer).model_dump(mode="json")
+    gpu_repo = GpuShareRepository(db)
+    await gpu_repo.deactivate_peer_gpus(str(peer.id))
+    if not await peer_repo.delete(str(peer.id)):
+        raise HTTPException(status_code=404, detail="Room membership not found")
+
+    await emit_room_event(room_id, "room_member_left", member_payload)
+    await manager.unsubscribe_user_from_room(str(user.id), room_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/{room_id}/nodes", response_model=list[RoomNodeResponse])

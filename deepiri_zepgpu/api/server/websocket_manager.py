@@ -77,6 +77,22 @@ class ConnectionManager:
         async with self._lock:
             self._remove_socket_from_rooms_locked(websocket)
 
+    async def unsubscribe_user_from_room(self, user_id: str, room_id: str) -> None:
+        """Remove all of a user's sockets from one room channel."""
+        async with self._lock:
+            for websocket in list(self._connections.get(user_id, [])):
+                subscribers = self._room_subscriptions.get(room_id)
+                if subscribers is not None:
+                    subscribers.discard(websocket)
+                    if not subscribers:
+                        del self._room_subscriptions[room_id]
+
+                rooms = self._socket_rooms.get(websocket)
+                if rooms is not None:
+                    rooms.discard(room_id)
+                    if not rooms:
+                        del self._socket_rooms[websocket]
+
     async def _drop_dead_socket(self, websocket: WebSocket) -> None:
         """Remove a failed socket from user and room indexes."""
         async with self._lock:
