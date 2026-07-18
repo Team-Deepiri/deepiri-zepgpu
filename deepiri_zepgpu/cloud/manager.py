@@ -7,31 +7,27 @@ from typing import Any
 
 from deepiri_zepgpu.cloud.providers.base import (
     CloudProvider,
-    CloudProviderType,
     CloudProviderRegistry,
+    CloudProviderType,
+    CostEstimate,
     GPUInfo,
     Instance,
     LaunchConfig,
-    CostEstimate,
 )
-
-from deepiri_zepgpu.cloud.providers.runpod import RunPodProvider
-from deepiri_zepgpu.cloud.providers.lambda_labs import LambdaLabsProvider
-from deepiri_zepgpu.cloud.providers.aws import AWSProvider
 
 logger = logging.getLogger(__name__)
 
 
 class CloudGPUManager:
     """Manager for cloud GPU resources across multiple providers."""
-    
-    def __init__(self):
+
+    def __init__(self) -> None:
         self._providers: dict[str, CloudProvider] = {}
         self._initialized = False
-    
+
     def initialize(self, configs: dict[str, dict[str, Any]]) -> None:
         """Initialize cloud providers from configs.
-        
+
         Args:
             configs: Dict mapping provider names to their config dicts.
                     Example: {"runpod": {"api_key": "xxx"}, "aws": {"region": "us-east-1"}}
@@ -45,9 +41,9 @@ class CloudGPUManager:
                     logger.info(f"Initialized cloud provider: {name} ({provider_type.value})")
                 except Exception as e:
                     logger.warning(f"Failed to initialize provider {name}: {e}")
-        
+
         self._initialized = True
-    
+
     def _get_provider_type(self, name: str) -> CloudProviderType | None:
         """Map provider name to type."""
         mapping = {
@@ -58,11 +54,11 @@ class CloudGPUManager:
             "lambda_labs": CloudProviderType.LAMBDA_LABS,
         }
         return mapping.get(name.lower())
-    
+
     def get_provider(self, name: str) -> CloudProvider | None:
         """Get a provider by name."""
         return self._providers.get(name)
-    
+
     def list_providers(self) -> list[dict[str, Any]]:
         """List all configured providers."""
         return [
@@ -73,7 +69,7 @@ class CloudGPUManager:
             }
             for name, p in self._providers.items()
         ]
-    
+
     async def list_all_available_gpus(self) -> dict[str, list[GPUInfo]]:
         """List available GPUs from all providers."""
         results = {}
@@ -85,11 +81,11 @@ class CloudGPUManager:
                 logger.warning(f"Failed to list GPUs from {name}: {e}")
                 results[name] = []
         return results
-    
+
     async def get_cheapest_gpus(self, min_count: int = 1) -> list[tuple[str, GPUInfo]]:
         """Get cheapest available GPUs across all providers."""
         all_gpus = []
-        
+
         for name, provider in self._providers.items():
             try:
                 gpus = await provider.list_available_gpus()
@@ -98,10 +94,10 @@ class CloudGPUManager:
                         all_gpus.append((name, gpu))
             except Exception:
                 continue
-        
+
         all_gpus.sort(key=lambda x: x[1].price_per_hour)
         return all_gpus
-    
+
     async def launch_on_cheapest(
         self,
         gpu_type: str | None = None,
@@ -110,7 +106,7 @@ class CloudGPUManager:
         name: str = "zepgpu-instance",
     ) -> tuple[str, Instance] | None:
         """Launch instance on cheapest available provider.
-        
+
         Returns:
             Tuple of (provider_name, instance) or None if failed.
         """
@@ -123,7 +119,7 @@ class CloudGPUManager:
                         gpu = matching[0]
                         if max_price and gpu.price_per_hour > max_price:
                             continue
-                        
+
                         config = LaunchConfig(
                             name=name,
                             gpu_type_id=gpu.gpu_type,
@@ -134,13 +130,13 @@ class CloudGPUManager:
                         return name, instance
                 except Exception:
                     continue
-        
-        gpus = await self.get_cheapest_gpus(count)
-        for provider_name, gpu in gpus:
+
+        gpus = await self.get_cheapest_gpus(count)  # type: ignore[assignment]
+        for provider_name, gpu in gpus:  # type: ignore[misc]
             if max_price and gpu.price_per_hour > max_price:
                 continue
-            
-            provider = self._providers[provider_name]
+
+            provider = self._providers[provider_name]  # type: ignore[has-type]
             config = LaunchConfig(
                 name=name,
                 gpu_type_id=gpu.gpu_type,
@@ -149,13 +145,13 @@ class CloudGPUManager:
             )
             try:
                 instance = await provider.launch_instance(config)
-                return provider_name, instance
+                return provider_name, instance  # type: ignore[has-type]
             except Exception as e:
-                logger.warning(f"Failed to launch on {provider_name}: {e}")
+                logger.warning(f"Failed to launch on {provider_name}: {e}")  # type: ignore[has-type]
                 continue
-        
+
         return None
-    
+
     async def compare_costs(
         self,
         gpu_type: str,
@@ -163,20 +159,20 @@ class CloudGPUManager:
     ) -> list[CostEstimate]:
         """Compare costs across all providers for a GPU type."""
         estimates = []
-        
+
         for provider in self._providers.values():
             try:
                 estimate = await provider.get_cost_estimate(gpu_type, hours)
                 estimates.append(estimate)
             except Exception:
                 continue
-        
+
         estimates.sort(key=lambda x: x.price_per_hour)
         return estimates
-    
+
     async def get_all_instances(self) -> dict[str, list[Instance]]:
         """Get all instances from all providers."""
-        results = {}
+        results: dict[str, Any] = {}
         for name, provider in self._providers.items():
             try:
                 status = await provider.get_status()
@@ -185,7 +181,7 @@ class CloudGPUManager:
             except Exception:
                 continue
         return results
-    
+
     async def get_health_status(self) -> dict[str, dict[str, Any]]:
         """Get health status of all providers."""
         status = {}

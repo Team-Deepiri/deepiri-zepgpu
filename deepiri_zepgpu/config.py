@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import os
 from functools import lru_cache
-from pathlib import Path
 from typing import Literal
 
 from pydantic import Field
@@ -13,7 +11,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class DatabaseSettings(BaseSettings):
     """Database configuration."""
-    
+
     url: str = Field(default="postgresql+asyncpg://zepgpu:zepgpu@zepgpu-db:5432/zepgpu")
     sync_url: str = Field(default="postgresql://zepgpu:zepgpu@zepgpu-db:5432/zepgpu")
     pool_size: int = Field(default=10)
@@ -23,7 +21,7 @@ class DatabaseSettings(BaseSettings):
 
 class RedisSettings(BaseSettings):
     """Redis configuration."""
-    
+
     url: str = Field(default="redis://localhost:6379/0")
     celery_broker_url: str = Field(default="redis://localhost:6379/1")
     celery_result_backend: str = Field(default="redis://localhost:6379/2")
@@ -31,7 +29,7 @@ class RedisSettings(BaseSettings):
 
 class S3Settings(BaseSettings):
     """S3/MinIO configuration."""
-    
+
     endpoint_url: str = Field(default="http://localhost:9000")
     access_key: str = Field(default="minioadmin")
     secret_key: str = Field(default="minioadmin")
@@ -42,7 +40,7 @@ class S3Settings(BaseSettings):
 
 class APISettings(BaseSettings):
     """API server configuration."""
-    
+
     host: str = Field(default="0.0.0.0")
     port: int = Field(default=8000)
     workers: int = Field(default=4)
@@ -55,7 +53,7 @@ class APISettings(BaseSettings):
 
 class GPUSettings(BaseSettings):
     """GPU configuration."""
-    
+
     visible_devices: str = Field(default="0,1")
     memory_reserve_mb: int = Field(default=1024)
     monitor_interval_seconds: float = Field(default=5.0)
@@ -64,7 +62,7 @@ class GPUSettings(BaseSettings):
 
 class AuthSettings(BaseSettings):
     """Authentication configuration."""
-    
+
     secret_key: str = Field(default="changeme-in-production")
     algorithm: str = Field(default="HS256")
     access_token_expire_minutes: int = Field(default=1440)
@@ -73,7 +71,7 @@ class AuthSettings(BaseSettings):
 
 class ScheduleSettings(BaseSettings):
     """Scheduled task configuration."""
-    
+
     beat_schedule_db: str = Field(default="redis://localhost:6379/3")
     beat_sync_interval_seconds: int = Field(default=60)
     max_consecutive_failures: int = Field(default=5)
@@ -82,7 +80,7 @@ class ScheduleSettings(BaseSettings):
 
 class CloudSettings(BaseSettings):
     """Cloud provider configuration."""
-    
+
     enabled: bool = Field(default=False)
     auto_scale: bool = Field(default=False)
     max_cloud_gpus: int = Field(default=8)
@@ -119,11 +117,17 @@ class LedgerSettings(BaseSettings):
     # Raw URL-safe base64 Ed25519 private key. If empty, derived from auth.secret_key.
     validator_private_key: str = Field(default="")
     record_local_completions: bool = Field(default=True)
+    # Week 2: multi-validator quorum (1 = single-relay week-1 behavior)
+    quorum_threshold: int = Field(default=1)
+    # Comma-separated extra Ed25519 private keys for additional PoA validators (dev/demo)
+    extra_validator_private_keys: str = Field(default="")
+    # Auto-create per-VPN-network chains on network create
+    isolate_vpn_networks: bool = Field(default=True)
 
 
 class Settings(BaseSettings):
     """Main settings class."""
-    
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -131,7 +135,7 @@ class Settings(BaseSettings):
         extra="ignore",
         env_nested_delimiter="__",
     )
-    
+
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
     redis: RedisSettings = Field(default_factory=RedisSettings)
     s3: S3Settings = Field(default_factory=S3Settings)
@@ -142,17 +146,17 @@ class Settings(BaseSettings):
     cloud: CloudSettings = Field(default_factory=CloudSettings)
     vpn: VPNSettings = Field(default_factory=VPNSettings)
     ledger: LedgerSettings = Field(default_factory=LedgerSettings)
-    
+
     app_name: str = Field(default="zepgpu")
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(default="INFO")
     environment: Literal["development", "staging", "production"] = Field(default="development")
-    
+
     max_concurrent_tasks: int = Field(default=10)
     default_timeout_seconds: int = Field(default=3600)
     default_gpu_memory_mb: int = Field(default=1024)
 
 
-@lru_cache()
+@lru_cache
 def get_settings() -> Settings:
     """Get cached settings instance."""
     return Settings()

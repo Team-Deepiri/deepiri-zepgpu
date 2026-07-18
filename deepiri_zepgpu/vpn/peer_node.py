@@ -7,7 +7,6 @@ import base64
 import pickle
 import time
 from datetime import datetime
-from typing import Optional
 
 import httpx
 from fastapi import FastAPI, HTTPException
@@ -20,13 +19,13 @@ app = FastAPI(title="ZepGPU Peer Node")
 
 class GpuInfo(BaseModel):
     device_index: int
-    name: Optional[str] = None
+    name: str | None = None
     total_memory_mb: int
     available_memory_mb: int
-    compute_capability: Optional[str] = None
+    compute_capability: str | None = None
     gpu_type: str = "nvidia"
     state: str = "idle"
-    utilization_percent: Optional[float] = None
+    utilization_percent: float | None = None
 
 
 class TaskPayload(BaseModel):
@@ -42,10 +41,15 @@ class TaskPayload(BaseModel):
 class TaskResult(BaseModel):
     task_id: str
     success: bool
-    result_encoded: Optional[str] = None
-    error: Optional[str] = None
-    traceback: Optional[str] = None
+    result_encoded: str | None = None
+    error: str | None = None
+    traceback: str | None = None
     execution_time: float = 0.0
+    # Week-2 peer attestation fields
+    peer_id: str | None = None
+    result_digest: str | None = None
+    attestation_signature: str | None = None
+    ledger_public_key: str | None = None
 
 
 _task_results: dict[str, TaskResult] = {}
@@ -53,10 +57,13 @@ _local_gpus: list[GpuInfo] = []
 _relay_url: str = ""
 _peer_id: str = ""
 _vpn_ip: str = ""
+_ledger_private_key: str = ""
+_ledger_public_key: str = ""
 
 
 try:
     import pynvml
+
     PYNVML_AVAILABLE = True
 except ImportError:
     PYNVML_AVAILABLE = False
@@ -84,13 +91,15 @@ def discover_local_gpus() -> list[GpuInfo]:
             except Exception:
                 cc_str = "0.0"
 
-            gpus.append(GpuInfo(
-                device_index=i,
-                name=name,
-                total_memory_mb=total_mb,
-                available_memory_mb=free_mb,
-                compute_capability=cc_str,
-            ))
+            gpus.append(
+                GpuInfo(
+                    device_index=i,
+                    name=name,
+                    total_memory_mb=total_mb,
+                    available_memory_mb=free_mb,
+                    compute_capability=cc_str,
+                )
+            )
         pynvml.nvmlShutdown()
     except Exception:
         pass
@@ -111,12 +120,14 @@ async def gpu_status():
 @app.post("/execute", response_model=TaskResult)
 async def execute_task(payload: TaskPayload):
     start_time = time.time()
+    result_digest = None
     try:
         func = pickle.loads(base64.b64decode(payload.func_encoded))
         args = pickle.loads(base64.b64decode(payload.args_encoded))
         kwargs = pickle.loads(base64.b64decode(payload.kwargs_encoded))
 
         import os
+
         old_cuda = os.environ.get("CUDA_VISIBLE_DEVICES")
         os.environ["CUDA_VISIBLE_DEVICES"] = str(payload.gpu_device_id)
 
@@ -133,15 +144,21 @@ async def execute_task(payload: TaskPayload):
                 os.environ["CUDA_VISIBLE_DEVICES"] = old_cuda
 
         result_encoded = base64.b64encode(pickle.dumps(result)).decode()
+        from deepiri_zepgpu.compute_ledger.hashing import sha256_hex
+
+        result_digest = sha256_hex(result_encoded)
         execution_time = time.time() - start_time
         task_result = TaskResult(
             task_id=payload.task_id,
             success=True,
             result_encoded=result_encoded,
             execution_time=execution_time,
+            peer_id=_peer_id or None,
+            result_digest=result_digest,
         )
     except Exception as e:
         import traceback
+
         execution_time = time.time() - start_time
         task_result = TaskResult(
             task_id=payload.task_id,
@@ -149,7 +166,23 @@ async def execute_task(payload: TaskPayload):
             error=str(e),
             traceback=traceback.format_exc(),
             execution_time=execution_time,
+            peer_id=_peer_id or None,
         )
+
+    # Sign attestation when peer ledger key is configured
+    if _ledger_private_key and _peer_id:
+        from deepiri_zepgpu.compute_ledger.keys import sign_message
+        from deepiri_zepgpu.compute_ledger.service import hash_result_attestation
+
+        digest = hash_result_attestation(
+            task_id=task_result.task_id,
+            peer_id=_peer_id,
+            success=task_result.success,
+            execution_time=task_result.execution_time,
+            result_digest=task_result.result_digest,
+        )
+        task_result.attestation_signature = sign_message(_ledger_private_key, digest)
+        task_result.ledger_public_key = _ledger_public_key or None
 
     _task_results[payload.task_id] = task_result
     return task_result
@@ -187,14 +220,26 @@ async def advertise_gpus_to_relay():
         await asyncio.sleep(vpn_settings.heartbeat_interval_seconds)
 
 
-async def start_peer_server(relay_url: str, peer_id: str, vpn_ip: str):
+async def start_peer_server(
+    relay_url: str,
+    peer_id: str,
+    vpn_ip: str,
+    *,
+    ledger_private_key: str = "",
+    ledger_public_key: str = "",
+):
     """Start the peer node server."""
-    global _relay_url, _peer_id, _vpn_ip
+    global _relay_url, _peer_id, _vpn_ip, _ledger_private_key, _ledger_public_key
     _relay_url = relay_url
     _peer_id = peer_id
     _vpn_ip = vpn_ip
+    _ledger_private_key = ledger_private_key
+    _ledger_public_key = ledger_public_key
 
     import uvicorn
-    config = uvicorn.Config(app, host=vpn_ip, port=vpn_settings.peer_server_port, log_level="warning")
+
+    config = uvicorn.Config(
+        app, host=vpn_ip, port=vpn_settings.peer_server_port, log_level="warning"
+    )
     server = uvicorn.Server(config)
     await server.serve()

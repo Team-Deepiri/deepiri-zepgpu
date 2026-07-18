@@ -1,0 +1,38 @@
+{
+  "block": {
+    "approvals": 1,
+    "hash": "3ad946119b8290dbc9a31aec3f2d7141a89f168268bf418e7c2098c3f6b27f87",
+    "height": 1,
+    "transactions_root": "0eb1ae3e922694de79c6054c9b6ae982b54ff409245fa064eca853c7be30efe1"
+  },
+  "canonical_json": "{\"a\":1,\"b\":2}",
+  "keypair": {
+    "public_key": "2EHSK9WeKiyannaLVGMh__1mhtYxKqE8pletA5vSmhI="
+  },
+  "merkle": {
+    "leaves": [
+      "d2dbf006f96dd05044a8f63d8f118f23925ba4cc5750f8b6c8e287fd506c8188",
+      "4140bf0e8569ed03ec838871ff2f190e9b3ea86bc083d7e9901049f75f00e855",
+      "649837ddcb7e1967086d7d35aaef7b975c513815d96fc6e70015e93a2bfe0f9a",
+      "9fde56c376760bd399b82eb8569229a2dff19219411ac71154dfeab2cf502454",
+      "697f943b9ec5f90eddda8ae7473f5eb688187e3467f312fefa8677dde255042c"
+    ],
+    "proof_count": 5,
+    "proofs_valid": true,
+    "root": "fa57cc22cac0962c44e370f83bcc1637a3b93a62bfe42498a67c1fd49690ceba"
+  },
+  "seed": "zepgpu-revolution-golden-v1",
+  "sha256_hello": "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+  "signature": {
+    "message": "zepgpu-attest-v1",
+    "rejects_tamper": true,
+    "signature": "4cWVsifD9aEovSHdFgk8yrIZo0whxdvy7Bh8cAz1Rz0Mjrl2ZMmZAdDs0Xhccw1SRI9Dk4VAxf4HZUxO78JQAA==",
+    "verifies": true
+  },
+  "transaction": {
+    "hash": "0eb1ae3e922694de79c6054c9b6ae982b54ff409245fa064eca853c7be30efe1",
+    "signature_valid": true,
+    "tx_type": "JOB_COMPLETED"
+  },
+  "version": 1
+}

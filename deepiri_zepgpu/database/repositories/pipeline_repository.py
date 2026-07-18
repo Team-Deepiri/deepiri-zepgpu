@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
-from typing import Any, Sequence
+from collections.abc import Sequence
+from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,7 +16,7 @@ from deepiri_zepgpu.database.models.pipeline import Pipeline, PipelineStatus
 class PipelineRepository:
     """Repository for Pipeline database operations."""
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
     async def create(
@@ -24,7 +25,7 @@ class PipelineRepository:
         name: str,
         stages: list[dict[str, Any]],
         description: str | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> Pipeline:
         """Create a new pipeline."""
         pipeline = Pipeline(
@@ -42,17 +43,12 @@ class PipelineRepository:
 
     async def get_by_id(self, pipeline_id: str) -> Pipeline | None:
         """Get pipeline by ID."""
-        result = await self.session.execute(
-            select(Pipeline).where(Pipeline.id == pipeline_id)
-        )
+        result = await self.session.execute(select(Pipeline).where(Pipeline.id == pipeline_id))
         return result.scalar_one_or_none()
 
     async def get_by_id_with_user(self, pipeline_id: str) -> Pipeline | None:
         """Get pipeline by ID with user loaded."""
-        result = await self.session.execute(
-            select(Pipeline)
-            .where(Pipeline.id == pipeline_id)
-        )
+        result = await self.session.execute(select(Pipeline).where(Pipeline.id == pipeline_id))
         return result.scalar_one_or_none()
 
     async def list_by_user(
@@ -64,12 +60,12 @@ class PipelineRepository:
     ) -> Sequence[Pipeline]:
         """List pipelines for a user."""
         query = select(Pipeline).where(Pipeline.user_id == user_id)
-        
+
         if status:
             query = query.where(Pipeline.status == status)
-        
+
         query = query.order_by(Pipeline.created_at.desc()).limit(limit).offset(offset)
-        
+
         result = await self.session.execute(query)
         return result.scalars().all()
 
@@ -77,24 +73,24 @@ class PipelineRepository:
         self,
         pipeline_id: str,
         status: PipelineStatus,
-        **kwargs,
+        **kwargs: Any,
     ) -> Pipeline | None:
         """Update pipeline status."""
         pipeline = await self.get_by_id(pipeline_id)
         if not pipeline:
             return None
-        
+
         pipeline.status = status
-        
+
         if status == PipelineStatus.RUNNING:
-            pipeline.started_at = datetime.utcnow()
+            pipeline.started_at = datetime.now(UTC)
         elif status in [PipelineStatus.COMPLETED, PipelineStatus.FAILED, PipelineStatus.CANCELLED]:
-            pipeline.completed_at = datetime.utcnow()
-        
+            pipeline.completed_at = datetime.now(UTC)
+
         for key, value in kwargs.items():
             if hasattr(pipeline, key):
                 setattr(pipeline, key, value)
-        
+
         await self.session.flush()
         return pipeline
 
@@ -109,22 +105,22 @@ class PipelineRepository:
         pipeline = await self.get_by_id(pipeline_id)
         if not pipeline:
             return None
-        
+
         if pipeline.stage_statuses is None:
             pipeline.stage_statuses = {}
-        
+
         pipeline.stage_statuses[stage_name] = stage_status
-        
+
         if result is not None:
             if pipeline.stage_results is None:
                 pipeline.stage_results = {}
             pipeline.stage_results[stage_name] = result
-        
+
         if stage_status == "completed":
             pipeline.completed_stages += 1
-        
+
         pipeline.current_stage = stage_name
-        
+
         await self.session.flush()
         return pipeline
 
@@ -157,7 +153,7 @@ class PipelineRepository:
         pipeline = await self.get_by_id(pipeline_id)
         if not pipeline:
             return False
-        
+
         await self.session.delete(pipeline)
         await self.session.flush()
         return True

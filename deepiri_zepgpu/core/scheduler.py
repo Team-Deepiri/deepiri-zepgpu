@@ -5,16 +5,15 @@ from __future__ import annotations
 import asyncio
 import heapq
 import threading
-import time
-import uuid
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
-from typing import Any, Callable, Optional
+from typing import Any
 
-from deepiri_zepgpu.core.task import Task, TaskPriority, TaskResources, TaskStatus
-from deepiri_zepgpu.core.gpu_manager import GPUManager, GPUDevice
+from deepiri_zepgpu.core.gpu_manager import GPUManager
+from deepiri_zepgpu.core.task import Task, TaskStatus
 
 try:
     from deepiri_zepgpu.vpn.gpu_pool import GpuPoolAggregator, RemoteGPUDevice
@@ -25,6 +24,7 @@ except ImportError:  # pragma: no cover
 
 class SchedulingPolicy(Enum):
     """Task scheduling policies."""
+
     FIFO = "fifo"
     PRIORITY = "priority"
     FAIR_SHARE = "fair_share"
@@ -35,6 +35,7 @@ class SchedulingPolicy(Enum):
 @dataclass
 class QueueStats:
     """Statistics for task queues."""
+
     total_tasks: int = 0
     pending_tasks: int = 0
     running_tasks: int = 0
@@ -42,12 +43,13 @@ class QueueStats:
     failed_tasks: int = 0
     average_wait_time: float = 0.0
     average_execution_time: float = 0.0
-    last_updated: datetime = field(default_factory=datetime.utcnow)
+    last_updated: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass(order=True)
 class PriorityTaskItem:
     """Priority queue item with ordering."""
+
     priority: int
     created_at: float
     task_id: str = field(compare=False)
@@ -63,7 +65,7 @@ class TaskScheduler:
         policy: SchedulingPolicy = SchedulingPolicy.PRIORITY,
         max_concurrent_tasks: int = 10,
         enable_preemption: bool = False,
-        gpu_pool: Optional["GpuPoolAggregator"] = None,
+        gpu_pool: GpuPoolAggregator | None = None,
     ):
         self._gpu_manager = gpu_manager
         self._gpu_pool = gpu_pool
@@ -85,7 +87,7 @@ class TaskScheduler:
         )
 
         self._lock = threading.RLock()
-        self._scheduler_task: Optional[asyncio.Task] = None
+        self._scheduler_task: asyncio.Task | None = None
         self._stop_event = asyncio.Event()
         self._stats = QueueStats()
 
@@ -111,18 +113,15 @@ class TaskScheduler:
             task.status = TaskStatus.QUEUED
             task_id = task.task_id
 
-            priority_value = (
-                (6 - task.priority.value) * 1_000_000_000 +
-                task.created_at.timestamp()
-            )
+            priority_value = (6 - task.priority.value) * 1_000_000_000 + task.created_at.timestamp()
             heapq.heappush(
                 self._pending_queue,
                 PriorityTaskItem(
-                    priority=priority_value,
+                    priority=priority_value,  # type: ignore[arg-type]
                     created_at=task.created_at.timestamp(),
                     task_id=task_id,
                     task=task,
-                )
+                ),
             )
 
             self._stats.pending_tasks += 1
@@ -131,14 +130,14 @@ class TaskScheduler:
 
         return task_id
 
-    def _check_user_quota(self, user_id: Optional[str]) -> bool:
+    def _check_user_quota(self, user_id: str | None) -> bool:
         """Check if user is within their quota."""
         uid = user_id or "default"
         usage = self._user_usage[uid]
         quota = self._user_quotas[uid]
         return (
-            usage["tasks_submitted"] < quota["max_tasks"] and
-            usage["gpu_seconds"] < quota["max_gpu_hours"] * 3600
+            usage["tasks_submitted"] < quota["max_tasks"]
+            and usage["gpu_seconds"] < quota["max_gpu_hours"] * 3600
         )
 
     def set_user_quota(
@@ -150,7 +149,7 @@ class TaskScheduler:
         """Set quota for a user."""
         self._user_quotas[user_id] = {
             "max_tasks": max_tasks,
-            "max_gpu_hours": max_gpu_hours,
+            "max_gpu_hours": max_gpu_hours,  # type: ignore[dict-item]
         }
 
     def cancel_task(self, task_id: str) -> bool:
@@ -177,22 +176,22 @@ class TaskScheduler:
 
         return False
 
-    def get_task(self, task_id: str) -> Optional[Task]:
+    def get_task(self, task_id: str) -> Task | None:
         """Get task by ID."""
         with self._lock:
             for item in self._pending_queue:
                 if item.task_id == task_id:
                     return item.task
             return (
-                self._running_tasks.get(task_id) or
-                self._completed_tasks.get(task_id) or
-                self._failed_tasks.get(task_id)
+                self._running_tasks.get(task_id)
+                or self._completed_tasks.get(task_id)
+                or self._failed_tasks.get(task_id)
             )
 
     def list_tasks(
         self,
-        user_id: Optional[str] = None,
-        status: Optional[TaskStatus] = None,
+        user_id: str | None = None,
+        status: TaskStatus | None = None,
     ) -> list[Task]:
         """List tasks with optional filtering."""
         with self._lock:
@@ -245,9 +244,13 @@ class TaskScheduler:
                 task = item.task
 
                 if self._gpu_pool is not None:
+                    room_id = getattr(task, "room_id", None)
+                    remote_only = bool(room_id)
                     device = self._gpu_pool.get_available_device(
                         required_memory_mb=task.resources.gpu_memory_mb,
                         gpu_type=task.resources.gpu_type,
+                        room_id=room_id,
+                        remote_only=remote_only,
                     )
                 else:
                     device = self._gpu_manager.get_available_device(
@@ -295,7 +298,7 @@ class TaskScheduler:
             task = self._running_tasks.get(task_id)
             if task:
                 task.status = TaskStatus.RUNNING
-                task.started_at = datetime.utcnow()
+                task.started_at = datetime.now(UTC)
 
     def mark_task_completed(
         self,
@@ -307,7 +310,7 @@ class TaskScheduler:
             task = self._running_tasks.pop(task_id, None)
             if task:
                 task.status = TaskStatus.COMPLETED
-                task.completed_at = datetime.utcnow()
+                task.completed_at = datetime.now(UTC)
                 task.result = result
                 self._completed_tasks[task_id] = task
                 self._stats.running_tasks -= 1
@@ -320,14 +323,14 @@ class TaskScheduler:
         self,
         task_id: str,
         error: str,
-        traceback: Optional[str] = None,
+        traceback: str | None = None,
     ) -> None:
         """Mark task as failed."""
         with self._lock:
             task = self._running_tasks.pop(task_id, None)
             if task:
                 task.status = TaskStatus.FAILED
-                task.completed_at = datetime.utcnow()
+                task.completed_at = datetime.now(UTC)
                 task.error = error
                 task.traceback = traceback
                 self._failed_tasks[task_id] = task
@@ -360,18 +363,21 @@ class TaskScheduler:
             exec_time = (task.completed_at - task.started_at).total_seconds()
             total_completed = self._stats.completed_tasks
             self._stats.average_execution_time = (
-                (self._stats.average_execution_time * (total_completed - 1) + exec_time) /
-                total_completed if total_completed > 0 else exec_time
+                (self._stats.average_execution_time * (total_completed - 1) + exec_time)
+                / total_completed
+                if total_completed > 0
+                else exec_time
             )
 
             wait_time = (task.started_at - task.created_at).total_seconds()
             total_finished = self._stats.completed_tasks + self._stats.failed_tasks
             self._stats.average_wait_time = (
-                (self._stats.average_wait_time * (total_finished - 1) + wait_time) /
-                total_finished if total_finished > 0 else wait_time
+                (self._stats.average_wait_time * (total_finished - 1) + wait_time) / total_finished
+                if total_finished > 0
+                else wait_time
             )
 
-        self._stats.last_updated = datetime.utcnow()
+        self._stats.last_updated = datetime.now(UTC)
 
     def _notify_callback(self, task: Task) -> None:
         """Notify registered callback for task."""

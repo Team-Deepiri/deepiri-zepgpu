@@ -5,22 +5,20 @@ from __future__ import annotations
 import asyncio
 import os
 import platform
-import secrets
 import subprocess
 import sys
 from pathlib import Path
-from typing import Optional
 
 try:
     import click
+
     HAS_CLICK = True
 except ImportError:
     HAS_CLICK = False
 
+import contextlib
+
 from deepiri_zepgpu.vpn.config import vpn_settings
-from deepiri_zepgpu.vpn.keygen import generate_keypair
-from deepiri_zepgpu.vpn.wg_config import generate_peer_config, generate_relay_config
-from deepiri_zepgpu.vpn.crypto import encrypt_value, decrypt_value
 
 
 def vpn_api_url(relay_url: str, path: str) -> str:
@@ -43,13 +41,11 @@ def save_peer_registration(peer_id: str, relay_url: str) -> None:
 
     path = peer_state_path()
     path.write_text(json.dumps({"peer_id": peer_id, "relay_url": relay_url}, indent=2))
-    try:
+    with contextlib.suppress(OSError):
         os.chmod(path, 0o600)
-    except OSError:
-        pass
 
 
-def load_peer_id() -> Optional[str]:
+def load_peer_id() -> str | None:
     import json
 
     p = peer_state_path()
@@ -57,7 +53,7 @@ def load_peer_id() -> Optional[str]:
         return None
     try:
         data = json.loads(p.read_text())
-        return data.get("peer_id")
+        return data.get("peer_id")  # type: ignore[no-any-return]
     except Exception:
         return None
 
@@ -100,7 +96,9 @@ def apply_wireguard_config(config_text: str, interface: str = "wg0") -> bool:
             text=True,
         )
         if result.returncode != 0:
-            subprocess.run(["ln", "-sf", str(conf_path), f"/etc/wireguard/{interface}.conf"], check=True)
+            subprocess.run(
+                ["ln", "-sf", str(conf_path), f"/etc/wireguard/{interface}.conf"], check=True
+            )
             result = subprocess.run(
                 ["wg-quick", "up", f"/etc/wireguard/{interface}.conf"],
                 capture_output=True,
@@ -112,7 +110,10 @@ def apply_wireguard_config(config_text: str, interface: str = "wg0") -> bool:
         return True
 
     else:
-        print("WireGuard on Windows not yet supported via CLI. Please import the .conf file manually.", file=sys.stderr)
+        print(
+            "WireGuard on Windows not yet supported via CLI. Please import the .conf file manually.",
+            file=sys.stderr,
+        )
         print(f"Config saved to: {conf_path}", file=sys.stderr)
         return False
 
@@ -131,7 +132,7 @@ def remove_wireguard_config(interface: str = "wg0") -> bool:
     return False
 
 
-def get_vpn_ip() -> Optional[str]:
+def get_vpn_ip() -> str | None:
     """Get the current VPN IP address."""
     if is_linux():
         result = subprocess.run(
@@ -177,8 +178,9 @@ def install_wireguard() -> bool:
 
 
 if HAS_CLICK:
+
     @click.group()
-    def vpn():
+    def vpn() -> None:
         """ZepGPU VPN - GPU sharing network management."""
         pass
 
@@ -194,7 +196,14 @@ if HAS_CLICK:
         help="Bearer token for relay API (required for --code)",
     )
     @click.option("--gpu-host", is_flag=True, help="Register as GPU host when using --code")
-    def join(config, code, relay_url, interface, api_token, gpu_host):
+    def join(  # noqa: C901
+        config: str | None,
+        code: str | None,
+        relay_url: str,
+        interface: str,
+        api_token: str | None,
+        gpu_host: bool,
+    ) -> None:
         """Join a VPN network."""
         if not check_wireguard_installed():
             print("WireGuard is not installed.")
@@ -258,7 +267,7 @@ if HAS_CLICK:
 
     @vpn.command()
     @click.option("--interface", default="wg0", help="WireGuard interface name")
-    def leave(interface):
+    def leave(interface: str) -> None:
         """Leave the current VPN network."""
         if remove_wireguard_config(interface):
             print(f"Disconnected from VPN ({interface})")
@@ -268,7 +277,7 @@ if HAS_CLICK:
 
     @vpn.command()
     @click.option("--interface", default="wg0", help="WireGuard interface name")
-    def status(interface):
+    def status(interface: str) -> None:
         """Show VPN connection status."""
         if is_linux():
             result = subprocess.run(["wg", "show", interface], capture_output=True, text=True)
@@ -297,7 +306,7 @@ if HAS_CLICK:
         default=None,
         help="Peer UUID from join response (or saved in peer_state.json)",
     )
-    def advertise(relay_url, interface, peer_id):
+    def advertise(relay_url: str, interface: str, peer_id: str | None) -> None:
         """Advertise local GPUs to the relay server."""
         if not check_wireguard_installed():
             print("WireGuard is not installed.")
@@ -322,14 +331,18 @@ if HAS_CLICK:
         print(f"GPU advertise server will run on port {vpn_settings.gpu_advertise_port}")
         print("Press Ctrl+C to stop advertising.")
 
-        from deepiri_zepgpu.vpn.peer_node import discover_local_gpus
         import httpx
 
-        async def advertise_loop():
+        from deepiri_zepgpu.vpn.peer_node import discover_local_gpus
+
+        async def advertise_loop() -> None:
             while True:
                 gpus = discover_local_gpus()
                 if gpus:
-                    print(f"  Found {len(gpus)} GPU(s): " + ", ".join(f"{g.name} ({g.total_memory_mb}MB)" for g in gpus))
+                    print(
+                        f"  Found {len(gpus)} GPU(s): "
+                        + ", ".join(f"{g.name} ({g.total_memory_mb}MB)" for g in gpus)
+                    )
                 try:
                     async with httpx.AsyncClient(timeout=10) as client:
                         await client.post(
@@ -351,7 +364,7 @@ if HAS_CLICK:
             print("\nStopped advertising GPUs.")
 
     @vpn.command()
-    def stop_advertise():
+    def stop_advertise() -> None:
         """Stop advertising local GPUs."""
         print("GPU advertising stopped.")
         print("(In production, this would send an offline signal to the relay)")
@@ -364,7 +377,7 @@ if HAS_CLICK:
         default=None,
         help="Bearer token (required to read gpu-pool from relay)",
     )
-    def list_gpus(relay_url, api_token):
+    def list_gpus(relay_url: str, api_token: str | None) -> None:
         """List GPUs available in the network pool."""
         import httpx
 
@@ -379,15 +392,17 @@ if HAS_CLICK:
             )
             response.raise_for_status()
             data = response.json()
-            print(f"GPU Pool Summary:")
+            print("GPU Pool Summary:")
             print(f"  Total GPUs: {data['total_gpus']}")
             print(f"  Total Memory: {data['total_memory_mb'] // 1024}GB")
             print(f"  Available Memory: {data['available_memory_mb'] // 1024}GB")
             print(f"  Online Peers: {data['online_peers']}")
             print(f"  Online GPU Hosts: {data['online_gpu_hosts']}")
-            print(f"\nGPU Breakdown:")
+            print("\nGPU Breakdown:")
             for gpu in data.get("gpu_breakdown", []):
-                print(f"  [{gpu['username']}] {gpu['name']} - {gpu['total_memory_mb'] // 1024}GB - {gpu['state']}")
+                print(
+                    f"  [{gpu['username']}] {gpu['name']} - {gpu['total_memory_mb'] // 1024}GB - {gpu['state']}"
+                )
         except Exception as e:
             print(f"Failed to fetch GPU pool: {e}", file=sys.stderr)
             sys.exit(1)
@@ -397,7 +412,7 @@ class VPNCLI:
     """VPN CLI command group."""
 
     @staticmethod
-    def register(parent_cli):
+    def register(parent_cli: click.Group) -> None:
         if not HAS_CLICK:
             return
         parent_cli.add_command(vpn)

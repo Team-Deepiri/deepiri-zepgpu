@@ -3,31 +3,32 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta
-from typing import Any, Sequence
+from collections.abc import Sequence
+from datetime import UTC, datetime
+from typing import Any
 
-from sqlalchemy import and_, func, select, update
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from deepiri_zepgpu.database.models.namespace import (
     Namespace,
-    NamespaceStatus,
     NamespaceMember,
-    TeamRole,
+    NamespaceQuota,
+    NamespaceStatus,
+    NamespaceUsage,
     Team,
     TeamMember,
-    NamespaceQuota,
-    NamespaceUsage,
+    TeamRole,
 )
 
 
 class NamespaceRepository:
     """Repository for Namespace database operations."""
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def create(self, **kwargs) -> Namespace:
+    async def create(self, **kwargs: Any) -> Namespace:
         """Create a new namespace."""
         namespace = Namespace(id=str(uuid.uuid4()), **kwargs)
         self.session.add(namespace)
@@ -36,23 +37,17 @@ class NamespaceRepository:
 
     async def get_by_id(self, namespace_id: str) -> Namespace | None:
         """Get namespace by ID."""
-        result = await self.session.execute(
-            select(Namespace).where(Namespace.id == namespace_id)
-        )
+        result = await self.session.execute(select(Namespace).where(Namespace.id == namespace_id))
         return result.scalar_one_or_none()
 
     async def get_by_name(self, name: str) -> Namespace | None:
         """Get namespace by name."""
-        result = await self.session.execute(
-            select(Namespace).where(Namespace.name == name)
-        )
+        result = await self.session.execute(select(Namespace).where(Namespace.name == name))
         return result.scalar_one_or_none()
 
     async def get_by_owner(self, owner_id: str) -> Sequence[Namespace]:
         """Get namespaces owned by a user."""
-        result = await self.session.execute(
-            select(Namespace).where(Namespace.owner_id == owner_id)
-        )
+        result = await self.session.execute(select(Namespace).where(Namespace.owner_id == owner_id))
         return result.scalars().all()
 
     async def list_all(
@@ -77,13 +72,13 @@ class NamespaceRepository:
             .where(
                 and_(
                     NamespaceMember.user_id == user_id,
-                    NamespaceMember.is_active == True,
+                    NamespaceMember.is_active.is_(True),
                 )
             )
         )
         return result.scalars().all()
 
-    async def update(self, namespace_id: str, **kwargs) -> Namespace | None:
+    async def update(self, namespace_id: str, **kwargs: Any) -> Namespace | None:
         """Update a namespace."""
         namespace = await self.get_by_id(namespace_id)
         if not namespace:
@@ -119,14 +114,14 @@ class NamespaceRepository:
 class NamespaceMemberRepository:
     """Repository for NamespaceMember database operations."""
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def create(self, **kwargs) -> NamespaceMember:
+    async def create(self, **kwargs: Any) -> NamespaceMember:
         """Create a new namespace member."""
         member = NamespaceMember(
             id=str(uuid.uuid4()),
-            joined_at=datetime.utcnow(),
+            joined_at=datetime.now(UTC),
             **kwargs,
         )
         self.session.add(member)
@@ -140,7 +135,9 @@ class NamespaceMemberRepository:
         )
         return result.scalar_one_or_none()
 
-    async def get_by_user_namespace(self, user_id: str, namespace_id: str) -> NamespaceMember | None:
+    async def get_by_user_namespace(
+        self, user_id: str, namespace_id: str
+    ) -> NamespaceMember | None:
         """Get member by user and namespace."""
         result = await self.session.execute(
             select(NamespaceMember).where(
@@ -211,10 +208,10 @@ class NamespaceMemberRepository:
 class TeamRepository:
     """Repository for Team database operations."""
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def create(self, **kwargs) -> Team:
+    async def create(self, **kwargs: Any) -> Team:
         """Create a new team."""
         team = Team(id=str(uuid.uuid4()), **kwargs)
         self.session.add(team)
@@ -223,9 +220,7 @@ class TeamRepository:
 
     async def get_by_id(self, team_id: str) -> Team | None:
         """Get team by ID."""
-        result = await self.session.execute(
-            select(Team).where(Team.id == team_id)
-        )
+        result = await self.session.execute(select(Team).where(Team.id == team_id))
         return result.scalar_one_or_none()
 
     async def get_by_namespace_name(self, namespace_id: str, name: str) -> Team | None:
@@ -243,13 +238,11 @@ class TeamRepository:
     async def list_by_namespace(self, namespace_id: str) -> Sequence[Team]:
         """List teams in a namespace."""
         result = await self.session.execute(
-            select(Team)
-            .where(Team.namespace_id == namespace_id)
-            .order_by(Team.name)
+            select(Team).where(Team.namespace_id == namespace_id).order_by(Team.name)
         )
         return result.scalars().all()
 
-    async def update(self, team_id: str, **kwargs) -> Team | None:
+    async def update(self, team_id: str, **kwargs: Any) -> Team | None:
         """Update a team."""
         team = await self.get_by_id(team_id)
         if not team:
@@ -273,14 +266,14 @@ class TeamRepository:
 class TeamMemberRepository:
     """Repository for TeamMember database operations."""
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def create(self, **kwargs) -> TeamMember:
+    async def create(self, **kwargs: Any) -> TeamMember:
         """Create a new team member."""
         member = TeamMember(
             id=str(uuid.uuid4()),
-            joined_at=datetime.utcnow(),
+            joined_at=datetime.now(UTC),
             **kwargs,
         )
         self.session.add(member)
@@ -289,25 +282,19 @@ class TeamMemberRepository:
 
     async def get_by_id(self, member_id: str) -> TeamMember | None:
         """Get member by ID."""
-        result = await self.session.execute(
-            select(TeamMember).where(TeamMember.id == member_id)
-        )
+        result = await self.session.execute(select(TeamMember).where(TeamMember.id == member_id))
         return result.scalar_one_or_none()
 
     async def list_by_team(self, team_id: str) -> Sequence[TeamMember]:
         """List members of a team."""
         result = await self.session.execute(
-            select(TeamMember)
-            .where(TeamMember.team_id == team_id)
-            .order_by(TeamMember.joined_at)
+            select(TeamMember).where(TeamMember.team_id == team_id).order_by(TeamMember.joined_at)
         )
         return result.scalars().all()
 
     async def list_by_user(self, user_id: str) -> Sequence[TeamMember]:
         """List teams for a user."""
-        result = await self.session.execute(
-            select(TeamMember).where(TeamMember.user_id == user_id)
-        )
+        result = await self.session.execute(select(TeamMember).where(TeamMember.user_id == user_id))
         return result.scalars().all()
 
     async def update_role(self, member_id: str, role: TeamRole) -> TeamMember | None:
@@ -332,15 +319,15 @@ class TeamMemberRepository:
 class NamespaceQuotaRepository:
     """Repository for NamespaceQuota database operations."""
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def create(self, **kwargs) -> NamespaceQuota:
+    async def create(self, **kwargs: Any) -> NamespaceQuota:
         """Create namespace quota."""
         quota = NamespaceQuota(
             id=str(uuid.uuid4()),
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
             **kwargs,
         )
         self.session.add(quota)
@@ -361,7 +348,7 @@ class NamespaceQuotaRepository:
             return quota
         return await self.create(namespace_id=namespace_id)
 
-    async def update(self, namespace_id: str, **kwargs) -> NamespaceQuota | None:
+    async def update(self, namespace_id: str, **kwargs: Any) -> NamespaceQuota | None:
         """Update namespace quota."""
         quota = await self.get_by_namespace(namespace_id)
         if not quota:
@@ -369,7 +356,7 @@ class NamespaceQuotaRepository:
         for key, value in kwargs.items():
             if hasattr(quota, key):
                 setattr(quota, key, value)
-        quota.updated_at = datetime.utcnow()
+        quota.updated_at = datetime.now(UTC)
         await self.session.flush()
         return quota
 
@@ -377,15 +364,15 @@ class NamespaceQuotaRepository:
 class NamespaceUsageRepository:
     """Repository for NamespaceUsage database operations."""
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def create(self, **kwargs) -> NamespaceUsage:
+    async def create(self, **kwargs: Any) -> NamespaceUsage:
         """Create namespace usage record."""
         usage = NamespaceUsage(
             id=str(uuid.uuid4()),
-            period_start=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            period_start=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
             **kwargs,
         )
         self.session.add(usage)
@@ -410,7 +397,7 @@ class NamespaceUsageRepository:
         """Increment current GPU count."""
         usage = await self.get_or_create(namespace_id)
         usage.current_gpus += delta
-        usage.updated_at = datetime.utcnow()
+        usage.updated_at = datetime.now(UTC)
         await self.session.flush()
         return usage
 
@@ -419,11 +406,13 @@ class NamespaceUsageRepository:
         usage = await self.get_or_create(namespace_id)
         usage.gpu_hours_today += hours
         usage.gpu_hours_this_month += hours
-        usage.updated_at = datetime.utcnow()
+        usage.updated_at = datetime.now(UTC)
         await self.session.flush()
         return usage
 
-    async def increment_tasks(self, namespace_id: str, task_type: str = "total") -> NamespaceUsage | None:
+    async def increment_tasks(
+        self, namespace_id: str, task_type: str = "total"
+    ) -> NamespaceUsage | None:
         """Increment task count."""
         usage = await self.get_or_create(namespace_id)
         if task_type == "total":
@@ -434,7 +423,7 @@ class NamespaceUsageRepository:
             usage.scheduled_tasks += 1
         elif task_type == "gang":
             usage.gang_tasks += 1
-        usage.updated_at = datetime.utcnow()
+        usage.updated_at = datetime.now(UTC)
         await self.session.flush()
         return usage
 
@@ -442,7 +431,7 @@ class NamespaceUsageRepository:
         """Decrement running task count."""
         usage = await self.get_or_create(namespace_id)
         usage.running_tasks = max(0, usage.running_tasks - 1)
-        usage.updated_at = datetime.utcnow()
+        usage.updated_at = datetime.now(UTC)
         await self.session.flush()
         return usage
 
@@ -450,7 +439,7 @@ class NamespaceUsageRepository:
         """Reset daily counters."""
         usage = await self.get_or_create(namespace_id)
         usage.gpu_hours_today = 0
-        usage.updated_at = datetime.utcnow()
+        usage.updated_at = datetime.now(UTC)
         await self.session.flush()
         return usage
 
@@ -459,7 +448,7 @@ class NamespaceUsageRepository:
         usage = await self.get_or_create(namespace_id)
         usage.gpu_hours_this_month = 0
         usage.gpu_hours_today = 0
-        usage.period_start = datetime.utcnow()
-        usage.updated_at = datetime.utcnow()
+        usage.period_start = datetime.now(UTC)
+        usage.updated_at = datetime.now(UTC)
         await self.session.flush()
         return usage

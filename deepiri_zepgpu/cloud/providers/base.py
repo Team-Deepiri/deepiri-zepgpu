@@ -4,14 +4,16 @@ from __future__ import annotations
 
 import uuid
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
 
 class CloudProviderType(str, Enum):
     """Cloud provider types."""
+
     RUNPOD = "runpod"
     AWS = "aws"
     LAMBDA_LABS = "lambda_labs"
@@ -22,6 +24,7 @@ class CloudProviderType(str, Enum):
 
 class InstanceStatus(str, Enum):
     """Cloud instance status."""
+
     PENDING = "pending"
     STARTING = "starting"
     RUNNING = "running"
@@ -33,6 +36,7 @@ class InstanceStatus(str, Enum):
 @dataclass
 class GPUInfo:
     """GPU information from cloud provider."""
+
     provider_instance_id: str
     name: str
     gpu_type: str
@@ -47,6 +51,7 @@ class GPUInfo:
 @dataclass
 class Instance:
     """Cloud GPU instance."""
+
     instance_id: str
     provider_type: CloudProviderType
     provider_instance_id: str
@@ -59,12 +64,13 @@ class Instance:
     stopped_at: datetime | None = None
     endpoint: str | None = None
     ssh_key_fingerprint: str | None = None
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass
 class LaunchConfig:
     """Configuration for launching a cloud GPU instance."""
+
     name: str
     gpu_type_id: str
     count: int = 1
@@ -81,6 +87,7 @@ class LaunchConfig:
 @dataclass
 class CostEstimate:
     """Cost estimate for cloud resources."""
+
     provider_type: CloudProviderType
     gpu_type: str
     gpu_count: int
@@ -91,57 +98,57 @@ class CostEstimate:
 
 class CloudProvider(ABC):
     """Abstract base class for cloud GPU providers."""
-    
+
     provider_type: CloudProviderType
     provider_name: str
-    
-    def __init__(self, config: dict[str, Any]):
+
+    def __init__(self, config: dict[str, Any]) -> None:
         self.config = config
-    
+
     @abstractmethod
     async def list_available_gpus(self) -> list[GPUInfo]:
         """List available GPU instances from provider."""
         pass
-    
+
     @abstractmethod
     async def launch_instance(self, config: LaunchConfig) -> Instance:
         """Launch a new GPU instance."""
         pass
-    
+
     @abstractmethod
     async def stop_instance(self, instance_id: str) -> bool:
         """Stop a GPU instance."""
         pass
-    
+
     @abstractmethod
     async def start_instance(self, instance_id: str) -> Instance:
         """Start a stopped instance."""
         pass
-    
+
     @abstractmethod
     async def get_instance(self, instance_id: str) -> Instance | None:
         """Get instance details."""
         pass
-    
+
     @abstractmethod
     async def delete_instance(self, instance_id: str) -> bool:
         """Delete an instance."""
         pass
-    
+
     @abstractmethod
     async def get_cost_estimate(self, gpu_type_id: str, hours: int = 1) -> CostEstimate:
         """Get cost estimate for a GPU type."""
         pass
-    
+
     @abstractmethod
     async def get_status(self) -> dict[str, Any]:
         """Get provider health/status."""
         pass
-    
+
     def supports_auto_scaling(self) -> bool:
         """Check if provider supports auto-scaling."""
         return False
-    
+
     def supports_spot_instances(self) -> bool:
         """Check if provider supports spot/preemptible instances."""
         return False
@@ -149,46 +156,52 @@ class CloudProvider(ABC):
 
 class CloudProviderRegistry:
     """Registry for cloud GPU providers."""
-    
+
     _providers: dict[CloudProviderType, type[CloudProvider]] = {}
     _instances: dict[str, CloudProvider] = {}
-    
+
     @classmethod
-    def register(cls, provider_type: CloudProviderType, provider_class: type[CloudProvider]) -> None:
+    def register(
+        cls, provider_type: CloudProviderType, provider_class: type[CloudProvider]
+    ) -> None:
         """Register a cloud provider."""
         cls._providers[provider_type] = provider_class
-    
+
     @classmethod
     def create(cls, provider_type: CloudProviderType, config: dict[str, Any]) -> CloudProvider:
         """Create a provider instance."""
         if provider_type not in cls._providers:
             raise ValueError(f"Unknown provider type: {provider_type}")
-        
+
         provider_class = cls._providers[provider_type]
         instance_id = f"{provider_type.value}-{uuid.uuid4().hex[:8]}"
         provider = provider_class(config)
         cls._instances[instance_id] = provider
         return provider
-    
+
     @classmethod
     def get_registered_providers(cls) -> list[CloudProviderType]:
         """Get list of registered provider types."""
         return list(cls._providers.keys())
-    
+
     @classmethod
     def list_instances(cls) -> dict[str, CloudProvider]:
         """List all provider instances."""
         return cls._instances.copy()
-    
+
     @classmethod
     def unregister_instance(cls, instance_id: str) -> None:
         """Unregister a provider instance."""
         cls._instances.pop(instance_id, None)
 
 
-def register_provider(provider_type: CloudProviderType):
+def register_provider(
+    provider_type: CloudProviderType,
+) -> Callable[[type[CloudProvider]], type[CloudProvider]]:
     """Decorator to register a cloud provider."""
+
     def decorator(cls: type[CloudProvider]) -> type[CloudProvider]:
         CloudProviderRegistry.register(provider_type, cls)
         return cls
+
     return decorator

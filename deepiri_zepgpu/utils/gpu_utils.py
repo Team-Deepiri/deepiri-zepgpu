@@ -2,24 +2,26 @@
 
 from __future__ import annotations
 
-import os
 import subprocess
-from typing import Any, Optional
+from typing import Any
 
 try:
     import pynvml
+
     PYNVML_AVAILABLE = True
 except ImportError:
     PYNVML_AVAILABLE = False
 
 try:
     import torch
+
     TORCH_AVAILABLE = True
 except ImportError:
     TORCH_AVAILABLE = False
 
 try:
-    import cupy as cp
+    import cupy as cp  # noqa: F401
+
     CUPY_AVAILABLE = True
 except ImportError:
     CUPY_AVAILABLE = False
@@ -27,10 +29,11 @@ except ImportError:
 
 def get_gpu_info() -> dict[str, Any]:
     """Get information about available GPUs."""
-    info = {
+    gpus: list[dict[str, Any]] = []
+    info: dict[str, Any] = {
         "cuda_available": False,
         "gpu_count": 0,
-        "gpus": [],
+        "gpus": gpus,
         "torch_available": TORCH_AVAILABLE,
         "cupy_available": CUPY_AVAILABLE,
     }
@@ -45,7 +48,7 @@ def get_gpu_info() -> dict[str, Any]:
                     "name": torch.cuda.get_device_name(i),
                     "total_memory": torch.cuda.get_device_properties(i).total_memory,
                 }
-                info["gpus"].append(gpu_info)
+                gpus.append(gpu_info)
 
     elif PYNVML_AVAILABLE:
         try:
@@ -64,7 +67,7 @@ def get_gpu_info() -> dict[str, Any]:
                     "free_memory": memory.free,
                     "used_memory": memory.used,
                 }
-                info["gpus"].append(gpu_info)
+                gpus.append(gpu_info)
 
             pynvml.nvmlShutdown()
         except Exception:
@@ -81,7 +84,8 @@ def get_gpu_memory_info(device_id: int = 0) -> dict[str, int]:
             "total": torch.cuda.get_device_properties(device_id).total_memory,
             "allocated": torch.cuda.memory_allocated(device_id),
             "cached": torch.cuda.memory_reserved(device_id),
-            "free": torch.cuda.get_device_properties(device_id).total_memory - torch.cuda.memory_allocated(device_id),
+            "free": torch.cuda.get_device_properties(device_id).total_memory
+            - torch.cuda.memory_allocated(device_id),
         }
 
     return {"total": 0, "allocated": 0, "cached": 0, "free": 0}
@@ -92,11 +96,11 @@ def format_memory(bytes: int) -> str:
     for unit in ["B", "KB", "MB", "GB", "TB"]:
         if bytes < 1024.0:
             return f"{bytes:.2f}{unit}"
-        bytes /= 1024.0
+        bytes /= 1024.0  # type: ignore[assignment]
     return f"{bytes:.2f}PB"
 
 
-def check_cuda_version() -> Optional[str]:
+def check_cuda_version() -> str | None:
     """Check CUDA version."""
     try:
         result = subprocess.run(
@@ -113,7 +117,7 @@ def check_cuda_version() -> Optional[str]:
     return None
 
 
-def check_nvidia_driver() -> Optional[str]:
+def check_nvidia_driver() -> str | None:
     """Check NVIDIA driver version."""
     if not PYNVML_AVAILABLE:
         return None
@@ -122,7 +126,7 @@ def check_nvidia_driver() -> Optional[str]:
         pynvml.nvmlInit()
         driver_version = pynvml.nvmlSystemGetDriverVersion()
         pynvml.nvmlShutdown()
-        return driver_version
+        return driver_version  # type: ignore[no-any-return]
     except Exception:
         return None
 
@@ -154,7 +158,7 @@ class GPUContext:
         self._device_id = device_id
         self._previous_device = None
 
-    def __enter__(self) -> "GPUContext":
+    def __enter__(self) -> GPUContext:
         if TORCH_AVAILABLE and torch.cuda.is_available():
             self._previous_device = torch.cuda.current_device()
             torch.cuda.set_device(self._device_id)
@@ -166,7 +170,7 @@ class GPUContext:
             self._previous_device = None
 
 
-def detect_gpu_architecture() -> Optional[str]:
+def detect_gpu_architecture() -> str | None:
     """Detect GPU architecture."""
     if not TORCH_AVAILABLE or not torch.cuda.is_available():
         return None
