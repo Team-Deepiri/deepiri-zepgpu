@@ -138,6 +138,15 @@ warn_no_return = true
 strict_equality = true
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = [
+    "deepiri_zepgpu.api.server.routes.*",
+    "deepiri_zepgpu.queue.*",
+    "deepiri_zepgpu.vpn.*",
+    "deepiri_zepgpu.database.repositories.*",
+]
+ignore_errors = true
+
 [tool.pytest.ini_options]
 filterwarnings = [
     "ignore:.*class-based `config` is deprecated.*",

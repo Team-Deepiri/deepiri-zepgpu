@@ -122,8 +122,6 @@ async def create_pipeline(
 ) -> PipelineResponse:
     """Create a new pipeline."""
 
-    import uuid
-
     stages_data = [
         {
             "name": stage.name,
