@@ -7,10 +7,26 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
-from deepiri_zepgpu.compute_ledger.hashing import canonical_json, hash_payload, sha256_hex
+from deepiri_zepgpu.compute_ledger.hashing import canonical_json, sha256_hex
+from deepiri_zepgpu.compute_ledger.merkle import merkle_root
 from deepiri_zepgpu.compute_ledger.transaction import ComputeTransaction
 
 GENESIS_PREV_HASH = "0" * 64
+
+
+@dataclass
+class ValidatorApproval:
+    """One PoA validator's signature over a block hash."""
+
+    validator: str
+    signature: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {"validator": self.validator, "signature": self.signature}
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ValidatorApproval:
+        return cls(validator=str(data["validator"]), signature=str(data["signature"]))
 
 
 @dataclass
@@ -27,11 +43,15 @@ class ComputeBlock:
     state_root: str = ""
     hash: str = ""
     validator_signature: str = ""
+    approvals: list[ValidatorApproval] = field(default_factory=list)
+    finalized: bool = True
+
+    def leaf_hashes(self) -> list[str]:
+        return [tx.compute_hash() for tx in self.transactions]
 
     def compute_transactions_root(self) -> str:
-        """Deterministic root over ordered transaction hashes."""
-        tx_hashes = [tx.compute_hash() for tx in self.transactions]
-        return hash_payload(tx_hashes)
+        """Merkle root over ordered transaction hashes."""
+        return merkle_root(self.leaf_hashes())
 
     def header_for_hash(self) -> dict[str, Any]:
         return {
@@ -46,14 +66,27 @@ class ComputeBlock:
     def compute_hash(self) -> str:
         return sha256_hex(canonical_json(self.header_for_hash()))
 
+    def ensure_proposer_approval(self) -> None:
+        """Ensure proposer's signature is present in approvals list."""
+        if not self.validator_signature:
+            return
+        for a in self.approvals:
+            if a.validator == self.validator:
+                return
+        self.approvals.append(
+            ValidatorApproval(validator=self.validator, signature=self.validator_signature)
+        )
+
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data["transactions"] = [tx.to_dict() for tx in self.transactions]
+        data["approvals"] = [a.to_dict() if isinstance(a, ValidatorApproval) else a for a in self.approvals]
         return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ComputeBlock:
         txs = [ComputeTransaction.from_dict(t) for t in data.get("transactions") or []]
+        approvals = [ValidatorApproval.from_dict(a) for a in data.get("approvals") or []]
         return cls(
             id=data.get("id", str(uuid4())),
             height=int(data["height"]),
@@ -65,4 +98,6 @@ class ComputeBlock:
             validator=data["validator"],
             hash=data.get("hash") or "",
             validator_signature=data.get("validator_signature") or "",
+            approvals=approvals,
+            finalized=bool(data.get("finalized", True)),
         )

@@ -1,4 +1,4 @@
-"""High-level compute ledger service: genesis, submit, seal, verify, replay."""
+"""High-level compute ledger service: genesis, quorum seal, verify, merkle proofs."""
 
 from __future__ import annotations
 
@@ -9,14 +9,21 @@ from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from deepiri_zepgpu.compute_ledger.block import GENESIS_PREV_HASH, ComputeBlock
-from deepiri_zepgpu.compute_ledger.hashing import canonical_json
+from deepiri_zepgpu.compute_ledger.block import GENESIS_PREV_HASH, ComputeBlock, ValidatorApproval
+from deepiri_zepgpu.compute_ledger.chain_id import chain_id_for_network, parse_network_id
+from deepiri_zepgpu.compute_ledger.hashing import canonical_json, sha256_hex
 from deepiri_zepgpu.compute_ledger.keys import (
     derive_keypair_from_seed,
     public_key_from_private,
     sign_message,
 )
-from deepiri_zepgpu.compute_ledger.poa import LedgerValidationError, validate_block, validate_transaction
+from deepiri_zepgpu.compute_ledger.merkle import merkle_proof, verify_merkle_proof
+from deepiri_zepgpu.compute_ledger.poa import (
+    LedgerValidationError,
+    add_approval,
+    validate_block,
+    validate_transaction,
+)
 from deepiri_zepgpu.compute_ledger.replay import CreditState, apply_transaction, replay_transactions
 from deepiri_zepgpu.compute_ledger.transaction import ComputeTransaction, TxType
 from deepiri_zepgpu.config import settings
@@ -35,10 +42,23 @@ def _parse_ts(value: str | datetime) -> datetime:
 class LedgerService:
     """Permissioned PoA compute ledger backed by Postgres."""
 
-    def __init__(self, db: AsyncSession, chain_id: str | None = None):
+    def __init__(
+        self,
+        db: AsyncSession,
+        chain_id: str | None = None,
+        *,
+        network_id: str | None = None,
+    ):
         self.db = db
         self.repo = LedgerRepository(db)
-        self.chain_id = chain_id or settings.ledger.chain_id
+        self.network_id = network_id
+        self.chain_id = chain_id or chain_id_for_network(network_id)
+        if network_id is None:
+            self.network_id = parse_network_id(self.chain_id)
+
+    @property
+    def quorum_threshold(self) -> int:
+        return max(1, int(settings.ledger.quorum_threshold))
 
     def validator_keys(self) -> tuple[str, str]:
         """Return (private_b64, public_b64) for the relay PoA validator."""
@@ -48,20 +68,45 @@ class LedgerService:
         seed = f"{settings.auth.secret_key}:{self.chain_id}:zepgpu-ledger-validator"
         return derive_keypair_from_seed(seed)
 
+    def extra_validator_keys(self) -> list[tuple[str, str]]:
+        """Optional extra PoA validators from config (dev/demo quorum)."""
+        raw = (settings.ledger.extra_validator_private_keys or "").strip()
+        if not raw:
+            return []
+        pairs: list[tuple[str, str]] = []
+        for part in raw.split(","):
+            priv = part.strip()
+            if not priv:
+                continue
+            pairs.append((priv, public_key_from_private(priv)))
+        return pairs
+
     async def ensure_initialized(self) -> ComputeBlock:
-        """Create genesis + register relay validator if the chain is empty."""
-        tip = await self.repo.get_tip(self.chain_id)
+        """Create genesis + register relay (+ extra) validators if chain empty."""
+        tip = await self.repo.get_tip(self.chain_id, finalized_only=False)
         if tip:
             return self._block_to_domain(tip)
 
         priv, pub = self.validator_keys()
-        await self.repo.upsert_validator(chain_id=self.chain_id, public_key=pub, label="relay")
+        await self.repo.upsert_validator(
+            chain_id=self.chain_id,
+            public_key=pub,
+            label="relay",
+            vpn_network_id=self.network_id,
+        )
+        for i, (_, extra_pub) in enumerate(self.extra_validator_keys()):
+            await self.repo.upsert_validator(
+                chain_id=self.chain_id,
+                public_key=extra_pub,
+                label=f"extra-{i}",
+                vpn_network_id=self.network_id,
+            )
 
         genesis_tx = ComputeTransaction(
             tx_type=TxType.VALIDATOR_REGISTERED,
             sender=pub,
             nonce=0,
-            payload={"label": "relay", "role": "poa_validator"},
+            payload={"label": "relay", "role": "poa_validator", "network_id": self.network_id},
         )
         genesis_tx.signature = sign_message(priv, canonical_json(genesis_tx.signing_payload()))
 
@@ -78,8 +123,27 @@ class LedgerService:
         block.state_root = state.state_root()
         block.hash = block.compute_hash()
         block.validator_signature = sign_message(priv, block.hash)
+        block.ensure_proposer_approval()
+        # Auto-cosign with extra validators so genesis finalizes under higher quorum.
+        for extra_priv, extra_pub in self.extra_validator_keys():
+            block.approvals.append(
+                ValidatorApproval(
+                    validator=extra_pub,
+                    signature=sign_message(extra_priv, block.hash),
+                )
+            )
+        block.finalized = len(block.approvals) >= self.quorum_threshold
 
-        await self._persist_block(block, state)
+        validators = {v.public_key for v in await self.repo.get_active_validators(self.chain_id)}
+        validate_block(
+            block,
+            authorized_validators=validators,
+            expected_previous_hash=GENESIS_PREV_HASH,
+            expected_height=0,
+            quorum_threshold=self.quorum_threshold if block.finalized else 1,
+            require_quorum=block.finalized,
+        )
+        await self._persist_block(block, state if block.finalized else None)
         await self.db.commit()
         logger.info("Initialized compute ledger genesis for chain %s", self.chain_id)
         return block
@@ -91,7 +155,6 @@ class LedgerService:
         auto_seal: bool | None = None,
         require_signature: bool = True,
     ) -> dict[str, Any]:
-        """Validate and queue a transaction; optionally seal into a new block."""
         await self.ensure_initialized()
         validate_transaction(tx, require_signature=require_signature)
 
@@ -111,6 +174,7 @@ class LedgerService:
             timestamp=_parse_ts(tx.timestamp),
             payload=tx.payload,
             signature=tx.signature,
+            vpn_network_id=self.network_id,
         )
         await self.db.flush()
 
@@ -125,24 +189,35 @@ class LedgerService:
         }
 
     async def seal_pending(self) -> ComputeBlock | None:
-        """Seal all pending transactions into the next PoA block."""
+        """Propose/seal pending txs. Finalizes immediately when quorum is met."""
         await self.ensure_initialized()
+        unfinalized = await self.repo.get_unfinalized_tip(self.chain_id)
+        if unfinalized is not None:
+            raise LedgerValidationError(
+                "Cannot seal while an unfinalized block awaits quorum approvals"
+            )
+
         pending = await self.repo.list_pending_transactions(self.chain_id)
         if not pending:
             return None
 
-        tip = await self.repo.get_tip(self.chain_id)
+        tip = await self.repo.get_tip(self.chain_id, finalized_only=True)
         if tip is None:
-            raise LedgerValidationError("Chain has no tip")
+            raise LedgerValidationError("Chain has no finalized tip")
 
         priv, pub = self.validator_keys()
         validators = {v.public_key for v in await self.repo.get_active_validators(self.chain_id)}
         if pub not in validators:
-            await self.repo.upsert_validator(chain_id=self.chain_id, public_key=pub, label="relay")
+            await self.repo.upsert_validator(
+                chain_id=self.chain_id,
+                public_key=pub,
+                label="relay",
+                vpn_network_id=self.network_id,
+            )
             validators.add(pub)
 
         txs = [self._row_to_tx(row) for row in pending]
-        sealed = await self.repo.list_sealed_transactions(self.chain_id)
+        sealed = await self.repo.list_sealed_transactions(self.chain_id, finalized_only=True)
         state = replay_transactions([self._row_to_tx(r) for r in sealed])
         for tx in txs:
             apply_transaction(state, tx)
@@ -157,19 +232,101 @@ class LedgerService:
         block.state_root = state.state_root()
         block.hash = block.compute_hash()
         block.validator_signature = sign_message(priv, block.hash)
+        block.ensure_proposer_approval()
 
+        # Dev convenience: auto-cosign with configured extra validators.
+        for extra_priv, extra_pub in self.extra_validator_keys():
+            if extra_pub in {a.validator for a in block.approvals}:
+                continue
+            if extra_pub not in validators:
+                await self.repo.upsert_validator(
+                    chain_id=self.chain_id,
+                    public_key=extra_pub,
+                    label="extra",
+                    vpn_network_id=self.network_id,
+                )
+                validators.add(extra_pub)
+            block.approvals.append(
+                ValidatorApproval(
+                    validator=extra_pub,
+                    signature=sign_message(extra_priv, block.hash),
+                )
+            )
+
+        block.finalized = len(block.approvals) >= self.quorum_threshold
         validate_block(
             block,
             authorized_validators=validators,
             expected_previous_hash=tip.hash,
             expected_height=tip.height + 1,
+            quorum_threshold=self.quorum_threshold if block.finalized else 1,
+            require_quorum=block.finalized,
         )
-        await self._persist_block(block, state)
+        await self._persist_block(block, state if block.finalized else None)
         await self.db.commit()
         return block
 
+    async def approve_block(
+        self,
+        block_hash: str,
+        *,
+        validator_public_key: str,
+        signature: str,
+    ) -> ComputeBlock:
+        """Add a PoA approval; finalize and apply balances when quorum is reached."""
+        await self.ensure_initialized()
+        row = await self.repo.get_block_by_hash(block_hash)
+        if not row or row.chain_id != self.chain_id:
+            raise LedgerValidationError("Block not found")
+        block = self._block_to_domain(row)
+        if block.finalized:
+            raise LedgerValidationError("Block already finalized")
+
+        validators = {v.public_key for v in await self.repo.get_active_validators(self.chain_id)}
+        add_approval(
+            block,
+            validator_public_key=validator_public_key,
+            signature=signature,
+            authorized_validators=validators,
+        )
+        block.finalized = len(block.approvals) >= self.quorum_threshold
+
+        if block.finalized:
+            validate_block(
+                block,
+                authorized_validators=validators,
+                quorum_threshold=self.quorum_threshold,
+            )
+            sealed = await self.repo.list_sealed_transactions(self.chain_id, finalized_only=True)
+            # Include this block's txs (not yet finalized in DB)
+            prior = [self._row_to_tx(r) for r in sealed]
+            state = replay_transactions(prior + block.transactions)
+            await self.repo.update_block_approvals(
+                block.id,
+                approvals=[a.to_dict() for a in block.approvals],
+                finalized=True,
+            )
+            await self.repo.replace_balances(
+                self.chain_id,
+                state.to_list(),
+                vpn_network_id=self.network_id,
+            )
+        else:
+            await self.repo.update_block_approvals(
+                block.id,
+                approvals=[a.to_dict() for a in block.approvals],
+                finalized=False,
+            )
+        await self.db.commit()
+        return block
+
+    async def approve_block_as_relay(self, block_hash: str) -> ComputeBlock:
+        """Convenience: sign approval with the local relay validator key."""
+        priv, pub = self.validator_keys()
+        sig = sign_message(priv, block_hash)
+        return await self.approve_block(block_hash, validator_public_key=pub, signature=sig)
+
     async def verify_chain(self) -> dict[str, Any]:
-        """Walk the chain and verify hashes, linkage, PoA signatures, and replay."""
         await self.ensure_initialized()
         blocks = await self.repo.list_all_blocks_ascending(self.chain_id)
         validators = {v.public_key for v in await self.repo.get_active_validators(self.chain_id)}
@@ -177,8 +334,9 @@ class LedgerService:
         errors: list[str] = []
         all_txs: list[ComputeTransaction] = []
         prev_hash = GENESIS_PREV_HASH
+        expected_height = 0
 
-        for expected_height, row in enumerate(blocks):
+        for row in blocks:
             block = self._block_to_domain(row)
             try:
                 validate_block(
@@ -186,11 +344,15 @@ class LedgerService:
                     authorized_validators=validators,
                     expected_previous_hash=prev_hash,
                     expected_height=expected_height,
+                    quorum_threshold=self.quorum_threshold if block.finalized else 1,
+                    require_quorum=block.finalized,
                 )
             except LedgerValidationError as exc:
                 errors.append(f"height={expected_height}: {exc}")
             prev_hash = block.hash
-            all_txs.extend(block.transactions)
+            expected_height += 1
+            if block.finalized:
+                all_txs.extend(block.transactions)
 
         try:
             state = replay_transactions(all_txs)
@@ -198,24 +360,47 @@ class LedgerService:
             errors.append(f"replay failed: {exc}")
             state = CreditState()
 
-        tip = blocks[-1] if blocks else None
+        tip = await self.repo.get_tip(self.chain_id, finalized_only=True)
         return {
             "valid": len(errors) == 0,
             "chain_id": self.chain_id,
+            "network_id": self.network_id,
             "block_count": len(blocks),
             "tip_height": tip.height if tip else -1,
             "tip_hash": tip.hash if tip else None,
+            "quorum_threshold": self.quorum_threshold,
             "state_root": state.state_root(),
             "errors": errors,
             "balances": state.to_list(),
         }
 
     async def rebuild_balances(self) -> list[dict[str, Any]]:
-        sealed = await self.repo.list_sealed_transactions(self.chain_id)
+        sealed = await self.repo.list_sealed_transactions(self.chain_id, finalized_only=True)
         state = replay_transactions([self._row_to_tx(r) for r in sealed])
-        await self.repo.replace_balances(self.chain_id, state.to_list())
+        await self.repo.replace_balances(
+            self.chain_id, state.to_list(), vpn_network_id=self.network_id
+        )
         await self.db.commit()
         return state.to_list()
+
+    async def get_inclusion_proof(self, block_hash: str, tx_hash: str) -> dict[str, Any]:
+        row = await self.repo.get_block_by_hash(block_hash)
+        if not row or row.chain_id != self.chain_id:
+            raise LedgerValidationError("Block not found")
+        block = self._block_to_domain(row)
+        leaves = block.leaf_hashes()
+        try:
+            index = leaves.index(tx_hash)
+        except ValueError as exc:
+            raise LedgerValidationError("Transaction not in block") from exc
+        proof = merkle_proof(leaves, index)
+        return {
+            "block_hash": block.hash,
+            "block_height": block.height,
+            "transactions_root": block.transactions_root,
+            "proof": proof.to_dict(),
+            "valid": verify_merkle_proof(proof),
+        }
 
     async def record_job_completed(
         self,
@@ -228,11 +413,19 @@ class LedgerService:
         output_hash: str | None = None,
         peer_id: str | None = None,
         sign_with_validator: bool = True,
+        sender_private_key: str | None = None,
     ) -> dict[str, Any]:
-        """Convenience: create a JOB_COMPLETED attestation signed by the relay."""
         await self.ensure_initialized()
-        priv, pub = self.validator_keys()
-        sender = pub if sign_with_validator else provider_account
+        if sender_private_key:
+            priv = sender_private_key
+            pub = public_key_from_private(priv)
+            sender = pub
+        elif sign_with_validator:
+            priv, pub = self.validator_keys()
+            sender = pub
+        else:
+            raise LedgerValidationError("sender_private_key required when not signing as validator")
+
         nonce = (await self.repo.get_max_nonce(self.chain_id, sender)) + 1
         tx = ComputeTransaction(
             tx_type=TxType.JOB_COMPLETED,
@@ -246,12 +439,30 @@ class LedgerService:
                 "input_hash": input_hash,
                 "output_hash": output_hash,
                 "peer_id": peer_id,
+                "network_id": self.network_id,
             },
         )
         tx.signature = sign_message(priv, canonical_json(tx.signing_payload()))
         return await self.submit_transaction(tx)
 
-    async def _persist_block(self, block: ComputeBlock, state: CreditState) -> None:
+    async def submit_peer_attestation(
+        self,
+        *,
+        peer_public_key: str,
+        signed_tx: ComputeTransaction,
+    ) -> dict[str, Any]:
+        """Accept a peer-signed JOB_COMPLETED (sender must match peer_public_key)."""
+        if signed_tx.sender != peer_public_key:
+            raise LedgerValidationError("Transaction sender must match peer public key")
+        if signed_tx.tx_type != TxType.JOB_COMPLETED:
+            raise LedgerValidationError("Peer attestation must be JOB_COMPLETED")
+        return await self.submit_transaction(signed_tx)
+
+    async def _persist_block(
+        self,
+        block: ComputeBlock,
+        state: CreditState | None,
+    ) -> None:
         from sqlalchemy import select
         from deepiri_zepgpu.database.models.ledger import LedgerTransaction
 
@@ -270,6 +481,7 @@ class LedgerService:
                     timestamp=_parse_ts(tx.timestamp),
                     payload=tx.payload,
                     signature=tx.signature,
+                    vpn_network_id=self.network_id,
                 )
 
         await self.repo.create_block(
@@ -284,8 +496,15 @@ class LedgerService:
             validator_public_key=block.validator,
             validator_signature=block.validator_signature,
             tx_ids_in_order=[tx.id for tx in block.transactions],
+            approvals=[a.to_dict() for a in block.approvals],
+            finalized=block.finalized,
+            vpn_network_id=self.network_id,
         )
-        await self.repo.replace_balances(self.chain_id, state.to_list())
+        if state is not None and block.finalized:
+            await self.repo.replace_balances(
+                self.chain_id, state.to_list(), vpn_network_id=self.network_id
+            )
+
     def _row_to_tx(self, row: Any) -> ComputeTransaction:
         return ComputeTransaction(
             id=str(row.id),
@@ -299,6 +518,11 @@ class LedgerService:
 
     def _block_to_domain(self, row: Any) -> ComputeBlock:
         txs = [self._row_to_tx(t) for t in sorted(row.transactions or [], key=lambda x: x.position or 0)]
+        approvals_raw = row.approvals or []
+        approvals = [
+            ValidatorApproval.from_dict(a) if isinstance(a, dict) else a
+            for a in approvals_raw
+        ]
         return ComputeBlock(
             id=str(row.id),
             height=row.height,
@@ -310,6 +534,8 @@ class LedgerService:
             validator=row.validator_public_key,
             hash=row.hash,
             validator_signature=row.validator_signature,
+            approvals=approvals,
+            finalized=bool(getattr(row, "finalized", True)),
         )
 
 
@@ -321,7 +547,6 @@ def new_signed_transaction(
     payload: dict[str, Any],
     sender: str | None = None,
 ) -> ComputeTransaction:
-    """Helper for callers (API / peers) to build a signed transaction."""
     pub = sender or public_key_from_private(private_key_b64)
     tx = ComputeTransaction(
         id=str(uuid4()),
@@ -332,3 +557,25 @@ def new_signed_transaction(
     )
     tx.signature = sign_message(private_key_b64, canonical_json(tx.signing_payload()))
     return tx
+
+
+def hash_result_attestation(
+    *,
+    task_id: str,
+    peer_id: str,
+    success: bool,
+    execution_time: float,
+    result_digest: str | None,
+) -> str:
+    """Canonical digest peers sign for remote job completion."""
+    return sha256_hex(
+        canonical_json(
+            {
+                "task_id": task_id,
+                "peer_id": peer_id,
+                "success": success,
+                "execution_time": execution_time,
+                "result_digest": result_digest,
+            }
+        )
+    )

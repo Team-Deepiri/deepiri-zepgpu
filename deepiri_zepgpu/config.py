@@ -119,6 +119,12 @@ class LedgerSettings(BaseSettings):
     # Raw URL-safe base64 Ed25519 private key. If empty, derived from auth.secret_key.
     validator_private_key: str = Field(default="")
     record_local_completions: bool = Field(default=True)
+    # Week 2: multi-validator quorum (1 = single-relay week-1 behavior)
+    quorum_threshold: int = Field(default=1)
+    # Comma-separated extra Ed25519 private keys for additional PoA validators (dev/demo)
+    extra_validator_private_keys: str = Field(default="")
+    # Auto-create per-VPN-network chains on network create
+    isolate_vpn_networks: bool = Field(default=True)
 
 
 class Settings(BaseSettings):

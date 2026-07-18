@@ -551,6 +551,11 @@ export interface LedgerTransaction {
   tx_hash?: string
 }
 
+export interface LedgerApproval {
+  validator: string
+  signature: string
+}
+
 export interface LedgerBlock {
   id: string
   height: number
@@ -561,6 +566,8 @@ export interface LedgerBlock {
   state_root: string
   validator: string
   validator_signature: string
+  approvals?: LedgerApproval[]
+  finalized?: boolean
   transactions: LedgerTransaction[]
 }
 
@@ -573,21 +580,27 @@ export interface LedgerBalance {
 
 export interface LedgerStatus {
   chain_id: string
+  network_id?: string | null
   tip_height: number
   tip_hash: string | null
   block_count: number
   pending_count: number
+  unfinalized_count?: number
   validator_public_key: string
+  quorum_threshold?: number
+  approval_count?: number
   enabled: boolean
 }
 
 export interface LedgerVerifyResult {
   valid: boolean
   chain_id: string
+  network_id?: string | null
   block_count: number
   tip_height: number
   tip_hash: string | null
   state_root: string
+  quorum_threshold?: number
   errors: string[]
   balances: LedgerBalance[]
 }
@@ -595,4 +608,17 @@ export interface LedgerVerifyResult {
 export interface LedgerSubmitResponse {
   transaction: LedgerTransaction
   block: LedgerBlock | null
+}
+
+export interface MerkleProofResult {
+  block_hash: string
+  block_height: number
+  transactions_root: string
+  proof: {
+    leaf: string
+    index: number
+    root: string
+    steps: { hash: string; position: string }[]
+  }
+  valid: boolean
 }

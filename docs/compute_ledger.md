@@ -1,64 +1,70 @@
-# Compute Ledger (Week 1)
+# Compute Ledger (Week 1 + Week 2)
 
 Permissioned proof-of-authority ledger for ZepGPU GPU-pool attestation and credit settlement.
 
-This is **not** a public cryptocurrency chain. It is a tamper-evident, append-only compute ledger that supports the distributed GPU pool vision:
+This is **not** a public cryptocurrency chain. It is a tamper-evident, append-only compute ledger that supports the distributed GPU pool vision.
 
-- signed job attestations (`JOB_COMPLETED`, etc.)
-- hash-linked blocks sealed by an authorized relay validator
-- deterministic GPU-second credit replay
-- chain integrity verification via API and UI
-
-## Primitives
+## Week 1 primitives
 
 | Piece | Implementation |
 |-------|----------------|
-| Transactions | Ed25519-signed payloads (`compute_ledger/transaction.py`) |
-| Blocks | Height, `previous_hash`, transactions root, state root, validator signature |
-| Consensus | Proof-of-authority: relay validator key (config or derived from `auth.secret_key`) |
+| Transactions | Ed25519-signed payloads |
+| Blocks | Height, `previous_hash`, Merkle transactions root, state root, validator signature |
+| Consensus | Proof-of-authority (relay validator) |
 | State | Credit balances rebuilt by replaying sealed transactions |
-| Persistence | Postgres tables `ledger_*` (Alembic `006`) |
+| Persistence | Postgres `ledger_*` (Alembic `006`) |
 
-## API
+## Week 2 additions
 
-All routes under `/api/v1/ledger` (auth required):
+| Feature | Details |
+|---------|---------|
+| **Multi-validator quorum** | `LEDGER__QUORUM_THRESHOLD` (default 1). Blocks carry `approvals[]` and `finalized`. Tip is the highest **finalized** block. |
+| **Per-VPN-network chains** | `chain_id = {base}:vpn:{network_id}`. Creating a VPN network initializes its chain. Pass `?network_id=` on ledger APIs. |
+| **Peer attestation keys** | Each VPN peer gets an Ed25519 ledger keypair. Peer nodes sign job results; relay ingests `JOB_COMPLETED` via TaskRouter / `POST /attestations/peer-job-completed`. |
+| **Merkle proofs** | `GET /blocks/hash/{block}/proof/{tx_hash}` returns an inclusion proof verifiable offline. |
 
-- `GET /status` — tip height, chain id, validator pubkey
-- `GET /verify` — full chain walk + replay; returns `valid` and errors
-- `GET /blocks` — recent blocks
-- `GET /blocks/height/{n}` / `GET /blocks/hash/{hash}`
-- `GET /balances` / `GET /balances/{account}`
-- `POST /transactions` — submit a pre-signed transaction
-- `POST /attestations/job-completed` — relay-signed convenience attestation
-- `POST /settle` — credit transfer attestation
-- `POST /seal` — seal pending txs if auto-seal is off
-- `POST /rebuild-balances` — recompute balances from chain
-- `POST /keys` — generate a peer attestation keypair (private key returned once)
+Migration: Alembic `007`.
+
+## API (auth required)
+
+All under `/api/v1/ledger`. Optional query: `network_id`.
+
+- `GET /status` — tip, quorum, unfinalized count
+- `GET /verify` — full chain walk + replay
+- `GET /blocks`, `/blocks/height/{n}`, `/blocks/hash/{hash}`
+- `GET /blocks/hash/{hash}/proof/{tx_hash}` — Merkle inclusion proof
+- `POST /blocks/hash/{hash}/approve` — add validator approval
+- `POST /blocks/hash/{hash}/approve-relay` — relay cosign convenience
+- `GET /balances`
+- `POST /transactions`, `/attestations/job-completed`, `/attestations/peer-job-completed`
+- `POST /settle`, `/seal`, `/validators`, `/rebuild-balances`, `/keys`
+- `GET /chain-id`
 
 ## Config
 
 ```env
-# nested settings use LEDGER__ prefix with pydantic-settings
 LEDGER__ENABLED=true
 LEDGER__CHAIN_ID=zepgpu-compute-v1
 LEDGER__AUTO_SEAL=true
-LEDGER__VALIDATOR_PRIVATE_KEY=   # optional URL-safe b64 Ed25519 seed; empty = derived
+LEDGER__VALIDATOR_PRIVATE_KEY=
 LEDGER__RECORD_LOCAL_COMPLETIONS=true
+LEDGER__QUORUM_THRESHOLD=1
+LEDGER__EXTRA_VALIDATOR_PRIVATE_KEYS=   # comma-separated b64 keys for demo quorum
+LEDGER__ISOLATE_VPN_NETWORKS=true
 ```
 
 ## UI
 
-Control Hub → **Ledger**: tip status, integrity badge, recent blocks, balances, demo attestation form.
+Control Hub → **Ledger**: integrity, quorum status, network selector, blocks (finalized badge), balances, demo attestation, Merkle proof lookup.
 
 ## Honest scope
 
-- Central relay remains the PoA validator (not a permissionless network).
-- Scheduler hot path is unchanged (Redis/Celery); ledger is attestation + settlement.
-- No token, gas, or public mainnet.
+- Still permissioned (not permissionless).
+- Quorum > 1 needs multiple authorized validators; extra keys are for demo/dev cosign.
+- Scheduler hot path unchanged; ledger is attestation + settlement.
 
-## Next phases (out of week 1)
+## Next phases
 
-- Multi-validator quorum (2-of-3)
-- Peer-held signing keys on remote GPU completion path
-- Per-VPN-network chain isolation
-- Merkle proofs for light clients
+- Light-client sync protocol
+- Cross-network settlement bridges
+- Formal audit / threat model hardening

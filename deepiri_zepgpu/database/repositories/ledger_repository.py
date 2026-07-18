@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Optional, Sequence
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -38,6 +38,7 @@ class LedgerRepository:
         chain_id: str,
         public_key: str,
         label: str = "relay",
+        vpn_network_id: str | None = None,
     ) -> LedgerValidator:
         result = await self.db.execute(
             select(LedgerValidator).where(
@@ -49,6 +50,8 @@ class LedgerRepository:
         if existing:
             existing.is_active = True
             existing.label = label
+            if vpn_network_id is not None:
+                existing.vpn_network_id = vpn_network_id
             await self.db.flush()
             return existing
         validator = LedgerValidator(
@@ -57,15 +60,27 @@ class LedgerRepository:
             public_key=public_key,
             label=label,
             is_active=True,
+            vpn_network_id=vpn_network_id,
         )
         self.db.add(validator)
         await self.db.flush()
         return validator
 
-    async def get_tip(self, chain_id: str) -> Optional[LedgerBlock]:
+    async def get_tip(self, chain_id: str, *, finalized_only: bool = True) -> Optional[LedgerBlock]:
+        query = select(LedgerBlock).where(LedgerBlock.chain_id == chain_id)
+        if finalized_only:
+            query = query.where(LedgerBlock.finalized.is_(True))
+        result = await self.db.execute(query.order_by(LedgerBlock.height.desc()).limit(1))
+        return result.scalar_one_or_none()
+
+    async def get_unfinalized_tip(self, chain_id: str) -> Optional[LedgerBlock]:
         result = await self.db.execute(
             select(LedgerBlock)
-            .where(LedgerBlock.chain_id == chain_id)
+            .options(selectinload(LedgerBlock.transactions))
+            .where(
+                LedgerBlock.chain_id == chain_id,
+                LedgerBlock.finalized.is_(False),
+            )
             .order_by(LedgerBlock.height.desc())
             .limit(1)
         )
@@ -125,8 +140,6 @@ class LedgerRepository:
         return list(result.scalars().all())
 
     async def get_max_nonce(self, chain_id: str, sender: str) -> int:
-        from sqlalchemy import func
-
         result = await self.db.execute(
             select(func.max(LedgerTransaction.nonce)).where(
                 LedgerTransaction.chain_id == chain_id,
@@ -148,6 +161,7 @@ class LedgerRepository:
         timestamp: datetime,
         payload: dict[str, Any],
         signature: str,
+        vpn_network_id: str | None = None,
     ) -> LedgerTransaction:
         row = LedgerTransaction(
             id=tx_id,
@@ -161,10 +175,25 @@ class LedgerRepository:
             signature=signature,
             block_id=None,
             position=None,
+            vpn_network_id=vpn_network_id,
         )
         self.db.add(row)
         await self.db.flush()
         return row
+
+    async def update_block_approvals(
+        self,
+        block_id: str,
+        *,
+        approvals: list[dict[str, Any]],
+        finalized: bool,
+    ) -> None:
+        await self.db.execute(
+            update(LedgerBlock)
+            .where(LedgerBlock.id == block_id)
+            .values(approvals=approvals, finalized=finalized)
+        )
+        await self.db.flush()
 
     async def create_block(
         self,
@@ -180,6 +209,9 @@ class LedgerRepository:
         validator_public_key: str,
         validator_signature: str,
         tx_ids_in_order: list[str],
+        approvals: list[dict[str, Any]] | None = None,
+        finalized: bool = True,
+        vpn_network_id: str | None = None,
     ) -> LedgerBlock:
         block = LedgerBlock(
             id=block_id,
@@ -192,6 +224,9 @@ class LedgerRepository:
             state_root=state_root,
             validator_public_key=validator_public_key,
             validator_signature=validator_signature,
+            approvals=approvals or [],
+            finalized=finalized,
+            vpn_network_id=vpn_network_id,
         )
         self.db.add(block)
         await self.db.flush()
@@ -199,7 +234,7 @@ class LedgerRepository:
             await self.db.execute(
                 update(LedgerTransaction)
                 .where(LedgerTransaction.id == tx_id)
-                .values(block_id=block_id, position=position)
+                .values(block_id=block_id, position=position, vpn_network_id=vpn_network_id)
             )
         await self.db.flush()
         return block
@@ -208,6 +243,8 @@ class LedgerRepository:
         self,
         chain_id: str,
         balances: list[dict[str, Any]],
+        *,
+        vpn_network_id: str | None = None,
     ) -> None:
         existing = await self.db.execute(
             select(LedgerBalance).where(LedgerBalance.chain_id == chain_id)
@@ -223,6 +260,7 @@ class LedgerRepository:
                     account=item["account"],
                     credit_seconds=float(item["credit_seconds"]),
                     debit_seconds=float(item["debit_seconds"]),
+                    vpn_network_id=vpn_network_id,
                 )
             )
         await self.db.flush()
@@ -244,11 +282,20 @@ class LedgerRepository:
         )
         return result.scalar_one_or_none()
 
-    async def list_sealed_transactions(self, chain_id: str) -> list[LedgerTransaction]:
-        result = await self.db.execute(
+    async def list_sealed_transactions(
+        self,
+        chain_id: str,
+        *,
+        finalized_only: bool = True,
+    ) -> list[LedgerTransaction]:
+        query = (
             select(LedgerTransaction)
             .join(LedgerBlock, LedgerTransaction.block_id == LedgerBlock.id)
             .where(LedgerTransaction.chain_id == chain_id)
-            .order_by(LedgerBlock.height.asc(), LedgerTransaction.position.asc())
+        )
+        if finalized_only:
+            query = query.where(LedgerBlock.finalized.is_(True))
+        result = await self.db.execute(
+            query.order_by(LedgerBlock.height.asc(), LedgerTransaction.position.asc())
         )
         return list(result.scalars().all())

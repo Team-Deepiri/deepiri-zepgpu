@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any, Optional
 
 from pydantic import BaseModel, Field
@@ -28,11 +27,28 @@ class JobCompletedRequest(BaseModel):
     peer_id: Optional[str] = None
 
 
+class PeerJobCompletedRequest(BaseModel):
+    """Peer-signed JOB_COMPLETED attestation."""
+
+    id: Optional[str] = None
+    sender: str
+    nonce: int
+    timestamp: Optional[str] = None
+    payload: dict[str, Any]
+    signature: str
+    peer_id: str
+
+
 class CreditSettleRequest(BaseModel):
     from_account: str
     to_account: str
     amount_seconds: float = Field(ge=0)
     memo: Optional[str] = None
+
+
+class BlockApproveRequest(BaseModel):
+    validator: str
+    signature: str
 
 
 class TransactionResponse(BaseModel):
@@ -46,6 +62,11 @@ class TransactionResponse(BaseModel):
     tx_hash: Optional[str] = None
 
 
+class ApprovalResponse(BaseModel):
+    validator: str
+    signature: str
+
+
 class BlockResponse(BaseModel):
     id: str
     height: int
@@ -56,6 +77,8 @@ class BlockResponse(BaseModel):
     state_root: str
     validator: str
     validator_signature: str
+    approvals: list[ApprovalResponse] = Field(default_factory=list)
+    finalized: bool = True
     transactions: list[TransactionResponse] = Field(default_factory=list)
 
 
@@ -68,21 +91,27 @@ class BalanceResponse(BaseModel):
 
 class ChainStatusResponse(BaseModel):
     chain_id: str
+    network_id: Optional[str] = None
     tip_height: int
     tip_hash: Optional[str]
     block_count: int
     pending_count: int
+    unfinalized_count: int = 0
     validator_public_key: str
+    quorum_threshold: int = 1
+    approval_count: int = 0
     enabled: bool
 
 
 class VerifyResponse(BaseModel):
     valid: bool
     chain_id: str
+    network_id: Optional[str] = None
     block_count: int
     tip_height: int
     tip_hash: Optional[str]
     state_root: str
+    quorum_threshold: int = 1
     errors: list[str]
     balances: list[BalanceResponse]
 
@@ -96,3 +125,16 @@ class KeypairResponse(BaseModel):
     private_key: str
     public_key: str
     note: str = "Store the private key securely. It is not retained by the server."
+
+
+class MerkleProofResponse(BaseModel):
+    block_hash: str
+    block_height: int
+    transactions_root: str
+    proof: dict[str, Any]
+    valid: bool
+
+
+class RegisterValidatorRequest(BaseModel):
+    public_key: str
+    label: str = "validator"
