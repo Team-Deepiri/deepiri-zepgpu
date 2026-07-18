@@ -138,3 +138,46 @@ class MerkleProofResponse(BaseModel):
 class RegisterValidatorRequest(BaseModel):
     public_key: str
     label: str = "validator"
+
+
+class BridgeTransferRequest(BaseModel):
+    source_network_id: Optional[str] = None
+    dest_network_id: Optional[str] = None
+    account: str
+    amount_seconds: float = Field(gt=0)
+    memo: Optional[str] = None
+
+
+class HeaderVerifyRequest(BaseModel):
+    headers: list[dict[str, Any]]
+    from_height: Optional[int] = None
+
+
+class SyncHeadersResponse(BaseModel):
+    chain_id: str
+    network_id: Optional[str] = None
+    from_height: int
+    headers: list[dict[str, Any]]
+    count: int
+
+
+class HeaderVerifyResponse(BaseModel):
+    valid: bool
+    chain_id: str
+    network_id: Optional[str] = None
+    headers: int
+    tip_hash: Optional[str]
+    tip_height: int
+    tip_state_root: Optional[str] = None
+    errors: list[str]
+
+
+class BridgeTransferResponse(BaseModel):
+    receipt_id: str
+    source_chain_id: str
+    dest_chain_id: str
+    account: str
+    amount_seconds: float
+    burn: dict[str, Any]
+    mint: dict[str, Any]
+    inclusion_proof: dict[str, Any]

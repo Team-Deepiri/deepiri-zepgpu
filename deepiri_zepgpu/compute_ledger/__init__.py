@@ -5,6 +5,8 @@ proof-of-authority block sealing, and deterministic credit replay.
 
 Week-2: multi-validator quorum, per-VPN-network chains, peer attestation
 keys, and Merkle inclusion proofs.
+
+Week-3: light-client header sync, cross-network bridge, threat model.
 """
 
 from deepiri_zepgpu.compute_ledger.hashing import canonical_json, sha256_hex
@@ -15,6 +17,11 @@ from deepiri_zepgpu.compute_ledger.poa import validate_block, validate_transacti
 from deepiri_zepgpu.compute_ledger.replay import CreditState, replay_transactions
 from deepiri_zepgpu.compute_ledger.merkle import merkle_proof, merkle_root, verify_merkle_proof
 from deepiri_zepgpu.compute_ledger.chain_id import chain_id_for_network
+from deepiri_zepgpu.compute_ledger.light_client import (
+    BlockHeader,
+    verify_header_chain,
+    verify_tx_inclusion,
+)
 
 __all__ = [
     "canonical_json",
@@ -33,4 +40,7 @@ __all__ = [
     "merkle_root",
     "verify_merkle_proof",
     "chain_id_for_network",
+    "BlockHeader",
+    "verify_header_chain",
+    "verify_tx_inclusion",
 ]

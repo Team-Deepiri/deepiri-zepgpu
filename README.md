@@ -28,7 +28,7 @@ _Made by Deepiri_
 - **S3/MinIO Storage** - Tiered result storage for large outputs
 - **Web UI** - Modern dashboard for task management
 - **Kubernetes Ready** - Production deployment manifests included
-- **Compute Ledger** - Permissioned PoA ledger for GPU job attestations and credit settlement
+- **Compute Ledger** - Permissioned PoA ledger for GPU attestations, credits, quorum finality, light-client sync, and cross-network bridge
 
 ---
 

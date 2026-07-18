@@ -359,6 +359,39 @@ if HAS_CLICK:
         except KeyboardInterrupt:
             click.echo("\nStopped.")
 
+    @cli.group()
+    def ledger():
+        """Permissioned compute ledger (status, verify, sync)."""
+        pass
+
+    @ledger.command("status")
+    @click.option("--network-id", default=None, help="VPN network UUID for scoped chain")
+    def ledger_status_cmd(network_id):
+        """Show ledger tip / quorum status."""
+        from deepiri_zepgpu.compute_ledger.cli_ops import dump_json, ledger_status
+
+        dump_json(asyncio.run(ledger_status(network_id)))
+
+    @ledger.command("verify")
+    @click.option("--network-id", default=None, help="VPN network UUID for scoped chain")
+    def ledger_verify_cmd(network_id):
+        """Verify hash linkage, PoA signatures, and credit replay."""
+        from deepiri_zepgpu.compute_ledger.cli_ops import dump_json, ledger_verify
+
+        result = asyncio.run(ledger_verify(network_id))
+        dump_json(result)
+        raise SystemExit(0 if result.get("valid") else 1)
+
+    @ledger.command("sync-headers")
+    @click.option("--network-id", default=None, help="VPN network UUID for scoped chain")
+    @click.option("--from-height", default=0, type=int, help="Start height")
+    @click.option("--limit", default=100, type=int, help="Max headers")
+    def ledger_sync_headers_cmd(network_id, from_height, limit):
+        """Export compact headers for light-client sync."""
+        from deepiri_zepgpu.compute_ledger.cli_ops import dump_json, ledger_sync_headers
+
+        dump_json(asyncio.run(ledger_sync_headers(network_id, from_height, limit)))
+
     from pathlib import Path
 
 

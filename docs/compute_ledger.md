@@ -1,44 +1,50 @@
-# Compute Ledger (Week 1 + Week 2)
+# Compute Ledger
 
-Permissioned proof-of-authority ledger for ZepGPU GPU-pool attestation and credit settlement.
+Permissioned proof-of-authority ledger for ZepGPU GPU-pool attestation, credits, and cross-network settlement.
 
-This is **not** a public cryptocurrency chain. It is a tamper-evident, append-only compute ledger that supports the distributed GPU pool vision.
+This is **not** a public cryptocurrency chain.
 
-## Week 1 primitives
+## Capabilities (complete)
 
-| Piece | Implementation |
-|-------|----------------|
-| Transactions | Ed25519-signed payloads |
-| Blocks | Height, `previous_hash`, Merkle transactions root, state root, validator signature |
-| Consensus | Proof-of-authority (relay validator) |
-| State | Credit balances rebuilt by replaying sealed transactions |
-| Persistence | Postgres `ledger_*` (Alembic `006`) |
+| Area | Status |
+|------|--------|
+| Signed txs + hash-linked PoA blocks | Week 1 ✅ |
+| Credit replay + explorer UI | Week 1 ✅ |
+| Multi-validator quorum / finality | Week 2 ✅ |
+| Per-VPN-network chain isolation | Week 2 ✅ |
+| Peer attestation keys + remote ingest | Week 2 ✅ |
+| Merkle inclusion proofs | Week 2 ✅ |
+| Light-client header sync | Week 3 ✅ |
+| Cross-network bridge (burn/mint) | Week 3 ✅ |
+| Threat model | Week 3 ✅ |
+| CLI (`deepiri-gpu ledger …`) | Week 3 ✅ |
 
-## Week 2 additions
+## Migrations
 
-| Feature | Details |
-|---------|---------|
-| **Multi-validator quorum** | `LEDGER__QUORUM_THRESHOLD` (default 1). Blocks carry `approvals[]` and `finalized`. Tip is the highest **finalized** block. |
-| **Per-VPN-network chains** | `chain_id = {base}:vpn:{network_id}`. Creating a VPN network initializes its chain. Pass `?network_id=` on ledger APIs. |
-| **Peer attestation keys** | Each VPN peer gets an Ed25519 ledger keypair. Peer nodes sign job results; relay ingests `JOB_COMPLETED` via TaskRouter / `POST /attestations/peer-job-completed`. |
-| **Merkle proofs** | `GET /blocks/hash/{block}/proof/{tx_hash}` returns an inclusion proof verifiable offline. |
+- `006` — core ledger tables
+- `007` — quorum approvals, network scope, peer ledger keys
+- `008` — `BRIDGE_BURN` / `BRIDGE_MINT` enum values + `ledger_bridge_receipts`
 
-Migration: Alembic `007`.
+## API
 
-## API (auth required)
+All under `/api/v1/ledger` (auth required). Optional `?network_id=`.
 
-All under `/api/v1/ledger`. Optional query: `network_id`.
+**Core:** status, verify, blocks, balances, transactions, attestations, settle, seal, validators, keys, chain-id
 
-- `GET /status` — tip, quorum, unfinalized count
-- `GET /verify` — full chain walk + replay
-- `GET /blocks`, `/blocks/height/{n}`, `/blocks/hash/{hash}`
-- `GET /blocks/hash/{hash}/proof/{tx_hash}` — Merkle inclusion proof
-- `POST /blocks/hash/{hash}/approve` — add validator approval
-- `POST /blocks/hash/{hash}/approve-relay` — relay cosign convenience
-- `GET /balances`
-- `POST /transactions`, `/attestations/job-completed`, `/attestations/peer-job-completed`
-- `POST /settle`, `/seal`, `/validators`, `/rebuild-balances`, `/keys`
-- `GET /chain-id`
+**Week 2:** proof, approve, approve-relay, peer-job-completed
+
+**Week 3:**
+- `GET /sync/headers?from_height=&limit=` — compact headers for light clients
+- `POST /sync/verify-headers` — offline-style header chain verification
+- `POST /bridge/transfer` — burn on source chain, mint on dest with inclusion proof + receipt registry
+
+## CLI
+
+```bash
+deepiri-gpu ledger status [--network-id UUID]
+deepiri-gpu ledger verify [--network-id UUID]   # exit 1 if invalid
+deepiri-gpu ledger sync-headers [--from-height 0] [--limit 100]
+```
 
 ## Config
 
@@ -49,22 +55,17 @@ LEDGER__AUTO_SEAL=true
 LEDGER__VALIDATOR_PRIVATE_KEY=
 LEDGER__RECORD_LOCAL_COMPLETIONS=true
 LEDGER__QUORUM_THRESHOLD=1
-LEDGER__EXTRA_VALIDATOR_PRIVATE_KEYS=   # comma-separated b64 keys for demo quorum
+LEDGER__EXTRA_VALIDATOR_PRIVATE_KEYS=
 LEDGER__ISOLATE_VPN_NETWORKS=true
 ```
 
-## UI
+## Docs
 
-Control Hub → **Ledger**: integrity, quorum status, network selector, blocks (finalized badge), balances, demo attestation, Merkle proof lookup.
+- This file — operator overview
+- [`threat-model-ledger.md`](./threat-model-ledger.md) — STRIDE / residual risks
 
-## Honest scope
+## Honest limits
 
-- Still permissioned (not permissionless).
-- Quorum > 1 needs multiple authorized validators; extra keys are for demo/dev cosign.
-- Scheduler hot path unchanged; ledger is attestation + settlement.
-
-## Next phases
-
-- Light-client sync protocol
-- Cross-network settlement bridges
-- Formal audit / threat model hardening
+- Permissioned PoA, not permissionless consensus.
+- Attestations prove claims, not correct GPU computation (no ZK/TEE yet).
+- Quorum=1 means the relay can finalize alone — raise threshold for multi-party pools.

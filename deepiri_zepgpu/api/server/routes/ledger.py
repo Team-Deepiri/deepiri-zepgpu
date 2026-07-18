@@ -17,19 +17,25 @@ from deepiri_zepgpu.compute_ledger.schemas import (
     BalanceResponse,
     BlockApproveRequest,
     BlockResponse,
+    BridgeTransferRequest,
+    BridgeTransferResponse,
     ChainStatusResponse,
     CreditSettleRequest,
+    HeaderVerifyRequest,
+    HeaderVerifyResponse,
     JobCompletedRequest,
     KeypairResponse,
     MerkleProofResponse,
     PeerJobCompletedRequest,
     RegisterValidatorRequest,
     SubmitResponse,
+    SyncHeadersResponse,
     TransactionResponse,
     TransactionSubmitRequest,
     VerifyResponse,
 )
 from deepiri_zepgpu.compute_ledger.service import LedgerService, new_signed_transaction
+from deepiri_zepgpu.compute_ledger.bridge import BridgeService
 from deepiri_zepgpu.compute_ledger.transaction import ComputeTransaction, TxType
 from deepiri_zepgpu.config import settings
 from deepiri_zepgpu.database.models import User
@@ -463,3 +469,71 @@ async def resolve_chain_id(
     user: User = Depends(get_required_user),
 ):
     return {"network_id": network_id, "chain_id": chain_id_for_network(network_id)}
+
+
+@router.get("/sync/headers", response_model=SyncHeadersResponse)
+async def sync_headers(
+    network_id: str | None = Query(None),
+    from_height: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    finalized_only: bool = Query(True),
+    user: User = Depends(get_required_user),
+    db: AsyncSession = Depends(get_db_session),
+):
+    service = _service(db, network_id)
+    headers = await service.export_headers(
+        from_height=from_height,
+        limit=limit,
+        finalized_only=finalized_only,
+    )
+    return SyncHeadersResponse(
+        chain_id=service.chain_id,
+        network_id=service.network_id,
+        from_height=from_height,
+        headers=headers,
+        count=len(headers),
+    )
+
+
+@router.post("/sync/verify-headers", response_model=HeaderVerifyResponse)
+async def verify_headers(
+    body: HeaderVerifyRequest,
+    network_id: str | None = Query(None),
+    user: User = Depends(get_required_user),
+    db: AsyncSession = Depends(get_db_session),
+):
+    service = _service(db, network_id)
+    result = await service.verify_headers_payload(
+        body.headers,
+        from_height=body.from_height,
+    )
+    return HeaderVerifyResponse(
+        valid=result["valid"],
+        chain_id=result["chain_id"],
+        network_id=result.get("network_id"),
+        headers=result["headers"],
+        tip_hash=result.get("tip_hash"),
+        tip_height=result.get("tip_height", -1),
+        tip_state_root=result.get("tip_state_root"),
+        errors=result.get("errors") or [],
+    )
+
+
+@router.post("/bridge/transfer", response_model=BridgeTransferResponse)
+async def bridge_transfer(
+    body: BridgeTransferRequest,
+    user: User = Depends(get_required_user),
+    db: AsyncSession = Depends(get_db_session),
+):
+    bridge = BridgeService(db)
+    try:
+        result = await bridge.transfer(
+            source_network_id=body.source_network_id,
+            dest_network_id=body.dest_network_id,
+            account=body.account,
+            amount_seconds=body.amount_seconds,
+            memo=body.memo,
+        )
+    except LedgerValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return BridgeTransferResponse(**result)

@@ -37,6 +37,7 @@ from deepiri_zepgpu.database.models.ledger import (
     LedgerTransaction,
     LedgerBalance,
     LedgerTxType,
+    LedgerBridgeReceipt,
 )
 
 __all__ = [
@@ -80,4 +81,5 @@ __all__ = [
     "LedgerTransaction",
     "LedgerBalance",
     "LedgerTxType",
+    "LedgerBridgeReceipt",
 ]

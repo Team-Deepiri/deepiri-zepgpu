@@ -402,6 +402,51 @@ class LedgerService:
             "valid": verify_merkle_proof(proof),
         }
 
+    async def export_headers(
+        self,
+        *,
+        from_height: int = 0,
+        limit: int = 100,
+        finalized_only: bool = True,
+    ) -> list[dict[str, Any]]:
+        """Export compact headers for light-client sync."""
+        from deepiri_zepgpu.compute_ledger.light_client import BlockHeader
+
+        await self.ensure_initialized()
+        rows = await self.repo.list_all_blocks_ascending(self.chain_id)
+        headers: list[dict[str, Any]] = []
+        for row in rows:
+            if row.height < from_height:
+                continue
+            if finalized_only and not bool(getattr(row, "finalized", True)):
+                continue
+            block = self._block_to_domain(row)
+            headers.append(BlockHeader.from_block(block).to_dict())
+            if len(headers) >= limit:
+                break
+        return headers
+
+    async def verify_headers_payload(
+        self,
+        headers: list[dict[str, Any]],
+        *,
+        from_height: int | None = None,
+    ) -> dict[str, Any]:
+        from deepiri_zepgpu.compute_ledger.light_client import BlockHeader, verify_header_chain
+
+        await self.ensure_initialized()
+        validators = {v.public_key for v in await self.repo.get_active_validators(self.chain_id)}
+        parsed = [BlockHeader.from_dict(h) for h in headers]
+        result = verify_header_chain(
+            parsed,
+            authorized_validators=validators,
+            quorum_threshold=self.quorum_threshold,
+            from_height=from_height,
+        )
+        result["chain_id"] = self.chain_id
+        result["network_id"] = self.network_id
+        return result
+
     async def record_job_completed(
         self,
         *,

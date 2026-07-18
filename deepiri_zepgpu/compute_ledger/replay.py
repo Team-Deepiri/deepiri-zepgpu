@@ -89,6 +89,31 @@ def apply_transaction(state: CreditState, tx: ComputeTransaction) -> CreditState
         state.get_or_create(from_account).debit_seconds += amount
         state.get_or_create(to_account).credit_seconds += amount
 
+    elif tx_type == TxType.BRIDGE_BURN:
+        account = str(payload.get("account") or "")
+        amount = float(payload.get("amount_seconds") or 0.0)
+        if not account:
+            raise ValueError("BRIDGE_BURN requires account")
+        if amount <= 0:
+            raise ValueError("BRIDGE_BURN amount_seconds must be positive")
+        bal = state.get_or_create(account)
+        if bal.net_seconds < amount:
+            raise ValueError(
+                f"BRIDGE_BURN insufficient balance: have {bal.net_seconds}, need {amount}"
+            )
+        bal.debit_seconds += amount
+
+    elif tx_type == TxType.BRIDGE_MINT:
+        account = str(payload.get("account") or "")
+        amount = float(payload.get("amount_seconds") or 0.0)
+        if not account:
+            raise ValueError("BRIDGE_MINT requires account")
+        if amount <= 0:
+            raise ValueError("BRIDGE_MINT amount_seconds must be positive")
+        if not payload.get("receipt_id"):
+            raise ValueError("BRIDGE_MINT requires receipt_id")
+        state.get_or_create(account).credit_seconds += amount
+
     elif tx_type in (
         TxType.JOB_SUBMITTED,
         TxType.JOB_ASSIGNED,

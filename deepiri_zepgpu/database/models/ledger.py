@@ -32,6 +32,8 @@ class LedgerTxType(str, enum.Enum):
     JOB_COMPLETED = "JOB_COMPLETED"
     CREDIT_SETTLED = "CREDIT_SETTLED"
     VALIDATOR_REGISTERED = "VALIDATOR_REGISTERED"
+    BRIDGE_BURN = "BRIDGE_BURN"
+    BRIDGE_MINT = "BRIDGE_MINT"
 
 
 class LedgerValidator(UUIDMixin, TimestampMixin, Base):
@@ -142,4 +144,23 @@ class LedgerBalance(UUIDMixin, TimestampMixin, Base):
 
     __table_args__ = (
         UniqueConstraint("chain_id", "account", name="uq_ledger_balances_chain_account"),
+    )
+
+
+class LedgerBridgeReceipt(UUIDMixin, TimestampMixin, Base):
+    """Replay-protection registry for cross-network bridge mints."""
+
+    __tablename__ = "ledger_bridge_receipts"
+
+    receipt_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    source_chain_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    dest_chain_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    account: Mapped[str] = mapped_column(String(128), nullable=False)
+    amount_seconds: Mapped[float] = mapped_column(Float, nullable=False)
+    burn_tx_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    mint_tx_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), default="completed", nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("dest_chain_id", "receipt_id", name="uq_ledger_bridge_dest_receipt"),
     )
