@@ -64,10 +64,11 @@ def test_alembic_revision_chain_is_linear():
         rev = None
         down = None
         for line in text.splitlines():
-            if line.startswith("revision:"):
-                rev = line.split("=", 1)[1].strip().strip("'\"")
-            if line.startswith("down_revision:"):
-                raw = line.split("=", 1)[1].strip()
+            stripped = line.strip()
+            if stripped.startswith("revision:") or stripped.startswith("revision ="):
+                rev = stripped.split("=", 1)[1].strip().strip("'\"")
+            if stripped.startswith("down_revision:") or stripped.startswith("down_revision ="):
+                raw = stripped.split("=", 1)[1].strip()
                 down = None if raw in {"None", "none"} else raw.strip("'\"")
         assert rev, f"missing revision in {path}"
         revisions[rev] = down

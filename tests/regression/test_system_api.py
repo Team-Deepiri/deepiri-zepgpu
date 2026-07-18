@@ -78,7 +78,7 @@ async def test_tasks_create_list_get(regression_client):
         "/api/v1/tasks",
         json={
             "name": "regression-task",
-            "func_name": "noop",
+            "func_name": "math.sqrt",
             "priority": 2,
             "gpu_memory_mb": 512,
             "timeout_seconds": 60,
@@ -139,7 +139,7 @@ async def test_schedule_create_list(regression_client):
             "name": "regression-interval",
             "schedule_type": "interval",
             "interval_seconds": 120,
-            "func_name": "noop",
+            "func_name": "math.sqrt",
         },
     )
     assert created.status_code == 201, created.text
@@ -159,7 +159,7 @@ async def test_pipeline_create_list(regression_client):
             "name": "regression-pipeline",
             "description": "system regression",
             "stages": [
-                {"name": "stage-a", "func_name": "noop", "args": {}},
+                {"name": "stage-a", "func_name": "math.sqrt", "args": {}},
             ],
         },
     )
@@ -194,7 +194,7 @@ async def test_ledger_still_works_after_system_writes(regression_client):
     # Touch another module first
     await regression_client.post(
         "/api/v1/tasks",
-        json={"name": "pre-ledger", "func_name": "noop"},
+        json={"name": "pre-ledger", "func_name": "math.sqrt"},
     )
 
     status = await regression_client.get("/api/v1/ledger/status")
