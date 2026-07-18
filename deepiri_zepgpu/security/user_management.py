@@ -7,7 +7,7 @@ import secrets
 import threading
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 
 import jwt
@@ -30,7 +30,7 @@ class User:
     username: str
     email: str
     role: UserRole = UserRole.USER
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     last_login: datetime | None = None
     is_active: bool = True
     quota: dict[str, int] = field(
@@ -50,7 +50,7 @@ class AuthToken:
     token: str
     user_id: str
     expires_at: datetime
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 class UserManager:
@@ -118,7 +118,7 @@ class UserManager:
         if not self._verify_password(password, user.user_id):
             return None
 
-        user.last_login = datetime.utcnow()
+        user.last_login = datetime.now(UTC)
         return self.create_token(user.user_id)
 
     def create_token(self, user_id: str, expires_hours: int = 24) -> str:
@@ -128,7 +128,7 @@ class UserManager:
             if not user:
                 raise ValueError("User not found")
 
-            expires_at = datetime.utcnow().timestamp() + (expires_hours * 3600)
+            expires_at = datetime.now(UTC).timestamp() + (expires_hours * 3600)
             token = jwt.encode(
                 {
                     "user_id": user_id,

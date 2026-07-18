@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import and_, func, select, update
@@ -97,14 +97,14 @@ class TaskRepository:
         task.status = status
 
         if status == TaskStatus.RUNNING:
-            task.started_at = datetime.utcnow()
+            task.started_at = datetime.now(UTC)
         elif status in [
             TaskStatus.COMPLETED,
             TaskStatus.FAILED,
             TaskStatus.CANCELLED,
             TaskStatus.TIMEOUT,
         ]:
-            task.completed_at = datetime.utcnow()
+            task.completed_at = datetime.now(UTC)
 
         for key, value in kwargs.items():
             if hasattr(task, key):
@@ -200,7 +200,7 @@ class TaskRepository:
 
     async def delete_old_completed(self, days: int = 7) -> int:
         """Delete old completed tasks."""
-        cutoff = datetime.utcnow() - timedelta(days=days)
+        cutoff = datetime.now(UTC) - timedelta(days=days)
 
         result = await self.session.execute(
             update(Task)

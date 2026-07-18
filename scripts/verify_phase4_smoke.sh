@@ -214,8 +214,8 @@ done
 
 if container_running "$ZEPGPU_CONTAINER"; then
   alembic_rev=$(docker exec "$ZEPGPU_CONTAINER" alembic current 2>/dev/null | awk '{print $1}' | head -1 || true)
-  if [[ "$alembic_rev" == "006" ]]; then
-    pass "Alembic at revision 006 (head)"
+  if [[ "$alembic_rev" == "007" ]]; then
+    pass "Alembic at revision 007 (head)"
   elif [[ -n "$alembic_rev" && "$alembic_rev" != "(head)" ]]; then
     fail "Alembic not at head" "current=$alembic_rev — run: docker exec $ZEPGPU_CONTAINER alembic upgrade head"
   else

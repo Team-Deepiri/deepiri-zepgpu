@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import DateTime, Float, ForeignKey, Integer
 from sqlalchemy.dialects.postgresql import NUMERIC, UUID
@@ -76,7 +76,7 @@ class UserQuota(Base):
         """Check if quota period has expired."""
         from datetime import timedelta
 
-        return datetime.utcnow() > self.period_start + timedelta(hours=self.period_hours)
+        return datetime.now(UTC) > self.period_start + timedelta(hours=self.period_hours)
 
     def reset_period(self) -> None:
         """Reset usage counters for new period."""
@@ -84,7 +84,7 @@ class UserQuota(Base):
         self.gpu_seconds_used = 0.0
         self.concurrent_tasks = 0
         self.storage_used_gb = 0.0
-        self.period_start = datetime.utcnow()
+        self.period_start = datetime.now(UTC)
 
     def __repr__(self) -> str:
         return f"<UserQuota(user_id={self.user_id}, tasks={self.tasks_submitted}/{self.max_tasks})>"

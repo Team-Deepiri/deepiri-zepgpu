@@ -7,7 +7,7 @@ import base64
 import pickle
 import time
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -109,7 +109,7 @@ async def health() -> dict:
 
 @app.get("/gpu/status")
 async def gpu_status() -> dict:
-    return {"gpus": _local_gpus, "timestamp": datetime.utcnow().isoformat()}
+    return {"gpus": _local_gpus, "timestamp": datetime.now(UTC).isoformat()}
 
 
 @app.post("/execute", response_model=TaskResult)

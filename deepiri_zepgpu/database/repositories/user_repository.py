@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import func, or_, select
@@ -43,7 +43,7 @@ class UserRepository:
 
         quota = UserQuota(
             user_id=user.id,
-            period_start=datetime.utcnow(),
+            period_start=datetime.now(UTC),
         )
         self.session.add(quota)
         await self.session.flush()
@@ -98,7 +98,7 @@ class UserRepository:
 
     async def update_last_login(self, user_id: str) -> User | None:
         """Update user's last login time."""
-        return await self.update(user_id, last_login_at=datetime.utcnow())
+        return await self.update(user_id, last_login_at=datetime.now(UTC))
 
     async def verify_user(self, user_id: str) -> User | None:
         """Mark user as verified."""

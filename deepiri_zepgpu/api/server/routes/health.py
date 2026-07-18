@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, status
 from pydantic import BaseModel
@@ -31,7 +31,7 @@ async def health_check() -> HealthResponse:
 
     return HealthResponse(
         status="healthy",
-        timestamp=datetime.utcnow(),
+        timestamp=datetime.now(UTC),
         version="0.1.0",
         database="healthy",
         redis="healthy" if redis_healthy else "unhealthy",

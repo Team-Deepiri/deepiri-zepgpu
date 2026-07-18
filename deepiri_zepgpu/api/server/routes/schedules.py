@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from croniter import croniter
@@ -244,7 +244,7 @@ def _calculate_next_run(
     start_datetime: datetime | None = None,
 ) -> datetime | None:
     """Calculate the next run time for a schedule."""
-    now = datetime.utcnow()
+    now = datetime.now(UTC)
 
     if schedule_type == "cron" and cron_expression:
         try:
@@ -713,7 +713,7 @@ async def create_delayed_task(
     from deepiri_zepgpu.database.models import Task
     from deepiri_zepgpu.database.models import TaskStatus as DBTaskStatus
 
-    if request.execute_at <= datetime.utcnow():
+    if request.execute_at <= datetime.now(UTC):
         raise HTTPException(status_code=400, detail="execute_at must be in the future")
 
     task = Task(
@@ -743,7 +743,7 @@ async def create_delayed_task(
     db.add(task)
     await db.flush()
 
-    delay_seconds = (request.execute_at - datetime.utcnow()).total_seconds()
+    delay_seconds = (request.execute_at - datetime.now(UTC)).total_seconds()
     execute_delayed_task.apply_async(args=[task.id], countdown=delay_seconds)
 
     return DelayedTaskResponse(
