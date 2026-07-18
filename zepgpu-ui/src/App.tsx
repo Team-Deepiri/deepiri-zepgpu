@@ -17,6 +17,7 @@ import Users from '@/pages/Users'
 import Control from '@/pages/Control'
 import Alerts from '@/pages/Alerts'
 import Vpn from '@/pages/Vpn'
+import Ledger from '@/pages/Ledger'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
@@ -50,6 +51,7 @@ function App() {
                 <Route path="/namespaces" element={<Namespaces />} />
                 <Route path="/cloud" element={<Cloud />} />
                 <Route path="/vpn" element={<Vpn />} />
+                <Route path="/ledger" element={<Ledger />} />
                 <Route path="/users" element={<Users />} />
               </Routes>
             </Layout>

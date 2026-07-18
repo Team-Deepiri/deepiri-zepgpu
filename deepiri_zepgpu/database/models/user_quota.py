@@ -19,8 +19,8 @@ class UserQuota(Base):
     __tablename__ = "user_quotas"
     
     user_id: Mapped[str] = mapped_column(
-        primary_key=True,
         ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
     )
     
     max_tasks: Mapped[int] = mapped_column(Integer, default=100, nullable=False)

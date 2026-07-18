@@ -15,6 +15,7 @@ from deepiri_zepgpu.database.repositories.namespace_repository import (
     NamespaceQuotaRepository,
     NamespaceUsageRepository,
 )
+from deepiri_zepgpu.database.repositories.ledger_repository import LedgerRepository
 
 __all__ = [
     "TaskRepository",
@@ -33,4 +34,5 @@ __all__ = [
     "TeamMemberRepository",
     "NamespaceQuotaRepository",
     "NamespaceUsageRepository",
+    "LedgerRepository",
 ]

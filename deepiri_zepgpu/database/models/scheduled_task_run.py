@@ -26,7 +26,7 @@ class ScheduleRunStatus(str, enum.Enum):
     CANCELLED = "cancelled"
 
 
-class ScheduledTaskRun(UUIDMixin, Base):
+class ScheduledTaskRun(UUIDMixin, TimestampMixin, Base):
     """Record of a scheduled task execution."""
     
     __tablename__ = "scheduled_task_runs"

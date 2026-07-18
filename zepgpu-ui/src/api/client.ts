@@ -6,6 +6,7 @@ import type {
   CloudProvider, CloudRegion, CloudGPUInstance, CloudLaunchRequest, CloudCostEstimate,
   AuditLog, Alert, GPUMetrics, ServiceMetrics, TaskMetrics, LeaderboardEntry, Achievement,
   DAGData, VpnNetwork, Peer, GpuShare, GpuPoolSummary, VpnInvite, Friend, FriendList, VpnConfigResponse,
+  LedgerStatus, LedgerBlock, LedgerBalance, LedgerVerifyResult, LedgerSubmitResponse,
 } from '@/types'
 
 const api = axios.create({
@@ -456,6 +457,49 @@ export const vpnApi = {
   },
   listUsers: async (): Promise<User[]> => {
     const { data } = await api.get<User[]>('/users')
+    return data
+  },
+}
+
+export const ledgerApi = {
+  status: async (): Promise<LedgerStatus> => {
+    const { data } = await api.get<LedgerStatus>('/ledger/status')
+    return data
+  },
+  verify: async (): Promise<LedgerVerifyResult> => {
+    const { data } = await api.get<LedgerVerifyResult>('/ledger/verify')
+    return data
+  },
+  listBlocks: async (params?: { limit?: number; offset?: number }): Promise<LedgerBlock[]> => {
+    const { data } = await api.get<LedgerBlock[]>('/ledger/blocks', { params })
+    return data
+  },
+  getBlockByHeight: async (height: number): Promise<LedgerBlock> => {
+    const { data } = await api.get<LedgerBlock>(`/ledger/blocks/height/${height}`)
+    return data
+  },
+  listBalances: async (): Promise<LedgerBalance[]> => {
+    const { data } = await api.get<LedgerBalance[]>('/ledger/balances')
+    return data
+  },
+  attestJobCompleted: async (body: {
+    task_id: string
+    provider_account: string
+    consumer_account: string
+    gpu_seconds: number
+    input_hash?: string
+    output_hash?: string
+    peer_id?: string
+  }): Promise<LedgerSubmitResponse> => {
+    const { data } = await api.post<LedgerSubmitResponse>('/ledger/attestations/job-completed', body)
+    return data
+  },
+  rebuildBalances: async (): Promise<LedgerBalance[]> => {
+    const { data } = await api.post<LedgerBalance[]>('/ledger/rebuild-balances')
+    return data
+  },
+  seal: async (): Promise<LedgerBlock | null> => {
+    const { data } = await api.post<LedgerBlock | null>('/ledger/seal')
     return data
   },
 }

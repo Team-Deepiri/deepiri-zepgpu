@@ -110,6 +110,17 @@ class VPNSettings(BaseSettings):
     invite_max_uses: int = Field(default=10)
 
 
+class LedgerSettings(BaseSettings):
+    """Permissioned compute ledger (PoA) configuration."""
+
+    enabled: bool = Field(default=True)
+    chain_id: str = Field(default="zepgpu-compute-v1")
+    auto_seal: bool = Field(default=True)
+    # Raw URL-safe base64 Ed25519 private key. If empty, derived from auth.secret_key.
+    validator_private_key: str = Field(default="")
+    record_local_completions: bool = Field(default=True)
+
+
 class Settings(BaseSettings):
     """Main settings class."""
     
@@ -118,6 +129,7 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
+        env_nested_delimiter="__",
     )
     
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
@@ -129,6 +141,7 @@ class Settings(BaseSettings):
     schedule: ScheduleSettings = Field(default_factory=ScheduleSettings)
     cloud: CloudSettings = Field(default_factory=CloudSettings)
     vpn: VPNSettings = Field(default_factory=VPNSettings)
+    ledger: LedgerSettings = Field(default_factory=LedgerSettings)
     
     app_name: str = Field(default="zepgpu")
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(default="INFO")

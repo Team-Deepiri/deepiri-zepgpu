@@ -31,6 +31,13 @@ from deepiri_zepgpu.database.models.vpn_models import (
     PeerOnlineStatus,
     GpuShareState,
 )
+from deepiri_zepgpu.database.models.ledger import (
+    LedgerValidator,
+    LedgerBlock,
+    LedgerTransaction,
+    LedgerBalance,
+    LedgerTxType,
+)
 
 __all__ = [
     "Base",
@@ -68,4 +75,9 @@ __all__ = [
     "GpuShareQuota",
     "PeerOnlineStatus",
     "GpuShareState",
+    "LedgerValidator",
+    "LedgerBlock",
+    "LedgerTransaction",
+    "LedgerBalance",
+    "LedgerTxType",
 ]

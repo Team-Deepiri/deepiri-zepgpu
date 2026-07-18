@@ -98,6 +98,38 @@ async def _log_audit(
         )
 
 
+async def _record_ledger_completion(
+    task_id: str,
+    user_id: str | None,
+    gpu_seconds: float,
+    *,
+    provider_account: str = "local-relay",
+    peer_id: str | None = None,
+    input_hash: str | None = None,
+    output_hash: str | None = None,
+) -> None:
+    """Append a JOB_COMPLETED attestation to the permissioned compute ledger."""
+    from deepiri_zepgpu.config import settings
+    from deepiri_zepgpu.compute_ledger.service import LedgerService
+
+    if not settings.ledger.enabled or not settings.ledger.record_local_completions:
+        return
+    try:
+        async with get_db_context() as db:
+            service = LedgerService(db)
+            await service.record_job_completed(
+                task_id=task_id,
+                provider_account=provider_account,
+                consumer_account=str(user_id or "anonymous"),
+                gpu_seconds=max(0.0, float(gpu_seconds)),
+                input_hash=input_hash,
+                output_hash=output_hash,
+                peer_id=peer_id,
+            )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Compute ledger attestation failed for task %s: %s", task_id, exc)
+
+
 @celery_app.task(
     bind=True,
     base=GPUTask,
@@ -181,6 +213,17 @@ def execute_task(self, task_id: str) -> dict[str, Any]:
                     await repo.mark_completed(task_id)
                 
                 await _log_audit(AuditAction.TASK_COMPLETE, task_id, task.user_id)
+                # Refresh task for execution timing if available
+                completed = await repo.get_by_id(task_id)
+                gpu_seconds = 0.0
+                if completed and completed.execution_time_ms:
+                    gpu_seconds = float(completed.execution_time_ms) / 1000.0
+                await _record_ledger_completion(
+                    task_id,
+                    task.user_id,
+                    gpu_seconds,
+                    provider_account="local-relay",
+                )
                 
                 logger.info(f"Task {task_id} completed successfully")
                 return {
