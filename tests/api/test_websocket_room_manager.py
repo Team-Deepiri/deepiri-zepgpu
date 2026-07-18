@@ -110,6 +110,34 @@ async def test_unsubscribe_all() -> None:
 
 
 @pytest.mark.asyncio
+async def test_failed_send_drops_only_dead_socket_among_many_users() -> None:
+    mgr = ConnectionManager()
+    room_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    dead = _fake_ws()
+    dead.send_json = AsyncMock(side_effect=RuntimeError("gone"))
+    alive_a = _fake_ws()
+    alive_b = _fake_ws()
+
+    await mgr.connect(dead, "user-dead")
+    await mgr.connect(alive_a, "user-a")
+    await mgr.connect(alive_b, "user-b")
+    await mgr.subscribe_room(dead, room_id)
+    await mgr.subscribe_room(alive_a, room_id)
+    await mgr.subscribe_room(alive_b, room_id)
+
+    await mgr.broadcast_to_room(room_id, {"type": "room_gpu_update", "room_id": room_id})
+
+    assert mgr.get_connection_count() == 2
+    assert mgr.get_user_count() == 2
+    assert mgr.get_room_subscriber_count(room_id) == 2
+    assert dead not in mgr._socket_to_user_id
+    assert mgr._socket_to_user_id[alive_a] == "user-a"
+    assert mgr._socket_to_user_id[alive_b] == "user-b"
+    alive_a.send_json.assert_awaited_once()
+    alive_b.send_json.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_unsubscribe_user_from_room_removes_all_user_sockets_only() -> None:
     mgr = ConnectionManager()
     room_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"

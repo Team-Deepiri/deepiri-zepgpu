@@ -65,6 +65,18 @@ class VpnNetworkRepository:
         )
         return list(result.scalars().all())
 
+    async def user_belongs_to_network(self, user_id: str, network_id: str) -> bool:
+        """Return True if the user has a peer on the given network."""
+        result = await self.db.execute(
+            select(Peer.id)
+            .where(
+                Peer.user_id == user_id,
+                Peer.vpn_network_id == network_id,
+            )
+            .limit(1)
+        )
+        return result.scalar_one_or_none() is not None
+
     async def list_all(self) -> list[VpnNetwork]:
         result = await self.db.execute(select(VpnNetwork))
         return list(result.scalars().all())

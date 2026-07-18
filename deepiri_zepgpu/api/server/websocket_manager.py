@@ -21,6 +21,7 @@ class ConnectionManager:
 
     def __init__(self) -> None:
         self._connections: dict[str, list[WebSocket]] = defaultdict(list)
+        self._socket_to_user_id: dict[WebSocket, str] = {}
         self._room_subscriptions: dict[str, set[WebSocket]] = defaultdict(set)
         self._socket_rooms: dict[WebSocket, set[str]] = defaultdict(set)
         self._lock = asyncio.Lock()
@@ -30,6 +31,7 @@ class ConnectionManager:
         await websocket.accept()
         async with self._lock:
             self._connections[user_id].append(websocket)
+            self._socket_to_user_id[websocket] = user_id
         logger.info(f"WebSocket connected for user {user_id}")
 
     async def disconnect(self, websocket: WebSocket, user_id: str) -> None:
@@ -39,6 +41,7 @@ class ConnectionManager:
                 self._connections[user_id].remove(websocket)
                 if not self._connections[user_id]:
                     del self._connections[user_id]
+            self._socket_to_user_id.pop(websocket, None)
             self._remove_socket_from_rooms_locked(websocket)
         logger.info(f"WebSocket disconnected for user {user_id}")
 
@@ -96,12 +99,13 @@ class ConnectionManager:
     async def _drop_dead_socket(self, websocket: WebSocket) -> None:
         """Remove a failed socket from user and room indexes."""
         async with self._lock:
-            for user_id, connections in list(self._connections.items()):
-                if websocket in connections:
+            user_id = self._socket_to_user_id.pop(websocket, None)
+            if user_id is not None:
+                connections = self._connections.get(user_id)
+                if connections and websocket in connections:
                     connections.remove(websocket)
                     if not connections:
                         del self._connections[user_id]
-                    break
             self._remove_socket_from_rooms_locked(websocket)
 
     async def send_personal_message(self, message: dict[str, Any], user_id: str) -> None:

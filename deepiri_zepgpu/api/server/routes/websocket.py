@@ -292,11 +292,7 @@ async def metrics_websocket(  # noqa: C901
 async def _user_is_room_member(user_id: str, room_id: str) -> bool:
     async with get_db_context() as db:
         network_repo = VpnNetworkRepository(db)
-        room = await network_repo.get_by_id(room_id)
-        if not room:
-            return False
-        user_rooms = await network_repo.list_user_networks(user_id)
-        return any(str(user_room.id) == str(room_id) for user_room in user_rooms)
+        return await network_repo.user_belongs_to_network(user_id, room_id)
 
 
 @router.websocket("/ws/rooms")
