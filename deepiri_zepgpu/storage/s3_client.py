@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import boto3
@@ -203,9 +204,8 @@ class StorageClient:
     def cleanup_old_results(self, days: int = 7) -> int:
         """Delete results older than specified days."""
         assert self._client is not None
-        from datetime import datetime, timedelta
 
-        cutoff = datetime.utcnow() - timedelta(days=days)
+        cutoff = datetime.now(UTC) - timedelta(days=days)
         deleted = 0
 
         for result in self.list_results():

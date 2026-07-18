@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import func, select, update
@@ -134,11 +134,11 @@ class GPURepository:
             for key, value in kwargs.items():
                 if hasattr(device, key):
                     setattr(device, key, value)
-            device.last_seen = datetime.utcnow()
+            device.last_seen = datetime.now(UTC)
         else:
             device = GPUDevice(
                 device_index=device_index,
-                last_seen=datetime.utcnow(),
+                last_seen=datetime.now(UTC),
                 **kwargs,
             )
             self.session.add(device)
@@ -171,7 +171,7 @@ class GPURepository:
         if available_memory_mb is not None:
             device.available_memory_mb = available_memory_mb
 
-        device.last_seen = datetime.utcnow()
+        device.last_seen = datetime.now(UTC)
         await self.session.flush()
         return device
 
@@ -191,7 +191,7 @@ class GPURepository:
             .values(
                 state=GPUState.ALLOCATED,
                 current_task_id=task_id,
-                last_seen=datetime.utcnow(),
+                last_seen=datetime.now(UTC),
             )
             .returning(GPUDevice)
         )
@@ -285,7 +285,7 @@ class GPURepository:
             return None
 
         device.state = GPUState.ERROR
-        device.last_seen = datetime.utcnow()
+        device.last_seen = datetime.now(UTC)
         await self.session.flush()
         return device
 

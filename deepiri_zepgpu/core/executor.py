@@ -12,7 +12,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from deepiri_zepgpu.core.gpu_manager import GPUDevice, GPUManager
@@ -59,7 +59,7 @@ class TaskExecutor:
         """Execute a single task on allocated GPU."""
         start_time = time.time()
         task.status = TaskStatus.RUNNING
-        task.started_at = datetime.utcnow()
+        task.started_at = datetime.now(UTC)
 
         if task.remote_peer_vpn_ip:
             return await self._execute_on_remote_peer(task, start_time)
@@ -104,7 +104,7 @@ class TaskExecutor:
             )
 
         finally:
-            task.completed_at = datetime.utcnow()
+            task.completed_at = datetime.now(UTC)
 
     async def _execute_on_remote_peer(self, task: Task, start_time: float) -> ExecutionResult:
         """Run task function on a VPN peer via HTTP (WireGuard tunnel)."""
@@ -156,7 +156,7 @@ class TaskExecutor:
                 execution_time=execution_time,
             )
         finally:
-            task.completed_at = datetime.utcnow()
+            task.completed_at = datetime.now(UTC)
 
     async def _run_task(
         self,

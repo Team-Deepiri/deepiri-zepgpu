@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -235,7 +235,7 @@ async def create_namespace(
             namespace_id=namespace.id,
             user_id=current_user.id,
             role="owner",
-            joined_at=datetime.utcnow(),
+            joined_at=datetime.now(UTC),
         )
         db.add(member)
         await db.flush()
@@ -402,7 +402,7 @@ async def add_namespace_member(
         namespace_id=namespace_id,
         user_id=user_id,
         role=TeamRole(role),
-        joined_at=datetime.utcnow(),
+        joined_at=datetime.now(UTC),
     )
     db.add(member)
     await db.flush()

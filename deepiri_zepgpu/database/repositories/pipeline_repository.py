@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import func, select
@@ -83,9 +83,9 @@ class PipelineRepository:
         pipeline.status = status
 
         if status == PipelineStatus.RUNNING:
-            pipeline.started_at = datetime.utcnow()
+            pipeline.started_at = datetime.now(UTC)
         elif status in [PipelineStatus.COMPLETED, PipelineStatus.FAILED, PipelineStatus.CANCELLED]:
-            pipeline.completed_at = datetime.utcnow()
+            pipeline.completed_at = datetime.now(UTC)
 
         for key, value in kwargs.items():
             if hasattr(pipeline, key):

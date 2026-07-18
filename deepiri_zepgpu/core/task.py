@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -60,7 +60,7 @@ class Task:
     task_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     name: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     status: TaskStatus = TaskStatus.PENDING
     result: Any | None = None
     error: str | None = None
@@ -131,7 +131,7 @@ class Task:
             created_at=(
                 datetime.fromisoformat(data["created_at"])
                 if data.get("created_at")
-                else datetime.utcnow()
+                else datetime.now(UTC)
             ),
             gpu_device_id=data.get("gpu_device_id"),
             tags=data.get("tags", []),

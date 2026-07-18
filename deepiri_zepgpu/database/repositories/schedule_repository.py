@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import and_, func, select, update
@@ -90,7 +90,7 @@ class ScheduleRepository:
     ) -> Sequence[ScheduledTask]:
         """Get schedules that are due to run."""
         if before_time is None:
-            before_time = datetime.utcnow()
+            before_time = datetime.now(UTC)
 
         result = await self.session.execute(
             select(ScheduledTask)
@@ -157,7 +157,7 @@ class ScheduleRepository:
         if not schedule:
             return None
 
-        schedule.last_run_at = datetime.utcnow()
+        schedule.last_run_at = datetime.now(UTC)
         schedule.run_count += 1
         schedule.last_task_id = task_id
 
@@ -182,7 +182,7 @@ class ScheduleRepository:
         if not schedule:
             return None
 
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         next_run = None
 
         if schedule.schedule_type == ScheduleType.CRON and schedule.cron_expression:
@@ -289,13 +289,13 @@ class ScheduleRunRepository:
         run.status = status
 
         if status == ScheduleRunStatus.RUNNING:
-            run.started_at = datetime.utcnow()
+            run.started_at = datetime.now(UTC)
         elif status in [
             ScheduleRunStatus.COMPLETED,
             ScheduleRunStatus.FAILED,
             ScheduleRunStatus.CANCELLED,
         ]:
-            run.completed_at = datetime.utcnow()
+            run.completed_at = datetime.now(UTC)
             if run.started_at:
                 run.duration_ms = int((run.completed_at - run.started_at).total_seconds() * 1000)
 
@@ -347,7 +347,7 @@ class ScheduleRunRepository:
 
     async def delete_old_runs(self, days: int = 30) -> int:
         """Delete old run records."""
-        cutoff = datetime.utcnow() - timedelta(days=days)
+        cutoff = datetime.now(UTC) - timedelta(days=days)
 
         result = await self.session.execute(
             update(ScheduledTaskRun)

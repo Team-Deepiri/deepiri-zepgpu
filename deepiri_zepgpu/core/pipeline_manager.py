@@ -6,7 +6,7 @@ import asyncio
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -45,7 +45,7 @@ class Pipeline:
     stages: list[PipelineStage]
     pipeline_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     user_id: str | None = None
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     status: PipelineStageStatus = PipelineStageStatus.PENDING
     stage_results: dict[str, Any] = field(default_factory=dict)
     stage_statuses: dict[str, PipelineStageStatus] = field(default_factory=dict)

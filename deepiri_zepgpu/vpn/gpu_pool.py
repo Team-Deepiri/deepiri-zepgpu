@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from deepiri_zepgpu.core.gpu_manager import GPUDevice, GPUManager, GPUState, GPUType
@@ -31,7 +31,7 @@ class RemoteGPUDevice:
     utilization_percent: float = 0.0
     temperature_celsius: float = 0.0
     power_draw_watts: float = 0.0
-    last_updated: datetime = field(default_factory=datetime.utcnow)
+    last_updated: datetime = field(default_factory=lambda: datetime.now(UTC))
     vpn_ip: str = ""
     vpn_network_id: str = ""
 

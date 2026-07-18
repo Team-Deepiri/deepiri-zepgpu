@@ -6,7 +6,7 @@ import asyncio
 import contextlib
 import threading
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 
 import psutil
 
@@ -28,7 +28,7 @@ class SystemMetrics:
     memory_percent: float
     disk_used_gb: float
     disk_total_gb: float
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass
@@ -43,7 +43,7 @@ class GPUMetrics:
     memory_percent: float
     temperature_celsius: float
     power_watts: float
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass
@@ -189,7 +189,7 @@ class MetricsCollector:
             self._task_metrics[task_id] = TaskMetrics(
                 task_id=task_id,
                 gpu_device_id=gpu_device_id,
-                start_time=datetime.utcnow(),
+                start_time=datetime.now(UTC),
             )
 
     def record_task_end(
@@ -203,7 +203,7 @@ class MetricsCollector:
         with self._lock:
             if task_id in self._task_metrics:
                 metrics = self._task_metrics[task_id]
-                metrics.end_time = datetime.utcnow()
+                metrics.end_time = datetime.now(UTC)
                 metrics.execution_time_seconds = (
                     metrics.end_time - metrics.start_time
                 ).total_seconds()

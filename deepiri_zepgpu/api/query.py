@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from deepiri_zepgpu.core.scheduler import TaskScheduler
@@ -99,7 +99,7 @@ class TaskQuery:
         hours: int = 24,
     ) -> list[Task]:
         """Get task history for the specified time period."""
-        cutoff = datetime.utcnow() - timedelta(hours=hours)
+        cutoff = datetime.now(UTC) - timedelta(hours=hours)
         tasks = self.list_tasks(user_id=user_id)
         return [t for t in tasks if t.created_at >= cutoff]
 

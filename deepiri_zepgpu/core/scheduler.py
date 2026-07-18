@@ -8,7 +8,7 @@ import threading
 from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -43,7 +43,7 @@ class QueueStats:
     failed_tasks: int = 0
     average_wait_time: float = 0.0
     average_execution_time: float = 0.0
-    last_updated: datetime = field(default_factory=datetime.utcnow)
+    last_updated: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass(order=True)
@@ -298,7 +298,7 @@ class TaskScheduler:
             task = self._running_tasks.get(task_id)
             if task:
                 task.status = TaskStatus.RUNNING
-                task.started_at = datetime.utcnow()
+                task.started_at = datetime.now(UTC)
 
     def mark_task_completed(
         self,
@@ -310,7 +310,7 @@ class TaskScheduler:
             task = self._running_tasks.pop(task_id, None)
             if task:
                 task.status = TaskStatus.COMPLETED
-                task.completed_at = datetime.utcnow()
+                task.completed_at = datetime.now(UTC)
                 task.result = result
                 self._completed_tasks[task_id] = task
                 self._stats.running_tasks -= 1
@@ -330,7 +330,7 @@ class TaskScheduler:
             task = self._running_tasks.pop(task_id, None)
             if task:
                 task.status = TaskStatus.FAILED
-                task.completed_at = datetime.utcnow()
+                task.completed_at = datetime.now(UTC)
                 task.error = error
                 task.traceback = traceback
                 self._failed_tasks[task_id] = task
@@ -377,7 +377,7 @@ class TaskScheduler:
                 else wait_time
             )
 
-        self._stats.last_updated = datetime.utcnow()
+        self._stats.last_updated = datetime.now(UTC)
 
     def _notify_callback(self, task: Task) -> None:
         """Notify registered callback for task."""

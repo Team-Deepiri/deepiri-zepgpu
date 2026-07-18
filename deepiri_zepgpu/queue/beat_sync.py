@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import redis
@@ -66,7 +66,7 @@ class BeatSchedulerSync:
             "args": args,
             "kwargs": kwargs,
             "schedule_type": schedule_type,
-            "last_updated": datetime.utcnow().isoformat(),
+            "last_updated": datetime.now(UTC).isoformat(),
         }
 
         if schedule_type == "cron" and cron_expr:
@@ -76,7 +76,7 @@ class BeatSchedulerSync:
         elif schedule_type == "interval" and interval_seconds:
             entry["interval_seconds"] = interval_seconds  # type: ignore[assignment]
             entry["next_run"] = (
-                datetime.utcnow() + timedelta(seconds=interval_seconds)
+                datetime.now(UTC) + timedelta(seconds=interval_seconds)
             ).isoformat()
         elif schedule_type == "once" and run_at:
             entry["run_at"] = run_at.isoformat()
@@ -96,7 +96,7 @@ class BeatSchedulerSync:
         """Get the next run time for a cron expression."""
         try:
             if from_time is None:
-                from_time = datetime.utcnow()
+                from_time = datetime.now(UTC)
             cron = croniter(cron_expr, from_time)
             return cron.get_next(datetime)
         except ValueError:

@@ -6,7 +6,7 @@ import asyncio
 import logging
 import traceback
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import cloudpickle
@@ -501,7 +501,7 @@ def execute_scheduled_task(
                 logger.info(f"Schedule {schedule_id} is disabled, skipping")
                 return {"status": "skipped", "message": "Schedule is disabled"}
 
-            scheduled_at = datetime.utcnow()
+            scheduled_at = datetime.now(UTC)
 
             run = None
             if run_id:
@@ -776,7 +776,7 @@ def execute_gang_task(  # noqa: C901
                     execution_time_ms = 0
                     if gang_task.started_at:
                         execution_time_ms = int(
-                            (datetime.utcnow() - gang_task.started_at).total_seconds() * 1000
+                            (datetime.now(UTC) - gang_task.started_at).total_seconds() * 1000
                         )
                     await fair_share_repo.record_gpu_usage(
                         gang_task.user_id,
@@ -850,7 +850,7 @@ def preempt_task(self: GPUTask, task_id: str, gang_task_id: str | None = None) -
             execution_time_ms = 0
             if task.started_at:
                 execution_time_ms = int(
-                    (datetime.utcnow() - task.started_at).total_seconds() * 1000
+                    (datetime.now(UTC) - task.started_at).total_seconds() * 1000
                 )
 
             checkpoint_ref = None
@@ -858,7 +858,7 @@ def preempt_task(self: GPUTask, task_id: str, gang_task_id: str | None = None) -
                 await preempt_repo.create(
                     gang_task_id=gang_task_id,
                     preempted_task_id=task_id,
-                    preempted_at=datetime.utcnow(),
+                    preempted_at=datetime.now(UTC),
                     reason="Higher priority gang task requires GPU",
                     execution_time_before_preemption_ms=execution_time_ms,
                     checkpoint_ref=checkpoint_ref,
@@ -1023,7 +1023,7 @@ def reset_expired_fair_share_periods() -> dict[str, int]:
                     bucket.tasks_completed = 0
                     bucket.tasks_failed = 0
                     bucket.tasks_preempted = 0
-                    bucket.period_start = datetime.utcnow()
+                    bucket.period_start = datetime.now(UTC)
                     reset_count += 1
 
             if reset_count > 0:

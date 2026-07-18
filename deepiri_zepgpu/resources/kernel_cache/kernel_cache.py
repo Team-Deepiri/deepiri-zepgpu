@@ -6,7 +6,7 @@ import hashlib
 import os
 import threading
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -24,7 +24,7 @@ class KernelMetadata:
 
     name: str
     source_hash: str
-    compiled_at: datetime = field(default_factory=datetime.utcnow)
+    compiled_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     source_file: str | None = None
     usage_count: int = 0
 
