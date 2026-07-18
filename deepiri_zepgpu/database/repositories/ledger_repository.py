@@ -1,0 +1,314 @@
+"""Repository for compute ledger persistence."""
+
+from __future__ import annotations
+
+import uuid
+from collections.abc import Sequence
+from datetime import datetime
+from typing import Any
+from uuid import UUID
+
+from sqlalchemy import func, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from deepiri_zepgpu.database.models.ledger import (
+    LedgerBalance,
+    LedgerBlock,
+    LedgerTransaction,
+    LedgerTxType,
+    LedgerValidator,
+)
+
+
+def _as_uuid(value: str | UUID | None) -> UUID | None:
+    if value is None:
+        return None
+    if isinstance(value, UUID):
+        return value
+    return UUID(str(value))
+
+
+class LedgerRepository:
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+    async def get_active_validators(self, chain_id: str) -> list[LedgerValidator]:
+        result = await self.db.execute(
+            select(LedgerValidator).where(
+                LedgerValidator.chain_id == chain_id,
+                LedgerValidator.is_active.is_(True),
+            )
+        )
+        return list(result.scalars().all())
+
+    async def upsert_validator(
+        self,
+        *,
+        chain_id: str,
+        public_key: str,
+        label: str = "relay",
+        vpn_network_id: str | None = None,
+    ) -> LedgerValidator:
+        result = await self.db.execute(
+            select(LedgerValidator).where(
+                LedgerValidator.chain_id == chain_id,
+                LedgerValidator.public_key == public_key,
+            )
+        )
+        existing = result.scalar_one_or_none()
+        if existing:
+            existing.is_active = True
+            existing.label = label
+            if vpn_network_id is not None:
+                existing.vpn_network_id = vpn_network_id
+            await self.db.flush()
+            return existing
+        validator = LedgerValidator(
+            id=uuid.uuid4(),
+            chain_id=chain_id,
+            public_key=public_key,
+            label=label,
+            is_active=True,
+            vpn_network_id=_as_uuid(vpn_network_id),
+        )
+        self.db.add(validator)
+        await self.db.flush()
+        return validator
+
+    async def get_tip(self, chain_id: str, *, finalized_only: bool = True) -> LedgerBlock | None:
+        query = select(LedgerBlock).where(LedgerBlock.chain_id == chain_id)
+        if finalized_only:
+            query = query.where(LedgerBlock.finalized.is_(True))
+        result = await self.db.execute(query.order_by(LedgerBlock.height.desc()).limit(1))
+        return result.scalar_one_or_none()
+
+    async def get_unfinalized_tip(self, chain_id: str) -> LedgerBlock | None:
+        result = await self.db.execute(
+            select(LedgerBlock)
+            .options(selectinload(LedgerBlock.transactions))
+            .where(
+                LedgerBlock.chain_id == chain_id,
+                LedgerBlock.finalized.is_(False),
+            )
+            .order_by(LedgerBlock.height.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_block_by_height(self, chain_id: str, height: int) -> LedgerBlock | None:
+        result = await self.db.execute(
+            select(LedgerBlock)
+            .options(selectinload(LedgerBlock.transactions))
+            .where(LedgerBlock.chain_id == chain_id, LedgerBlock.height == height)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_block_by_hash(self, block_hash: str) -> LedgerBlock | None:
+        result = await self.db.execute(
+            select(LedgerBlock)
+            .options(selectinload(LedgerBlock.transactions))
+            .where(LedgerBlock.hash == block_hash)
+        )
+        return result.scalar_one_or_none()
+
+    async def list_blocks(
+        self,
+        chain_id: str,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Sequence[LedgerBlock]:
+        result = await self.db.execute(
+            select(LedgerBlock)
+            .options(selectinload(LedgerBlock.transactions))
+            .where(LedgerBlock.chain_id == chain_id)
+            .order_by(LedgerBlock.height.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        return result.scalars().all()
+
+    async def list_all_blocks_ascending(self, chain_id: str) -> list[LedgerBlock]:
+        result = await self.db.execute(
+            select(LedgerBlock)
+            .options(selectinload(LedgerBlock.transactions))
+            .where(LedgerBlock.chain_id == chain_id)
+            .order_by(LedgerBlock.height.asc())
+        )
+        return list(result.scalars().all())
+
+    async def list_pending_transactions(self, chain_id: str) -> list[LedgerTransaction]:
+        result = await self.db.execute(
+            select(LedgerTransaction)
+            .where(
+                LedgerTransaction.chain_id == chain_id,
+                LedgerTransaction.block_id.is_(None),
+            )
+            .order_by(LedgerTransaction.created_at.asc())
+        )
+        return list(result.scalars().all())
+
+    async def get_max_nonce(self, chain_id: str, sender: str) -> int:
+        result = await self.db.execute(
+            select(func.max(LedgerTransaction.nonce)).where(
+                LedgerTransaction.chain_id == chain_id,
+                LedgerTransaction.sender == sender,
+            )
+        )
+        value = result.scalar_one_or_none()
+        return int(value) if value is not None else -1
+
+    async def add_pending_transaction(
+        self,
+        *,
+        chain_id: str,
+        tx_id: str,
+        tx_hash: str,
+        tx_type: LedgerTxType,
+        sender: str,
+        nonce: int,
+        timestamp: datetime,
+        payload: dict[str, Any],
+        signature: str,
+        vpn_network_id: str | None = None,
+    ) -> LedgerTransaction:
+        row = LedgerTransaction(
+            id=_as_uuid(tx_id),
+            chain_id=chain_id,
+            tx_hash=tx_hash,
+            tx_type=tx_type,
+            sender=sender,
+            nonce=nonce,
+            timestamp=timestamp,
+            payload=payload,
+            signature=signature,
+            block_id=None,
+            position=None,
+            vpn_network_id=_as_uuid(vpn_network_id),
+        )
+        self.db.add(row)
+        await self.db.flush()
+        return row
+
+    async def update_block_approvals(
+        self,
+        block_id: str,
+        *,
+        approvals: list[dict[str, Any]],
+        finalized: bool,
+    ) -> None:
+        await self.db.execute(
+            update(LedgerBlock)
+            .where(LedgerBlock.id == _as_uuid(block_id))
+            .values(approvals=approvals, finalized=finalized)
+        )
+        await self.db.flush()
+
+    async def create_block(
+        self,
+        *,
+        block_id: str,
+        chain_id: str,
+        height: int,
+        block_hash: str,
+        previous_hash: str,
+        timestamp: datetime,
+        transactions_root: str,
+        state_root: str,
+        validator_public_key: str,
+        validator_signature: str,
+        tx_ids_in_order: list[str],
+        approvals: list[dict[str, Any]] | None = None,
+        finalized: bool = True,
+        vpn_network_id: str | None = None,
+    ) -> LedgerBlock:
+        block_uuid = _as_uuid(block_id)
+        network_uuid = _as_uuid(vpn_network_id)
+        block = LedgerBlock(
+            id=block_uuid,
+            chain_id=chain_id,
+            height=height,
+            hash=block_hash,
+            previous_hash=previous_hash,
+            timestamp=timestamp,
+            transactions_root=transactions_root,
+            state_root=state_root,
+            validator_public_key=validator_public_key,
+            validator_signature=validator_signature,
+            approvals=approvals or [],
+            finalized=finalized,
+            vpn_network_id=network_uuid,
+        )
+        self.db.add(block)
+        await self.db.flush()
+        for position, tx_id in enumerate(tx_ids_in_order):
+            await self.db.execute(
+                update(LedgerTransaction)
+                .where(LedgerTransaction.id == _as_uuid(tx_id))
+                .values(block_id=block_uuid, position=position, vpn_network_id=network_uuid)
+            )
+        await self.db.flush()
+        return block
+
+    async def replace_balances(
+        self,
+        chain_id: str,
+        balances: list[dict[str, Any]],
+        *,
+        vpn_network_id: str | None = None,
+    ) -> None:
+        existing = await self.db.execute(
+            select(LedgerBalance).where(LedgerBalance.chain_id == chain_id)
+        )
+        for row in existing.scalars().all():
+            await self.db.delete(row)
+        await self.db.flush()
+        network_uuid = _as_uuid(vpn_network_id)
+        for item in balances:
+            self.db.add(
+                LedgerBalance(
+                    id=uuid.uuid4(),
+                    chain_id=chain_id,
+                    account=item["account"],
+                    credit_seconds=float(item["credit_seconds"]),
+                    debit_seconds=float(item["debit_seconds"]),
+                    vpn_network_id=network_uuid,
+                )
+            )
+        await self.db.flush()
+
+    async def list_balances(self, chain_id: str) -> list[LedgerBalance]:
+        result = await self.db.execute(
+            select(LedgerBalance)
+            .where(LedgerBalance.chain_id == chain_id)
+            .order_by(LedgerBalance.account.asc())
+        )
+        return list(result.scalars().all())
+
+    async def get_balance(self, chain_id: str, account: str) -> LedgerBalance | None:
+        result = await self.db.execute(
+            select(LedgerBalance).where(
+                LedgerBalance.chain_id == chain_id,
+                LedgerBalance.account == account,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def list_sealed_transactions(
+        self,
+        chain_id: str,
+        *,
+        finalized_only: bool = True,
+    ) -> list[LedgerTransaction]:
+        query = (
+            select(LedgerTransaction)
+            .join(LedgerBlock, LedgerTransaction.block_id == LedgerBlock.id)
+            .where(LedgerTransaction.chain_id == chain_id)
+        )
+        if finalized_only:
+            query = query.where(LedgerBlock.finalized.is_(True))
+        result = await self.db.execute(
+            query.order_by(LedgerBlock.height.asc(), LedgerTransaction.position.asc())
+        )
+        return list(result.scalars().all())

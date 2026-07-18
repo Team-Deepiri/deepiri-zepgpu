@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import uuid
 from datetime import datetime
 from typing import Any
 
@@ -132,7 +131,6 @@ async def create_gang_task(
     from deepiri_zepgpu.database.models import GangStatus, GangTask
 
     gang_task = GangTask(
-        id=str(uuid.uuid4()),
         user_id=current_user.id if current_user else None,
         name=request.name,
         description=request.description,
@@ -160,7 +158,7 @@ async def create_gang_task(
     background_tasks.add_task(execute_gang_task.delay, gang_task.id)
 
     return GangTaskResponse(
-        id=gang_task.id,
+        id=str(gang_task.id),
         name=gang_task.name,
         description=gang_task.description,
         status=gang_task.status.value,
@@ -175,7 +173,7 @@ async def create_gang_task(
         error=gang_task.error,
         can_be_preempted=gang_task.can_be_preempted,
         child_task_ids=gang_task.child_task_ids,
-        user_id=gang_task.user_id,
+        user_id=str(gang_task.user_id) if gang_task.user_id else None,
         created_at=gang_task.created_at,
     )
 
@@ -203,7 +201,7 @@ async def list_gang_tasks(
     return GangTaskListResponse(
         tasks=[
             GangTaskResponse(
-                id=t.id,
+                id=str(t.id),
                 name=t.name,
                 description=t.description,
                 status=t.status.value,
@@ -218,7 +216,7 @@ async def list_gang_tasks(
                 error=t.error,
                 can_be_preempted=t.can_be_preempted,
                 child_task_ids=t.child_task_ids,
-                user_id=t.user_id,
+                user_id=str(t.user_id) if t.user_id else None,
                 created_at=t.created_at,
             )
             for t in tasks
@@ -246,7 +244,7 @@ async def get_gang_task(
         raise HTTPException(status_code=403, detail="Access denied")
 
     return GangTaskResponse(
-        id=task.id,
+        id=str(task.id),
         name=task.name,
         description=task.description,
         status=task.status.value,
@@ -261,7 +259,7 @@ async def get_gang_task(
         error=task.error,
         can_be_preempted=task.can_be_preempted,
         child_task_ids=task.child_task_ids,
-        user_id=task.user_id,
+        user_id=str(task.user_id) if task.user_id else None,
         created_at=task.created_at,
     )
 
@@ -298,7 +296,7 @@ async def update_gang_task(
     await db.flush()
 
     return GangTaskResponse(
-        id=task.id,
+        id=str(task.id),
         name=task.name,
         description=task.description,
         status=task.status.value,
@@ -313,7 +311,7 @@ async def update_gang_task(
         error=task.error,
         can_be_preempted=task.can_be_preempted,
         child_task_ids=task.child_task_ids,
-        user_id=task.user_id,
+        user_id=str(task.user_id) if task.user_id else None,
         created_at=task.created_at,
     )
 
@@ -381,7 +379,7 @@ async def retry_gang_task(
     assert task is not None
 
     return GangTaskResponse(
-        id=task.id,
+        id=str(task.id),
         name=task.name,
         description=task.description,
         status=task.status.value,
@@ -396,7 +394,7 @@ async def retry_gang_task(
         error=task.error,
         can_be_preempted=task.can_be_preempted,
         child_task_ids=task.child_task_ids,
-        user_id=task.user_id,
+        user_id=str(task.user_id) if task.user_id else None,
         created_at=task.created_at,
     )
 

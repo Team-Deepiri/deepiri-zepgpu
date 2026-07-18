@@ -47,6 +47,11 @@ class TaskResult(BaseModel):
     error: str | None = None
     traceback: str | None = None
     execution_time: float = 0.0
+    # Week-2 peer attestation fields
+    peer_id: str | None = None
+    result_digest: str | None = None
+    attestation_signature: str | None = None
+    ledger_public_key: str | None = None
 
 
 _task_results: dict[str, TaskResult] = {}
@@ -54,6 +59,8 @@ _local_gpus: list[GpuInfo] = []
 _relay_url: str = ""
 _peer_id: str = ""
 _vpn_ip: str = ""
+_ledger_private_key: str = ""
+_ledger_public_key: str = ""
 
 
 try:
@@ -115,6 +122,7 @@ async def gpu_status() -> dict:
 @app.post("/execute", response_model=TaskResult)
 async def execute_task(payload: TaskPayload) -> TaskResult:
     start_time = time.time()
+    result_digest = None
     try:
         func = pickle.loads(base64.b64decode(payload.func_encoded))
         args = pickle.loads(base64.b64decode(payload.args_encoded))
@@ -138,12 +146,17 @@ async def execute_task(payload: TaskPayload) -> TaskResult:
                 os.environ["CUDA_VISIBLE_DEVICES"] = old_cuda
 
         result_encoded = base64.b64encode(pickle.dumps(result)).decode()
+        from deepiri_zepgpu.compute_ledger.hashing import sha256_hex
+
+        result_digest = sha256_hex(result_encoded)
         execution_time = time.time() - start_time
         task_result = TaskResult(
             task_id=payload.task_id,
             success=True,
             result_encoded=result_encoded,
             execution_time=execution_time,
+            peer_id=_peer_id or None,
+            result_digest=result_digest,
         )
     except Exception as e:
         import traceback
@@ -155,7 +168,23 @@ async def execute_task(payload: TaskPayload) -> TaskResult:
             error=str(e),
             traceback=traceback.format_exc(),
             execution_time=execution_time,
+            peer_id=_peer_id or None,
         )
+
+    # Sign attestation when peer ledger key is configured
+    if _ledger_private_key and _peer_id:
+        from deepiri_zepgpu.compute_ledger.keys import sign_message
+        from deepiri_zepgpu.compute_ledger.service import hash_result_attestation
+
+        digest = hash_result_attestation(
+            task_id=task_result.task_id,
+            peer_id=_peer_id,
+            success=task_result.success,
+            execution_time=task_result.execution_time,
+            result_digest=task_result.result_digest,
+        )
+        task_result.attestation_signature = sign_message(_ledger_private_key, digest)
+        task_result.ledger_public_key = _ledger_public_key or None
 
     _task_results[payload.task_id] = task_result
     return task_result
@@ -193,12 +222,21 @@ async def advertise_gpus_to_relay() -> None:
         await asyncio.sleep(vpn_settings.heartbeat_interval_seconds)
 
 
-async def start_peer_server(relay_url: str, peer_id: str, vpn_ip: str) -> None:
+async def start_peer_server(
+    relay_url: str,
+    peer_id: str,
+    vpn_ip: str,
+    *,
+    ledger_private_key: str = "",
+    ledger_public_key: str = "",
+) -> None:
     """Start the peer node server."""
-    global _relay_url, _peer_id, _vpn_ip
+    global _relay_url, _peer_id, _vpn_ip, _ledger_private_key, _ledger_public_key
     _relay_url = relay_url
     _peer_id = peer_id
     _vpn_ip = vpn_ip
+    _ledger_private_key = ledger_private_key
+    _ledger_public_key = ledger_public_key
 
     import uvicorn
 

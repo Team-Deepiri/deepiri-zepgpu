@@ -115,6 +115,23 @@ class VPNSettings(BaseSettings):
     invite_max_uses: int = Field(default=10)
 
 
+class LedgerSettings(BaseSettings):
+    """Permissioned compute ledger (PoA) configuration."""
+
+    enabled: bool = Field(default=True)
+    chain_id: str = Field(default="zepgpu-compute-v1")
+    auto_seal: bool = Field(default=True)
+    # Raw URL-safe base64 Ed25519 private key. If empty, derived from auth.secret_key.
+    validator_private_key: str = Field(default="")
+    record_local_completions: bool = Field(default=True)
+    # Week 2: multi-validator quorum (1 = single-relay week-1 behavior)
+    quorum_threshold: int = Field(default=1)
+    # Comma-separated extra Ed25519 private keys for additional PoA validators (dev/demo)
+    extra_validator_private_keys: str = Field(default="")
+    # Auto-create per-VPN-network chains on network create
+    isolate_vpn_networks: bool = Field(default=True)
+
+
 class Settings(BaseSettings):
     """Main settings class."""
 
@@ -123,6 +140,7 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
+        env_nested_delimiter="__",
     )
 
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
@@ -134,6 +152,7 @@ class Settings(BaseSettings):
     schedule: ScheduleSettings = Field(default_factory=ScheduleSettings)
     cloud: CloudSettings = Field(default_factory=CloudSettings)
     vpn: VPNSettings = Field(default_factory=VPNSettings)
+    ledger: LedgerSettings = Field(default_factory=LedgerSettings)
 
     app_name: str = Field(default="zepgpu")
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(default="INFO")

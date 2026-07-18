@@ -137,7 +137,7 @@ async def register(
     )
 
     return UserResponse(
-        id=user.id,
+        id=str(user.id),
         username=user.username,
         email=user.email,
         role=user.role.value,
@@ -173,7 +173,7 @@ async def login(
 
     token = jwt.encode(
         {
-            "sub": user.id,
+            "sub": str(user.id),
             "username": user.username,
             "role": user.role.value,
             "exp": datetime.now(UTC).timestamp() + settings.auth.access_token_expire_minutes * 60,
@@ -194,7 +194,7 @@ async def get_current_user_info(
 ) -> UserResponse:
     """Get current user information."""
     return UserResponse(
-        id=current_user.id,
+        id=str(current_user.id),
         username=current_user.username,
         email=current_user.email,
         role=current_user.role.value,
@@ -230,7 +230,7 @@ async def update_current_user(
     assert user is not None
 
     return UserResponse(
-        id=user.id,
+        id=str(user.id),
         username=user.username,
         email=user.email,
         role=user.role.value,

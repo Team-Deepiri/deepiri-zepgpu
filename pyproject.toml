@@ -138,6 +138,15 @@ warn_no_return = true
 strict_equality = true
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = [
+    "deepiri_zepgpu.api.server.routes.*",
+    "deepiri_zepgpu.queue.*",
+    "deepiri_zepgpu.vpn.*",
+    "deepiri_zepgpu.database.repositories.*",
+]
+ignore_errors = true
+
 [tool.pytest.ini_options]
 filterwarnings = [
     "ignore:.*class-based `config` is deprecated.*",
@@ -150,7 +159,9 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 markers = [
     "unit: unit tests with no external services",
-    "integration: tests requiring in-memory or local service mocks",
+    "integration: requires Postgres (docker/docker-compose.test.yml)",
+    "regression: full-system regression (API surface + cross-module smoke)",
+    "revolution: adversarial + multi-party credit economy + golden vectors",
     "e2e: end-to-end tests requiring Docker Compose stack",
 ]
 

@@ -91,6 +91,8 @@ class PeerRepository:
         is_gpu_host: bool = False,
         is_relay: bool = False,
         auth_token_encrypted: str | None = None,
+        ledger_public_key: str | None = None,
+        ledger_private_key_encrypted: str | None = None,
     ) -> Peer:
         peer = Peer(
             user_id=user_id,
@@ -103,8 +105,25 @@ class PeerRepository:
             is_relay=is_relay,
             last_seen=datetime.now(UTC),
             auth_token_encrypted=auth_token_encrypted,
+            ledger_public_key=ledger_public_key,
+            ledger_private_key_encrypted=ledger_private_key_encrypted,
         )
         self.db.add(peer)
+        await self.db.commit()
+        await self.db.refresh(peer)
+        return peer
+
+    async def set_ledger_keys(
+        self,
+        peer_id: str,
+        public_key: str,
+        private_key_encrypted: str,
+    ) -> Peer | None:
+        peer = await self.get_by_id(peer_id)
+        if not peer:
+            return None
+        peer.ledger_public_key = public_key
+        peer.ledger_private_key_encrypted = private_key_encrypted
         await self.db.commit()
         await self.db.refresh(peer)
         return peer

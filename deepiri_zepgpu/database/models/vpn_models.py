@@ -94,6 +94,8 @@ class Peer(UUIDMixin, TimestampMixin, Base):
     heartbeat_interval_seconds: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
 
     auth_token_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ledger_public_key: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    ledger_private_key_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     user: Mapped[User] = relationship("User", back_populates="vpn_peers", lazy="joined")
     vpn_network: Mapped[VpnNetwork] = relationship("VpnNetwork", back_populates="peers")

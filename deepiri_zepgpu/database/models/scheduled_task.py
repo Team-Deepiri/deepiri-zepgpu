@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import (
     Boolean,
     DateTime,
-    Enum,
     ForeignKey,
     Index,
     Integer,
@@ -20,6 +19,7 @@ from sqlalchemy.dialects.postgresql import BYTEA, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from deepiri_zepgpu.database.models.base import Base, TimestampMixin, UUIDMixin
+from deepiri_zepgpu.database.models.types import str_enum
 
 if TYPE_CHECKING:
     from deepiri_zepgpu.database.models.scheduled_task_run import ScheduledTaskRun
@@ -65,7 +65,7 @@ class ScheduledTask(UUIDMixin, TimestampMixin, Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     schedule_type: Mapped[ScheduleType] = mapped_column(
-        Enum(ScheduleType),
+        str_enum(ScheduleType),
         default=ScheduleType.CRON,
         nullable=False,
     )
@@ -78,7 +78,7 @@ class ScheduledTask(UUIDMixin, TimestampMixin, Base):
 
     is_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
     status: Mapped[ScheduleStatus] = mapped_column(
-        Enum(ScheduleStatus),
+        str_enum(ScheduleStatus),
         default=ScheduleStatus.ACTIVE,
         nullable=False,
     )

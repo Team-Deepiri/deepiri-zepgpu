@@ -6,6 +6,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from deepiri_zepgpu.api.server.dependencies import get_db_session, get_required_user
+from deepiri_zepgpu.compute_ledger.keys import generate_keypair as generate_ledger_keypair
+from deepiri_zepgpu.compute_ledger.service import LedgerService
+from deepiri_zepgpu.config import settings as app_settings
 from deepiri_zepgpu.database.models import User
 from deepiri_zepgpu.database.models.vpn_models import (
     Friendship,
@@ -78,6 +81,7 @@ async def create_vpn_network(
     )
     peer_repo = PeerRepository(db)
     peer_priv, peer_pub = generate_keypair()
+    ledger_priv, ledger_pub = generate_ledger_keypair()
     used: set[str] = set()
     first_ip = allocate_vpn_ip(network.cidr, used)
     await peer_repo.create(
@@ -88,7 +92,12 @@ async def create_vpn_network(
         private_key_encrypted=encrypt_value(peer_priv),
         is_gpu_host=False,
         is_relay=True,
+        ledger_public_key=ledger_pub,
+        ledger_private_key_encrypted=encrypt_value(ledger_priv),
     )
+    if app_settings.ledger.enabled and app_settings.ledger.isolate_vpn_networks:
+        ledger = LedgerService(db, network_id=str(network.id))
+        await ledger.ensure_initialized()
     peer_count = await repo.get_peer_count(network.id)
     return VpnNetworkResponse(
         id=str(network.id),
@@ -387,6 +396,7 @@ async def join_network(
     used_ips = {p.vpn_ip for p in peers_existing}
     vpn_ip = allocate_vpn_ip(network.cidr, used_ips)
     private_key, public_key = generate_keypair()
+    ledger_priv, ledger_pub = generate_ledger_keypair()
 
     peer = await peer_repo.create(
         user_id=str(user.id),
@@ -395,6 +405,8 @@ async def join_network(
         vpn_ip=vpn_ip,
         private_key_encrypted=encrypt_value(private_key),
         is_gpu_host=data.is_gpu_host,
+        ledger_public_key=ledger_pub,
+        ledger_private_key_encrypted=encrypt_value(ledger_priv),
     )
 
     await invite_repo.use(invite)
