@@ -534,6 +534,30 @@ export const ledgerApi = {
     )
     return data
   },
+  syncHeaders: async (params?: {
+    network_id?: string
+    from_height?: number
+    limit?: number
+  }): Promise<{ chain_id: string; network_id?: string | null; from_height: number; headers: unknown[]; count: number }> => {
+    const { data } = await api.get('/ledger/sync/headers', { params })
+    return data
+  },
+  bridgeTransfer: async (body: {
+    source_network_id?: string | null
+    dest_network_id?: string | null
+    account: string
+    amount_seconds: number
+    memo?: string
+  }) => {
+    const { data } = await api.post('/ledger/bridge/transfer', body)
+    return data as {
+      receipt_id: string
+      source_chain_id: string
+      dest_chain_id: string
+      account: string
+      amount_seconds: number
+    }
+  },
 }
 
 export default api

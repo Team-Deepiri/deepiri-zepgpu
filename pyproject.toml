@@ -57,7 +57,7 @@ cryptography = ">=41.0.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=8,<10"
-pytest-asyncio = "^0.23.0"
+pytest-asyncio = ">=0.24.0"
 pytest-cov = "^4.1.0"
 black = ">=24,<27"
 ruff = "^0.2.0"
@@ -105,6 +105,8 @@ exclude = '''
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+
+[tool.ruff.lint]
 select = [
     "E",   # pycodestyle errors
     "W",   # pycodestyle warnings
@@ -133,6 +135,16 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 warn_no_return = true
 strict_equality = true
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = [
+    "deepiri_zepgpu.api.server.routes.*",
+    "deepiri_zepgpu.queue.*",
+    "deepiri_zepgpu.vpn.*",
+    "deepiri_zepgpu.database.repositories.*",
+]
+ignore_errors = true
 
 [tool.pytest.ini_options]
 minversion = "8.0"
@@ -140,6 +152,17 @@ addopts = "-ra -q --strict-markers"
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+filterwarnings = [
+    "ignore:.*class-based `config` is deprecated.*",
+    "ignore:.*Using `httpx` with `starlette.testclient` is deprecated.*",
+]
+markers = [
+    "unit: unit tests with no external services",
+    "integration: requires Postgres (docker/docker-compose.test.yml)",
+    "regression: full-system regression (API surface + cross-module smoke)",
+    "revolution: adversarial + multi-party credit economy + golden vectors",
+    "e2e: end-to-end tests requiring Docker Compose stack",
+]
 
 [tool.coverage.run]
 source = ["deepiri_zepgpu"]

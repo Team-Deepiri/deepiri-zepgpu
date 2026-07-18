@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
-from datetime import datetime
-from enum import Enum
-from typing import Optional
+import contextlib
 import threading
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from enum import Enum
 
 try:
     import pynvml
+
     PYNVML_AVAILABLE = True
 except ImportError:
     PYNVML_AVAILABLE = False
@@ -18,6 +19,7 @@ except ImportError:
 
 class GPUState(Enum):
     """GPU availability state."""
+
     IDLE = "idle"
     ALLOCATED = "allocated"
     RESERVED = "reserved"
@@ -27,6 +29,7 @@ class GPUState(Enum):
 
 class GPUType(Enum):
     """Supported GPU types."""
+
     NVIDIA = "nvidia"
     AMD = "amd"
     CPU = "cpu"
@@ -35,6 +38,7 @@ class GPUType(Enum):
 @dataclass
 class GPUDevice:
     """Represents a GPU device."""
+
     device_id: int
     name: str
     gpu_type: GPUType = GPUType.NVIDIA
@@ -43,18 +47,15 @@ class GPUDevice:
     compute_capability: tuple[int, int] = (0, 0)
     max_cuda_cores: int = 0
     state: GPUState = GPUState.IDLE
-    current_task_id: Optional[str] = None
+    current_task_id: str | None = None
     utilization_percent: float = 0.0
     temperature_celsius: float = 0.0
     power_draw_watts: float = 0.0
-    last_updated: datetime = field(default_factory=datetime.utcnow)
+    last_updated: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def can_allocate(self, required_memory_mb: int) -> bool:
         """Check if GPU can allocate requested memory."""
-        return (
-            self.state == GPUState.IDLE and
-            self.available_memory_mb >= required_memory_mb
-        )
+        return self.state == GPUState.IDLE and self.available_memory_mb >= required_memory_mb
 
     def allocate(self, task_id: str) -> bool:
         """Allocate GPU to a task."""
@@ -96,14 +97,14 @@ class GPUManager:
         enable_nvml: bool = True,
         memory_overhead_mb: int = 512,
         reserve_memory_mb: int = 1024,
-    ):
+    ) -> None:
         self._devices: dict[int, GPUDevice] = {}
         self._lock = threading.RLock()
         self._nvml_initialized = False
         self._enable_nvml = enable_nvml and PYNVML_AVAILABLE
         self._memory_overhead_mb = memory_overhead_mb
         self._reserve_memory_mb = reserve_memory_mb
-        self._monitoring_task: Optional[asyncio.Task] = None
+        self._monitoring_task: asyncio.Task | None = None
 
     async def initialize(self) -> None:
         """Initialize GPU manager and discover devices."""
@@ -187,7 +188,7 @@ class GPUManager:
         if self._monitoring_task is not None:
             return
 
-        async def monitor_loop():
+        async def monitor_loop() -> None:
             while True:
                 await self._update_gpu_metrics()
                 await asyncio.sleep(interval_seconds)
@@ -198,10 +199,8 @@ class GPUManager:
         """Stop GPU monitoring."""
         if self._monitoring_task:
             self._monitoring_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._monitoring_task
-            except asyncio.CancelledError:
-                pass
             self._monitoring_task = None
 
     async def _update_gpu_metrics(self) -> None:
@@ -218,20 +217,22 @@ class GPUManager:
                         device.available_memory_mb = (
                             memory_info.free // (1024 * 1024) - self._memory_overhead_mb
                         )
-                        device.utilization_percent = pynvml.nvmlDeviceGetUtilizationRates(handle).gpu
+                        device.utilization_percent = pynvml.nvmlDeviceGetUtilizationRates(
+                            handle
+                        ).gpu
                         device.temperature_celsius = pynvml.nvmlDeviceGetTemperature(
                             handle, pynvml.NVML_TEMPERATURE_GPU
                         )
                         device.power_draw_watts = pynvml.nvmlDeviceGetPowerUsage(handle) / 1000.0
-                        device.last_updated = datetime.utcnow()
+                        device.last_updated = datetime.now(UTC)
                     except Exception:
                         pass
 
     def get_available_device(
         self,
         required_memory_mb: int = 1024,
-        gpu_type: Optional[str] = None,
-    ) -> Optional[GPUDevice]:
+        gpu_type: str | None = None,
+    ) -> GPUDevice | None:
         """Find an available GPU that meets requirements."""
         with self._lock:
             for device in self._devices.values():
@@ -257,7 +258,7 @@ class GPUManager:
             if device:
                 device.release()
 
-    def get_device(self, device_id: int) -> Optional[GPUDevice]:
+    def get_device(self, device_id: int) -> GPUDevice | None:
         """Get device by ID."""
         return self._devices.get(device_id)
 
@@ -278,7 +279,5 @@ class GPUManager:
         if self._monitoring_task:
             asyncio.create_task(self.stop_monitoring())
         if self._nvml_initialized:
-            try:
+            with contextlib.suppress(Exception):
                 pynvml.nvmlShutdown()
-            except Exception:
-                pass

@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-import uuid
-from datetime import datetime, timedelta
-from typing import Any, Sequence
+from collections.abc import Sequence
+from datetime import datetime
 
-from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from deepiri_zepgpu.database.models.user import User, UserRole
 from deepiri_zepgpu.database.models.user_quota import UserQuota
+from deepiri_zepgpu.database.uuid_util import new_uuid
 
 
 class UserRepository:
@@ -30,7 +30,7 @@ class UserRepository:
     ) -> User:
         """Create a new user."""
         user = User(
-            id=str(uuid.uuid4()),
+            id=new_uuid(),
             username=username,
             email=email,
             password_hash=password_hash,
@@ -39,52 +39,42 @@ class UserRepository:
         )
         self.session.add(user)
         await self.session.flush()
-        
+
         quota = UserQuota(
             user_id=user.id,
             period_start=datetime.utcnow(),
         )
         self.session.add(quota)
         await self.session.flush()
-        
+
         return user
 
     async def get_by_id(self, user_id: str) -> User | None:
         """Get user by ID."""
-        result = await self.session.execute(
-            select(User).where(User.id == user_id)
-        )
+        result = await self.session.execute(select(User).where(User.id == user_id))
         return result.scalar_one_or_none()
 
     async def get_by_id_with_quota(self, user_id: str) -> User | None:
         """Get user by ID with quota loaded."""
         result = await self.session.execute(
-            select(User)
-            .options(selectinload(User.quota))
-            .where(User.id == user_id)
+            select(User).options(selectinload(User.quota)).where(User.id == user_id)
         )
         return result.scalar_one_or_none()
 
     async def get_by_username(self, username: str) -> User | None:
         """Get user by username."""
-        result = await self.session.execute(
-            select(User).where(User.username == username)
-        )
+        result = await self.session.execute(select(User).where(User.username == username))
         return result.scalar_one_or_none()
 
     async def get_by_email(self, email: str) -> User | None:
         """Get user by email."""
-        result = await self.session.execute(
-            select(User).where(User.email == email)
-        )
+        result = await self.session.execute(select(User).where(User.email == email))
         return result.scalar_one_or_none()
 
     async def get_by_username_or_email(self, username: str, email: str) -> User | None:
         """Get user by username or email."""
         result = await self.session.execute(
-            select(User).where(
-                or_(User.username == username, User.email == email)
-            )
+            select(User).where(or_(User.username == username, User.email == email))
         )
         return result.scalar_one_or_none()
 
@@ -97,11 +87,11 @@ class UserRepository:
         user = await self.get_by_id(user_id)
         if not user:
             return None
-        
+
         for key, value in kwargs.items():
             if hasattr(user, key) and key != "id":
                 setattr(user, key, value)
-        
+
         await self.session.flush()
         return user
 
@@ -126,7 +116,7 @@ class UserRepository:
         user = await self.get_by_id(user_id)
         if not user:
             return False
-        
+
         await self.session.delete(user)
         await self.session.flush()
         return True
@@ -140,26 +130,26 @@ class UserRepository:
     ) -> Sequence[User]:
         """List users with optional filtering."""
         query = select(User)
-        
+
         if role is not None:
             query = query.where(User.role == role)
         if is_active is not None:
             query = query.where(User.is_active == is_active)
-        
+
         query = query.order_by(User.created_at.desc()).limit(limit).offset(offset)
-        
+
         result = await self.session.execute(query)
         return result.scalars().all()
 
     async def count(self, role: UserRole | None = None, is_active: bool | None = None) -> int:
         """Count users."""
         query = select(func.count(User.id))
-        
+
         if role is not None:
             query = query.where(User.role == role)
         if is_active is not None:
             query = query.where(User.is_active == is_active)
-        
+
         result = await self.session.execute(query)
         return result.scalar() or 0
 
@@ -172,7 +162,5 @@ class UserRepository:
 
     async def exists_by_email(self, email: str) -> bool:
         """Check if email exists."""
-        result = await self.session.execute(
-            select(func.count(User.id)).where(User.email == email)
-        )
+        result = await self.session.execute(select(func.count(User.id)).where(User.email == email))
         return (result.scalar() or 0) > 0

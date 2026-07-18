@@ -28,7 +28,7 @@ _Made by Deepiri_
 - **S3/MinIO Storage** - Tiered result storage for large outputs
 - **Web UI** - Modern dashboard for task management
 - **Kubernetes Ready** - Production deployment manifests included
-- **Compute Ledger** - Permissioned PoA ledger for GPU job attestations and credit settlement
+- **Compute Ledger** - Permissioned PoA ledger for GPU attestations, credits, quorum finality, light-client sync, and cross-network bridge
 
 ---
 
@@ -251,8 +251,24 @@ ws.send(JSON.stringify({
 # Install dependencies
 poetry install
 
-# Run tests
-poetry run pytest tests/ -v
+# Run unit tests
+poetry run pytest tests/ -m "not integration and not regression" -v
+
+# Integration tests (Postgres on :5433)
+docker compose -f docker/docker-compose.test.yml up -d
+TEST_DATABASE_URL=postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5433/zepgpu_test \
+DATABASE__URL=postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5433/zepgpu_test \
+PYTHONPATH=. poetry run pytest tests/integration/ -m integration -v
+
+# Full-system regression (same Postgres)
+TEST_DATABASE_URL=postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5433/zepgpu_test \
+DATABASE__URL=postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5433/zepgpu_test \
+PYTHONPATH=. poetry run pytest tests/regression/ -m regression -v
+
+# Revolution suite (adversary + multi-party economy + golden vectors)
+TEST_DATABASE_URL=postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5433/zepgpu_test \
+DATABASE__URL=postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5433/zepgpu_test \
+PYTHONPATH=. poetry run pytest tests/adversarial tests/revolution -m revolution -v
 
 # Run linters
 poetry run ruff check deepiri_zepgpu

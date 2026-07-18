@@ -18,6 +18,11 @@ export default function Ledger() {
   })
   const [proofForm, setProofForm] = useState({ block_hash: '', tx_hash: '' })
   const [proofResult, setProofResult] = useState<string | null>(null)
+  const [bridgeForm, setBridgeForm] = useState({
+    account: 'peer-demo',
+    amount_seconds: 1,
+    dest_network_id: '',
+  })
 
   const net = networkId || undefined
 
@@ -96,6 +101,21 @@ export default function Ledger() {
     },
   })
 
+  const bridge = useMutation({
+    mutationFn: () =>
+      ledgerApi.bridgeTransfer({
+        source_network_id: net || null,
+        dest_network_id: bridgeForm.dest_network_id || null,
+        account: bridgeForm.account,
+        amount_seconds: Number(bridgeForm.amount_seconds) || 0,
+      }),
+    onSuccess: (data) => {
+      toast.success(`Bridged — receipt ${data.receipt_id.slice(0, 12)}…`)
+      invalidateAll()
+    },
+    onError: () => toast.error('Bridge failed'),
+  })
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
@@ -105,7 +125,7 @@ export default function Ledger() {
             Compute Ledger
           </h1>
           <p className="text-slate-400 text-sm mt-1">
-            Week-2 PoA: quorum, per-network chains, peer attestations, Merkle proofs
+            Full stack: quorum, network chains, peer attestations, Merkle proofs, light sync, bridge
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -292,8 +312,37 @@ export default function Ledger() {
             {proofResult && <p className="text-xs text-slate-300 font-mono">{proofResult}</p>}
           </div>
 
-          <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 overflow-hidden">
-            <header className="px-4 py-3 border-b border-slate-700/60 flex items-center justify-between">
+          <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-4 space-y-3">
+            <h2 className="text-sm font-semibold text-white">Bridge transfer</h2>
+            <p className="text-xs text-slate-500">
+              Burn credits on source chain (empty = global) and mint on destination VPN network.
+            </p>
+            <Field
+              label="Account"
+              value={bridgeForm.account}
+              onChange={(v) => setBridgeForm((s) => ({ ...s, account: v }))}
+            />
+            <Field
+              label="Amount (GPU seconds)"
+              value={String(bridgeForm.amount_seconds)}
+              onChange={(v) => setBridgeForm((s) => ({ ...s, amount_seconds: Number(v) || 0 }))}
+            />
+            <Field
+              label="Dest network id"
+              value={bridgeForm.dest_network_id}
+              onChange={(v) => setBridgeForm((s) => ({ ...s, dest_network_id: v }))}
+              placeholder="VPN UUID"
+            />
+            <button
+              onClick={() => bridge.mutate()}
+              disabled={bridge.isPending || !bridgeForm.account || !bridgeForm.dest_network_id}
+              className="w-full py-2 rounded-lg bg-violet-700 hover:bg-violet-600 text-white text-sm font-medium disabled:opacity-50"
+            >
+              {bridge.isPending ? 'Bridging…' : 'Bridge credits'}
+            </button>
+          </div>
+
+          <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 overflow-hidden">            <header className="px-4 py-3 border-b border-slate-700/60 flex items-center justify-between">
               <h2 className="text-sm font-semibold text-white">Balances</h2>
               <button onClick={() => rebuild.mutate()} className="text-xs text-slate-400 hover:text-white">
                 Rebuild

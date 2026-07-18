@@ -2,13 +2,13 @@
 
 from deepiri_zepgpu.cloud.providers.base import (
     CloudProvider,
-    CloudProviderType,
     CloudProviderRegistry,
+    CloudProviderType,
+    CostEstimate,
     GPUInfo,
     Instance,
     InstanceStatus,
     LaunchConfig,
-    CostEstimate,
     register_provider,
 )
 

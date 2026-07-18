@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
 
 class TransactionSubmitRequest(BaseModel):
-    id: Optional[str] = None
+    id: str | None = None
     tx_type: str
     sender: str
     nonce: int
-    timestamp: Optional[str] = None
+    timestamp: str | None = None
     payload: dict[str, Any] = Field(default_factory=dict)
     signature: str
 
@@ -22,18 +22,18 @@ class JobCompletedRequest(BaseModel):
     provider_account: str
     consumer_account: str
     gpu_seconds: float = Field(ge=0)
-    input_hash: Optional[str] = None
-    output_hash: Optional[str] = None
-    peer_id: Optional[str] = None
+    input_hash: str | None = None
+    output_hash: str | None = None
+    peer_id: str | None = None
 
 
 class PeerJobCompletedRequest(BaseModel):
     """Peer-signed JOB_COMPLETED attestation."""
 
-    id: Optional[str] = None
+    id: str | None = None
     sender: str
     nonce: int
-    timestamp: Optional[str] = None
+    timestamp: str | None = None
     payload: dict[str, Any]
     signature: str
     peer_id: str
@@ -43,7 +43,7 @@ class CreditSettleRequest(BaseModel):
     from_account: str
     to_account: str
     amount_seconds: float = Field(ge=0)
-    memo: Optional[str] = None
+    memo: str | None = None
 
 
 class BlockApproveRequest(BaseModel):
@@ -59,7 +59,7 @@ class TransactionResponse(BaseModel):
     timestamp: str
     payload: dict[str, Any]
     signature: str
-    tx_hash: Optional[str] = None
+    tx_hash: str | None = None
 
 
 class ApprovalResponse(BaseModel):
@@ -91,9 +91,9 @@ class BalanceResponse(BaseModel):
 
 class ChainStatusResponse(BaseModel):
     chain_id: str
-    network_id: Optional[str] = None
+    network_id: str | None = None
     tip_height: int
-    tip_hash: Optional[str]
+    tip_hash: str | None
     block_count: int
     pending_count: int
     unfinalized_count: int = 0
@@ -106,10 +106,10 @@ class ChainStatusResponse(BaseModel):
 class VerifyResponse(BaseModel):
     valid: bool
     chain_id: str
-    network_id: Optional[str] = None
+    network_id: str | None = None
     block_count: int
     tip_height: int
-    tip_hash: Optional[str]
+    tip_hash: str | None
     state_root: str
     quorum_threshold: int = 1
     errors: list[str]
@@ -118,7 +118,7 @@ class VerifyResponse(BaseModel):
 
 class SubmitResponse(BaseModel):
     transaction: TransactionResponse
-    block: Optional[BlockResponse] = None
+    block: BlockResponse | None = None
 
 
 class KeypairResponse(BaseModel):
@@ -138,3 +138,46 @@ class MerkleProofResponse(BaseModel):
 class RegisterValidatorRequest(BaseModel):
     public_key: str
     label: str = "validator"
+
+
+class BridgeTransferRequest(BaseModel):
+    source_network_id: str | None = None
+    dest_network_id: str | None = None
+    account: str
+    amount_seconds: float = Field(gt=0)
+    memo: str | None = None
+
+
+class HeaderVerifyRequest(BaseModel):
+    headers: list[dict[str, Any]]
+    from_height: int | None = None
+
+
+class SyncHeadersResponse(BaseModel):
+    chain_id: str
+    network_id: str | None = None
+    from_height: int
+    headers: list[dict[str, Any]]
+    count: int
+
+
+class HeaderVerifyResponse(BaseModel):
+    valid: bool
+    chain_id: str
+    network_id: str | None = None
+    headers: int
+    tip_hash: str | None
+    tip_height: int
+    tip_state_root: str | None = None
+    errors: list[str]
+
+
+class BridgeTransferResponse(BaseModel):
+    receipt_id: str
+    source_chain_id: str
+    dest_chain_id: str
+    account: str
+    amount_seconds: float
+    burn: dict[str, Any]
+    mint: dict[str, Any]
+    inclusion_proof: dict[str, Any]

@@ -24,6 +24,7 @@ from deepiri_zepgpu.compute_ledger.poa import (
 )
 from deepiri_zepgpu.compute_ledger.replay import CreditState, apply_transaction, replay_transactions
 from deepiri_zepgpu.compute_ledger.transaction import ComputeTransaction, TxType
+from deepiri_zepgpu.compute_ledger.light_client import verify_header_chain, verify_tx_inclusion
 
 
 class TestHashing:
@@ -245,3 +246,95 @@ class TestPoA:
             quorum_threshold=2,
         )
         assert len(block.approvals) == 2
+
+
+class TestBridgeReplay:
+    def test_burn_and_mint(self):
+        priv, pub = generate_keypair()
+        earn = ComputeTransaction(
+            tx_type=TxType.JOB_COMPLETED,
+            sender=pub,
+            nonce=0,
+            payload={
+                "provider_account": "acct",
+                "consumer_account": "user",
+                "gpu_seconds": 20.0,
+            },
+        )
+        burn = ComputeTransaction(
+            tx_type=TxType.BRIDGE_BURN,
+            sender=pub,
+            nonce=1,
+            payload={"account": "acct", "amount_seconds": 5.0, "dest_chain_id": "other"},
+        )
+        mint = ComputeTransaction(
+            tx_type=TxType.BRIDGE_MINT,
+            sender=pub,
+            nonce=2,
+            payload={
+                "account": "acct",
+                "amount_seconds": 5.0,
+                "receipt_id": "abc",
+            },
+        )
+        # burn alone on source-like chain
+        state = replay_transactions([earn, burn])
+        assert state.balances["acct"].net_seconds == 15.0
+        # mint alone on dest-like chain
+        dest = replay_transactions([mint])
+        assert dest.balances["acct"].credit_seconds == 5.0
+
+    def test_burn_insufficient(self):
+        priv, pub = generate_keypair()
+        burn = ComputeTransaction(
+            tx_type=TxType.BRIDGE_BURN,
+            sender=pub,
+            nonce=0,
+            payload={"account": "acct", "amount_seconds": 5.0},
+        )
+        with pytest.raises(ValueError, match="insufficient"):
+            replay_transactions([burn])
+
+
+class TestLightClient:
+    def _header_from_block(self, block: ComputeBlock):
+        from deepiri_zepgpu.compute_ledger.light_client import BlockHeader
+
+        return BlockHeader.from_block(block)
+
+    def test_header_chain_and_inclusion(self):
+        priv, pub = generate_keypair()
+        tx = ComputeTransaction(
+            tx_type=TxType.JOB_COMPLETED,
+            sender=pub,
+            nonce=0,
+            payload={
+                "provider_account": pub,
+                "consumer_account": "c",
+                "gpu_seconds": 1.0,
+            },
+        )
+        tx.signature = sign_message(priv, canonical_json(tx.signing_payload()))
+        state = replay_transactions([tx])
+        block = ComputeBlock(
+            height=0,
+            previous_hash=GENESIS_PREV_HASH,
+            transactions=[tx],
+            validator=pub,
+        )
+        block.transactions_root = block.compute_transactions_root()
+        block.state_root = state.state_root()
+        block.hash = block.compute_hash()
+        block.validator_signature = sign_message(priv, block.hash)
+        block.ensure_proposer_approval()
+
+        header = self._header_from_block(block)
+        result = verify_header_chain(
+            [header],
+            authorized_validators={pub},
+            quorum_threshold=1,
+        )
+        assert result["valid"] is True
+
+        proof = merkle_proof(block.leaf_hashes(), 0)
+        assert verify_tx_inclusion(header=header, proof=proof)

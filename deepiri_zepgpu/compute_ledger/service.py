@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 def _parse_ts(value: str | datetime) -> datetime:
     if isinstance(value, datetime):
-        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
@@ -334,23 +334,29 @@ class LedgerService:
         errors: list[str] = []
         all_txs: list[ComputeTransaction] = []
         prev_hash = GENESIS_PREV_HASH
-        expected_height = 0
 
-        for row in blocks:
+        for expected_height, row in enumerate(blocks):
             block = self._block_to_domain(row)
+            # Finalized history is checked for crypto integrity of its approval set.
+            # Current settings.ledger.quorum_threshold applies to new seals, not retroactively.
+            if block.finalized:
+                effective_quorum = max(1, len(block.approvals))
+                require_quorum = True
+            else:
+                effective_quorum = 1
+                require_quorum = False
             try:
                 validate_block(
                     block,
                     authorized_validators=validators,
                     expected_previous_hash=prev_hash,
                     expected_height=expected_height,
-                    quorum_threshold=self.quorum_threshold if block.finalized else 1,
-                    require_quorum=block.finalized,
+                    quorum_threshold=effective_quorum,
+                    require_quorum=require_quorum,
                 )
             except LedgerValidationError as exc:
                 errors.append(f"height={expected_height}: {exc}")
             prev_hash = block.hash
-            expected_height += 1
             if block.finalized:
                 all_txs.extend(block.transactions)
 
@@ -401,6 +407,51 @@ class LedgerService:
             "proof": proof.to_dict(),
             "valid": verify_merkle_proof(proof),
         }
+
+    async def export_headers(
+        self,
+        *,
+        from_height: int = 0,
+        limit: int = 100,
+        finalized_only: bool = True,
+    ) -> list[dict[str, Any]]:
+        """Export compact headers for light-client sync."""
+        from deepiri_zepgpu.compute_ledger.light_client import BlockHeader
+
+        await self.ensure_initialized()
+        rows = await self.repo.list_all_blocks_ascending(self.chain_id)
+        headers: list[dict[str, Any]] = []
+        for row in rows:
+            if row.height < from_height:
+                continue
+            if finalized_only and not bool(getattr(row, "finalized", True)):
+                continue
+            block = self._block_to_domain(row)
+            headers.append(BlockHeader.from_block(block).to_dict())
+            if len(headers) >= limit:
+                break
+        return headers
+
+    async def verify_headers_payload(
+        self,
+        headers: list[dict[str, Any]],
+        *,
+        from_height: int | None = None,
+    ) -> dict[str, Any]:
+        from deepiri_zepgpu.compute_ledger.light_client import BlockHeader, verify_header_chain
+
+        await self.ensure_initialized()
+        validators = {v.public_key for v in await self.repo.get_active_validators(self.chain_id)}
+        parsed = [BlockHeader.from_dict(h) for h in headers]
+        result = verify_header_chain(
+            parsed,
+            authorized_validators=validators,
+            quorum_threshold=self.quorum_threshold,
+            from_height=from_height,
+        )
+        result["chain_id"] = self.chain_id
+        result["network_id"] = self.network_id
+        return result
 
     async def record_job_completed(
         self,
@@ -464,11 +515,14 @@ class LedgerService:
         state: CreditState | None,
     ) -> None:
         from sqlalchemy import select
+
         from deepiri_zepgpu.database.models.ledger import LedgerTransaction
+        from deepiri_zepgpu.database.uuid_util import as_uuid
 
         for tx in block.transactions:
+            tx_uuid = as_uuid(tx.id)
             existing = await self.db.execute(
-                select(LedgerTransaction).where(LedgerTransaction.id == tx.id)
+                select(LedgerTransaction).where(LedgerTransaction.id == tx_uuid)
             )
             if existing.scalar_one_or_none() is None:
                 await self.repo.add_pending_transaction(
@@ -511,23 +565,33 @@ class LedgerService:
             tx_type=TxType(row.tx_type.value if hasattr(row.tx_type, "value") else row.tx_type),
             sender=row.sender,
             nonce=int(row.nonce),
-            timestamp=row.timestamp.isoformat() if isinstance(row.timestamp, datetime) else str(row.timestamp),
+            timestamp=(
+                row.timestamp.isoformat()
+                if isinstance(row.timestamp, datetime)
+                else str(row.timestamp)
+            ),
             payload=dict(row.payload or {}),
             signature=row.signature,
         )
 
     def _block_to_domain(self, row: Any) -> ComputeBlock:
-        txs = [self._row_to_tx(t) for t in sorted(row.transactions or [], key=lambda x: x.position or 0)]
+        txs = [
+            self._row_to_tx(t)
+            for t in sorted(row.transactions or [], key=lambda x: x.position or 0)
+        ]
         approvals_raw = row.approvals or []
         approvals = [
-            ValidatorApproval.from_dict(a) if isinstance(a, dict) else a
-            for a in approvals_raw
+            ValidatorApproval.from_dict(a) if isinstance(a, dict) else a for a in approvals_raw
         ]
         return ComputeBlock(
             id=str(row.id),
             height=row.height,
             previous_hash=row.previous_hash,
-            timestamp=row.timestamp.isoformat() if isinstance(row.timestamp, datetime) else str(row.timestamp),
+            timestamp=(
+                row.timestamp.isoformat()
+                if isinstance(row.timestamp, datetime)
+                else str(row.timestamp)
+            ),
             transactions=txs,
             transactions_root=row.transactions_root,
             state_root=row.state_root,

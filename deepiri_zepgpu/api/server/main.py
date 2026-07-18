@@ -4,26 +4,26 @@ from __future__ import annotations
 
 import asyncio
 import time
-from contextlib import asynccontextmanager
+from collections.abc import AsyncGenerator, Awaitable, Callable
+from contextlib import asynccontextmanager, suppress
+from typing import Any
 
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from prometheus_client import Counter, Gauge, Histogram, generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
 from starlette.responses import Response
 
-from deepiri_zepgpu.api.server.routes import api_router
-from deepiri_zepgpu.api.server.routes import websocket
+from deepiri_zepgpu.api.server.routes import api_router, websocket
 from deepiri_zepgpu.api.server.websocket_manager import manager
 from deepiri_zepgpu.config import settings
-from deepiri_zepgpu.database import init_db, close_db
+from deepiri_zepgpu.database import close_db, init_db
 from deepiri_zepgpu.database.session import get_db_context
 from deepiri_zepgpu.queue.redis_queue import queue
 from deepiri_zepgpu.storage.result_store import result_store
 from deepiri_zepgpu.vpn.config import vpn_settings
 from deepiri_zepgpu.vpn.peer_manager import mark_stale_peers_offline
 from deepiri_zepgpu.vpn.pool_sync import get_registered_gpu_pool, refresh_gpu_pool_from_db
-
 
 REQUEST_COUNT = Counter(
     "zepgpu_http_requests_total",
@@ -60,14 +60,14 @@ QUEUE_LENGTH = Gauge(
 )
 
 
-async def _vpn_registry_maintenance_loop(stop: asyncio.Event):
+async def _vpn_registry_maintenance_loop(stop: asyncio.Event) -> None:
     """Mark stale VPN peers and refresh in-process GPU pool from DB."""
     interval = max(15, vpn_settings.heartbeat_interval_seconds)
     while not stop.is_set():
         try:
             await asyncio.wait_for(stop.wait(), timeout=interval)
             break
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass
         try:
             async with get_db_context() as db:
@@ -80,20 +80,27 @@ async def _vpn_registry_maintenance_loop(stop: asyncio.Event):
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan events."""
     await init_db()
     await queue.connect()
-    result_store.initialize()
+    try:
+        await result_store.initialize()
+    except Exception as exc:
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "Result store initialization failed; continuing without result storage: %s",
+            exc,
+        )
+
     vpn_stop = asyncio.Event()
     vpn_task = asyncio.create_task(_vpn_registry_maintenance_loop(vpn_stop))
     yield
     vpn_stop.set()
     vpn_task.cancel()
-    try:
+    with suppress(asyncio.CancelledError):
         await vpn_task
-    except asyncio.CancelledError:
-        pass
     await close_db()
     await queue.disconnect()
 
@@ -115,31 +122,33 @@ app.add_middleware(
 
 
 @app.middleware("http")
-async def metrics_middleware(request: Request, call_next):
+async def metrics_middleware(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
     """Middleware to collect metrics."""
     start_time = time.time()
-    
+
     response = await call_next(request)
-    
+
     duration = time.time() - start_time
-    
+
     endpoint = request.url.path
     if endpoint.startswith("/api/v1"):
         endpoint = "/api/v1" + endpoint.split("/")[2] if len(endpoint.split("/")) > 2 else "/api/v1"
     else:
         endpoint = endpoint
-    
+
     REQUEST_COUNT.labels(
         method=request.method,
         endpoint=endpoint,
         status=response.status_code,
     ).inc()
-    
+
     REQUEST_LATENCY.labels(
         method=request.method,
         endpoint=endpoint,
     ).observe(duration)
-    
+
     return response
 
 
@@ -148,7 +157,7 @@ app.include_router(websocket.router, prefix="/api/v1", tags=["WebSocket"])
 
 
 @app.get("/", tags=["Root"])
-async def root():
+async def root() -> dict[str, str]:
     """Root endpoint."""
     return {
         "name": settings.api.title,
@@ -158,7 +167,7 @@ async def root():
 
 
 @app.get("/metrics", tags=["Monitoring"])
-async def metrics():
+async def metrics() -> Response:
     """Prometheus metrics endpoint."""
     return Response(
         content=generate_latest(),
@@ -167,17 +176,18 @@ async def metrics():
 
 
 @app.get("/api/v1/stats", tags=["System"])
-async def get_stats():
+async def get_stats() -> dict[str, Any]:
     """Get system statistics."""
     import psutil
-    from deepiri_zepgpu.database.session import get_db_context
-    from deepiri_zepgpu.database.repositories import TaskRepository, GPURepository
+
     from deepiri_zepgpu.database.models.task import TaskStatus
-    
+    from deepiri_zepgpu.database.repositories import GPURepository, TaskRepository
+    from deepiri_zepgpu.database.session import get_db_context
+
     async with get_db_context() as db:
         task_repo = TaskRepository(db)
         gpu_repo = GPURepository(db)
-        
+
         stats = {
             "queue": {
                 "pending_tasks": await task_repo.count_by_status(TaskStatus.PENDING),
@@ -198,12 +208,12 @@ async def get_stats():
                 "memory_percent": psutil.virtual_memory().percent,
             },
         }
-    
+
     return stats
 
 
 @app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
+async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """Global exception handler."""
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -221,6 +231,7 @@ def create_app() -> FastAPI:
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(
         "deepiri_zepgpu.api.server.main:app",
         host=settings.api.host,

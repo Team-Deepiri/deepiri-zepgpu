@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 
 from deepiri_zepgpu.compute_ledger.hashing import sha256_hex
 
@@ -60,8 +60,7 @@ class MerkleProof:
     @classmethod
     def from_dict(cls, data: dict) -> MerkleProof:
         steps = [
-            MerkleProofStep(hash=s["hash"], position=s["position"])
-            for s in data.get("steps") or []
+            MerkleProofStep(hash=s["hash"], position=s["position"]) for s in data.get("steps") or []
         ]
         return cls(
             leaf=data["leaf"],

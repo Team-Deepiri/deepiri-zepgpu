@@ -3,24 +3,29 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta
-from typing import Any, Sequence
+from collections.abc import Sequence
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlalchemy import and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from deepiri_zepgpu.database.models.scheduled_task import ScheduledTask, ScheduleStatus, ScheduleType
+from deepiri_zepgpu.database.models.scheduled_task import (
+    ScheduledTask,
+    ScheduleStatus,
+    ScheduleType,
+)
 from deepiri_zepgpu.database.models.scheduled_task_run import ScheduledTaskRun, ScheduleRunStatus
 
 
 class ScheduleRepository:
     """Repository for ScheduledTask database operations."""
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def create(self, **kwargs) -> ScheduledTask:
+    async def create(self, **kwargs: Any) -> ScheduledTask:
         """Create a new scheduled task."""
         schedule = ScheduledTask(id=str(uuid.uuid4()), **kwargs)
         self.session.add(schedule)
@@ -72,7 +77,7 @@ class ScheduleRepository:
             select(ScheduledTask)
             .where(
                 and_(
-                    ScheduledTask.is_enabled == True,
+                    ScheduledTask.is_enabled.is_(True),
                     ScheduledTask.status == ScheduleStatus.ACTIVE,
                 )
             )
@@ -80,16 +85,18 @@ class ScheduleRepository:
         )
         return result.scalars().all()
 
-    async def get_due_schedules(self, before_time: datetime | None = None) -> Sequence[ScheduledTask]:
+    async def get_due_schedules(
+        self, before_time: datetime | None = None
+    ) -> Sequence[ScheduledTask]:
         """Get schedules that are due to run."""
         if before_time is None:
-            before_time = datetime.utcnow()
+            before_time = datetime.now(UTC)
 
         result = await self.session.execute(
             select(ScheduledTask)
             .where(
                 and_(
-                    ScheduledTask.is_enabled == True,
+                    ScheduledTask.is_enabled.is_(True),
                     ScheduledTask.status == ScheduleStatus.ACTIVE,
                     ScheduledTask.next_run_at <= before_time,
                 )
@@ -101,7 +108,7 @@ class ScheduleRepository:
     async def update(
         self,
         schedule_id: str,
-        **kwargs,
+        **kwargs: Any,
     ) -> ScheduledTask | None:
         """Update a scheduled task."""
         schedule = await self.get_by_id(schedule_id)
@@ -133,7 +140,9 @@ class ScheduleRepository:
         await self.session.flush()
         return True
 
-    async def update_next_run(self, schedule_id: str, next_run_at: datetime) -> ScheduledTask | None:
+    async def update_next_run(
+        self, schedule_id: str, next_run_at: datetime
+    ) -> ScheduledTask | None:
         """Update the next run time for a schedule."""
         return await self.update(schedule_id, next_run_at=next_run_at)
 
@@ -148,7 +157,7 @@ class ScheduleRepository:
         if not schedule:
             return None
 
-        schedule.last_run_at = datetime.utcnow()
+        schedule.last_run_at = datetime.now(UTC)
         schedule.run_count += 1
         schedule.last_task_id = task_id
 
@@ -173,7 +182,7 @@ class ScheduleRepository:
         if not schedule:
             return None
 
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         next_run = None
 
         if schedule.schedule_type == ScheduleType.CRON and schedule.cron_expression:
@@ -214,10 +223,10 @@ class ScheduleRepository:
 class ScheduleRunRepository:
     """Repository for ScheduledTaskRun database operations."""
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def create(self, **kwargs) -> ScheduledTaskRun:
+    async def create(self, **kwargs: Any) -> ScheduledTaskRun:
         """Create a new scheduled task run record."""
         run = ScheduledTaskRun(id=str(uuid.uuid4()), **kwargs)
         self.session.add(run)
@@ -280,9 +289,13 @@ class ScheduleRunRepository:
         run.status = status
 
         if status == ScheduleRunStatus.RUNNING:
-            run.started_at = datetime.utcnow()
-        elif status in [ScheduleRunStatus.COMPLETED, ScheduleRunStatus.FAILED, ScheduleRunStatus.CANCELLED]:
-            run.completed_at = datetime.utcnow()
+            run.started_at = datetime.now(UTC)
+        elif status in [
+            ScheduleRunStatus.COMPLETED,
+            ScheduleRunStatus.FAILED,
+            ScheduleRunStatus.CANCELLED,
+        ]:
+            run.completed_at = datetime.now(UTC)
             if run.started_at:
                 run.duration_ms = int((run.completed_at - run.started_at).total_seconds() * 1000)
 
@@ -334,21 +347,23 @@ class ScheduleRunRepository:
 
     async def delete_old_runs(self, days: int = 30) -> int:
         """Delete old run records."""
-        cutoff = datetime.utcnow() - timedelta(days=days)
+        cutoff = datetime.now(UTC) - timedelta(days=days)
 
         result = await self.session.execute(
             update(ScheduledTaskRun)
             .where(
                 and_(
                     ScheduledTaskRun.created_at < cutoff,
-                    ScheduledTaskRun.status.in_([
-                        ScheduleRunStatus.COMPLETED,
-                        ScheduleRunStatus.FAILED,
-                        ScheduleRunStatus.CANCELLED,
-                    ])
+                    ScheduledTaskRun.status.in_(
+                        [
+                            ScheduleRunStatus.COMPLETED,
+                            ScheduleRunStatus.FAILED,
+                            ScheduleRunStatus.CANCELLED,
+                        ]
+                    ),
                 )
             )
             .values(result_summary=None)
         )
         await self.session.flush()
-        return result.rowcount or 0
+        return result.rowcount or 0  # type: ignore[attr-defined]
