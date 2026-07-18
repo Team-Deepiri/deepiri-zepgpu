@@ -265,6 +265,11 @@ TEST_DATABASE_URL=postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5433/zepgpu_test 
 DATABASE__URL=postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5433/zepgpu_test \
 PYTHONPATH=. poetry run pytest tests/regression/ -m regression -v
 
+# Revolution suite (adversary + multi-party economy + golden vectors)
+TEST_DATABASE_URL=postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5433/zepgpu_test \
+DATABASE__URL=postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5433/zepgpu_test \
+PYTHONPATH=. poetry run pytest tests/adversarial tests/revolution -m revolution -v
+
 # Run linters
 poetry run ruff check deepiri_zepgpu
 poetry run mypy deepiri_zepgpu

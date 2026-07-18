@@ -52,5 +52,17 @@ async def ledger_sync_headers(
         }
 
 
+async def ledger_revolution_audit(*, include_db: bool = True) -> dict:
+    """Run golden + adversary + multi-network economy audit."""
+    from deepiri_zepgpu.compute_ledger.revolution import run_revolution_audit
+
+    if not include_db:
+        result = await run_revolution_audit(None, include_db=False)
+        return result.to_dict()
+    async with get_db_context() as db:
+        result = await run_revolution_audit(db, include_db=True)
+        return result.to_dict()
+
+
 def dump_json(obj: dict) -> None:
     print(json.dumps(obj, indent=2, default=str))

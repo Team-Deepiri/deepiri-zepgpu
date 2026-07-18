@@ -143,6 +143,7 @@ asyncio_default_fixture_loop_scope = "function"
 markers = [
     "integration: requires Postgres (docker/docker-compose.test.yml)",
     "regression: full-system regression (API surface + cross-module smoke)",
+    "revolution: adversarial + multi-party credit economy + golden vectors",
 ]
 
 [tool.coverage.run]

@@ -24,6 +24,10 @@ def pytest_configure(config: pytest.Config) -> None:
         "markers",
         "regression: full-system regression (API surface + cross-module smoke)",
     )
+    config.addinivalue_line(
+        "markers",
+        "revolution: adversarial + multi-party credit economy + golden vectors",
+    )
 
 
 TRUNCATE_SQL = """

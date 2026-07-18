@@ -392,6 +392,42 @@ if HAS_CLICK:
 
         dump_json(asyncio.run(ledger_sync_headers(network_id, from_height, limit)))
 
+    @ledger.command("revolution-audit")
+    @click.option("--offline", is_flag=True, help="Skip DB scenarios (golden + crypto only)")
+    @click.option("--json-out", type=click.Path(), default=None, help="Write JSON report path")
+    @click.option("--md-out", type=click.Path(), default=None, help="Write Markdown report path")
+    def ledger_revolution_audit_cmd(offline, json_out, md_out):
+        """Run revolutionary verification: golden vectors, adversary suite, credit economy."""
+        from pathlib import Path
+
+        from deepiri_zepgpu.compute_ledger.revolution import run_revolution_audit
+        from deepiri_zepgpu.compute_ledger.revolution.report import (
+            render_console_summary,
+            write_audit_json,
+            write_audit_markdown,
+        )
+        from deepiri_zepgpu.database.session import get_db_context
+
+        async def _run():
+            if offline:
+                return await run_revolution_audit(None, include_db=False)
+            async with get_db_context() as db:
+                return await run_revolution_audit(db, include_db=True)
+
+        typed = asyncio.run(_run())
+        if json_out:
+            write_audit_json(typed, Path(json_out))
+            click.echo(f"Wrote {json_out}")
+        if md_out:
+            write_audit_markdown(typed, Path(md_out))
+            click.echo(f"Wrote {md_out}")
+        click.echo(render_console_summary(typed))
+        if not json_out and not md_out:
+            from deepiri_zepgpu.compute_ledger.cli_ops import dump_json
+
+            dump_json(typed.to_dict())
+        raise SystemExit(0 if typed.passed else 1)
+
     from pathlib import Path
 
 

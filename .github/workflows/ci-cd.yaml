@@ -78,13 +78,44 @@ jobs:
         run: poetry install --all-extras
 
       - name: Run unit tests
-        run: poetry run pytest tests/ -m "not integration and not regression" --cov=deepiri_zepgpu --cov-report=xml
+        run: poetry run pytest tests/ -m "not integration and not regression and not revolution" --cov=deepiri_zepgpu --cov-report=xml
 
       - name: Run integration tests
         run: poetry run pytest tests/integration/ -m integration -v --tb=short --cov=deepiri_zepgpu --cov-append --cov-report=xml
 
       - name: Run regression tests
         run: poetry run pytest tests/regression/ -m regression -v --tb=short --cov=deepiri_zepgpu --cov-append --cov-report=xml
+
+      - name: Run revolution suite
+        run: poetry run pytest tests/adversarial tests/revolution -m revolution -v --tb=short --cov=deepiri_zepgpu --cov-append --cov-report=xml
+
+      - name: Revolution audit artifact
+        run: |
+          mkdir -p artifacts
+          poetry run python - <<'PY'
+          import asyncio
+          from pathlib import Path
+          from deepiri_zepgpu.compute_ledger.revolution import run_revolution_audit
+          from deepiri_zepgpu.compute_ledger.revolution.report import write_audit_json, write_audit_markdown
+          from deepiri_zepgpu.database.session import get_db_context
+
+          async def main():
+              async with get_db_context() as db:
+                  result = await run_revolution_audit(db, include_db=True)
+              write_audit_json(result, Path("artifacts/revolution-audit.json"))
+              write_audit_markdown(result, Path("artifacts/revolution-audit.md"))
+              print(result.to_dict()["headline"])
+              raise SystemExit(0 if result.passed else 1)
+
+          asyncio.run(main())
+          PY
+
+      - name: Upload revolution audit
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: revolution-audit
+          path: artifacts/
 
       - name: Upload coverage
         uses: codecov/codecov-action@v3

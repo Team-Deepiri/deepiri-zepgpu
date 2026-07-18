@@ -18,6 +18,28 @@ This is **not** a public cryptocurrency chain.
 | Cross-network bridge (burn/mint) | Week 3 ✅ |
 | Threat model | Week 3 ✅ |
 | CLI (`deepiri-gpu ledger …`) | Week 3 ✅ |
+| Integration + full-system regression | ✅ |
+| **Revolution audit** (adversary + economy + golden) | ✅ |
+
+## Revolution audit
+
+This is the bar above happy-path tests: cryptographic golden vectors, adversarial attack battery, and a multi-network GPU-credit economy scenario (earn → quorum → bridge → light-client → burst seals).
+
+```bash
+# Offline (no DB): golden + crypto adversary
+deepiri-gpu ledger revolution-audit --offline
+
+# Full audit against Postgres
+export DATABASE__URL=postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5433/zepgpu_test
+deepiri-gpu ledger revolution-audit \
+  --json-out artifacts/revolution-audit.json \
+  --md-out artifacts/revolution-audit.md
+
+# Pytest markers
+poetry run pytest tests/adversarial tests/revolution -m revolution -v
+```
+
+CI publishes `revolution-audit` as a workflow artifact.
 
 ## Migrations
 
