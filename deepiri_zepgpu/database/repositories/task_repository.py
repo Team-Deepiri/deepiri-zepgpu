@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import and_, func, select, update
@@ -17,10 +17,10 @@ from deepiri_zepgpu.database.models.task import Task, TaskStatus
 class TaskRepository:
     """Repository for Task database operations."""
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def create(self, **kwargs) -> Task:
+    async def create(self, **kwargs: Any) -> Task:
         """Create a new task."""
         task = Task(id=str(uuid.uuid4()), **kwargs)
         self.session.add(task)
@@ -87,7 +87,7 @@ class TaskRepository:
         self,
         task_id: str,
         status: TaskStatus,
-        **kwargs,
+        **kwargs: Any,
     ) -> Task | None:
         """Update task status and optional fields."""
         task = await self.get_by_id(task_id)
@@ -97,14 +97,14 @@ class TaskRepository:
         task.status = status
 
         if status == TaskStatus.RUNNING:
-            task.started_at = datetime.utcnow()
+            task.started_at = datetime.now(UTC)
         elif status in [
             TaskStatus.COMPLETED,
             TaskStatus.FAILED,
             TaskStatus.CANCELLED,
             TaskStatus.TIMEOUT,
         ]:
-            task.completed_at = datetime.utcnow()
+            task.completed_at = datetime.now(UTC)
 
         for key, value in kwargs.items():
             if hasattr(task, key):
@@ -112,6 +112,10 @@ class TaskRepository:
 
         await self.session.flush()
         return task
+
+    async def mark_assigned(self, task_id: str, **kwargs: Any) -> Task | None:
+        """Mark task as assigned to a room GPU."""
+        return await self.update_status(task_id, TaskStatus.ASSIGNED, **kwargs)
 
     async def mark_running(
         self,
@@ -190,13 +194,13 @@ class TaskRepository:
 
         stats = {status.value: 0 for status in TaskStatus}
         for row in result:
-            stats[row.status.value] = row.count
+            stats[row.status.value] = row.count  # type: ignore[assignment]
 
         return stats
 
     async def delete_old_completed(self, days: int = 7) -> int:
         """Delete old completed tasks."""
-        cutoff = datetime.utcnow() - timedelta(days=days)
+        cutoff = datetime.now(UTC) - timedelta(days=days)
 
         result = await self.session.execute(
             update(Task)
@@ -211,4 +215,4 @@ class TaskRepository:
             .values(metadata_json={"deleted": True})
         )
         await self.session.flush()
-        return result.rowcount or 0
+        return result.rowcount or 0  # type: ignore[attr-defined]

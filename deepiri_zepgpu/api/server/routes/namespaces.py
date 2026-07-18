@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from deepiri_zepgpu.api.server.dependencies import get_current_user, get_db_session
+from deepiri_zepgpu.database.models import User
+from deepiri_zepgpu.database.models.namespace import NamespaceMember
 from deepiri_zepgpu.database.repositories import (
     NamespaceMemberRepository,
     NamespaceQuotaRepository,
@@ -181,7 +184,7 @@ class QuotaUpdateRequest(BaseModel):
     max_concurrent_tasks: int | None = None
 
 
-async def check_namespace_admin(namespace_id: str, user_id: str, db) -> bool:
+async def check_namespace_admin(namespace_id: str, user_id: str, db: AsyncSession) -> bool:
     """Check if user is admin of namespace."""
     member_repo = NamespaceMemberRepository(db)
     namespace_repo = NamespaceRepository(db)
@@ -199,11 +202,11 @@ async def check_namespace_admin(namespace_id: str, user_id: str, db) -> bool:
 @router.post("", response_model=NamespaceResponse, status_code=status.HTTP_201_CREATED)
 async def create_namespace(
     request: NamespaceCreateRequest,
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_current_user),
 ) -> NamespaceResponse:
     """Create a new namespace."""
-    from deepiri_zepgpu.database.models import Namespace, NamespaceMember, NamespaceStatus, TeamRole
+    from deepiri_zepgpu.database.models import Namespace, NamespaceStatus
 
     namespace_repo = NamespaceRepository(db)
 
@@ -212,7 +215,6 @@ async def create_namespace(
         raise HTTPException(status_code=400, detail="Namespace name already exists")
 
     namespace = Namespace(
-        id=uuid.uuid4(),
         name=request.name,
         display_name=request.display_name,
         description=request.description,
@@ -228,11 +230,10 @@ async def create_namespace(
 
     if current_user:
         member = NamespaceMember(
-            id=uuid.uuid4(),
             namespace_id=namespace.id,
             user_id=current_user.id,
-            role=TeamRole.OWNER,
-            joined_at=datetime.utcnow(),
+            role="owner",
+            joined_at=datetime.now(UTC),
         )
         db.add(member)
         await db.flush()
@@ -252,8 +253,8 @@ async def create_namespace(
 
 @router.get("", response_model=NamespaceListResponse)
 async def list_namespaces(
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_current_user),
 ) -> NamespaceListResponse:
     """List namespaces the user has access to."""
     namespace_repo = NamespaceRepository(db)
@@ -285,8 +286,8 @@ async def list_namespaces(
 @router.get("/{namespace_id}", response_model=NamespaceResponse)
 async def get_namespace(
     namespace_id: str,
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_current_user),
 ) -> NamespaceResponse:
     """Get namespace by ID."""
     namespace_repo = NamespaceRepository(db)
@@ -301,12 +302,12 @@ async def get_namespace(
             raise HTTPException(status_code=403, detail="Access denied")
 
     return NamespaceResponse(
-        id=namespace.id,
+        id=str(namespace.id),
         name=namespace.name,
         display_name=namespace.display_name,
         description=namespace.description,
         status=namespace.status.value,
-        owner_id=namespace.owner_id,
+        owner_id=str(namespace.owner_id) if namespace.owner_id else None,
         is_default=namespace.is_default,
         created_at=namespace.created_at,
         updated_at=namespace.updated_at,
@@ -317,8 +318,8 @@ async def get_namespace(
 async def update_namespace(
     namespace_id: str,
     request: NamespaceUpdateRequest,
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_current_user),
 ) -> NamespaceResponse:
     """Update a namespace."""
     if not current_user:
@@ -331,14 +332,15 @@ async def update_namespace(
     update_data = request.model_dump(exclude_unset=True)
 
     namespace = await namespace_repo.update(namespace_id, **update_data)
+    assert namespace is not None
 
     return NamespaceResponse(
-        id=namespace.id,
+        id=str(namespace.id),
         name=namespace.name,
         display_name=namespace.display_name,
         description=namespace.description,
         status=namespace.status.value,
-        owner_id=namespace.owner_id,
+        owner_id=str(namespace.owner_id) if namespace.owner_id else None,
         is_default=namespace.is_default,
         created_at=namespace.created_at,
         updated_at=namespace.updated_at,
@@ -348,8 +350,8 @@ async def update_namespace(
 @router.delete("/{namespace_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_namespace(
     namespace_id: str,
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_current_user),
 ) -> None:
     """Delete a namespace."""
     if not current_user:
@@ -376,8 +378,8 @@ async def add_namespace_member(
     namespace_id: str,
     user_id: str,
     role: str = "member",
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_current_user),
 ) -> NamespaceMemberResponse:
     """Add a member to namespace."""
     if not current_user:
@@ -394,19 +396,18 @@ async def add_namespace_member(
         raise HTTPException(status_code=400, detail="User is already a member")
 
     member = NamespaceMember(
-        id=str(uuid.uuid4()),
         namespace_id=namespace_id,
         user_id=user_id,
         role=TeamRole(role),
-        joined_at=datetime.utcnow(),
+        joined_at=datetime.now(UTC),
     )
     db.add(member)
     await db.flush()
 
     return NamespaceMemberResponse(
-        id=member.id,
-        namespace_id=member.namespace_id,
-        user_id=member.user_id,
+        id=str(member.id),
+        namespace_id=str(member.namespace_id),
+        user_id=str(member.user_id) if member.user_id else None,
         role=member.role.value,
         is_active=member.is_active,
         joined_at=member.joined_at,
@@ -416,8 +417,8 @@ async def add_namespace_member(
 @router.get("/{namespace_id}/members", response_model=list[NamespaceMemberResponse])
 async def list_namespace_members(
     namespace_id: str,
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_current_user),
 ) -> list[NamespaceMemberResponse]:
     """List namespace members."""
     if not current_user:
@@ -428,9 +429,9 @@ async def list_namespace_members(
 
     return [
         NamespaceMemberResponse(
-            id=m.id,
-            namespace_id=m.namespace_id,
-            user_id=m.user_id,
+            id=str(m.id),
+            namespace_id=str(m.namespace_id),
+            user_id=str(m.user_id) if m.user_id else None,
             role=m.role.value,
             is_active=m.is_active,
             joined_at=m.joined_at,
@@ -443,8 +444,8 @@ async def list_namespace_members(
 async def remove_namespace_member(
     namespace_id: str,
     member_id: str,
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_current_user),
 ) -> None:
     """Remove a member from namespace."""
     if not current_user:
@@ -468,8 +469,8 @@ async def remove_namespace_member(
 async def create_team(
     namespace_id: str,
     request: TeamCreateRequest,
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_current_user),
 ) -> TeamResponse:
     """Create a team in namespace."""
     if not current_user:
@@ -486,7 +487,6 @@ async def create_team(
         raise HTTPException(status_code=400, detail="Team name already exists in namespace")
 
     team = Team(
-        id=str(uuid.uuid4()),
         namespace_id=namespace_id,
         name=request.name,
         description=request.description,
@@ -496,11 +496,11 @@ async def create_team(
     await db.flush()
 
     return TeamResponse(
-        id=team.id,
-        namespace_id=team.namespace_id,
+        id=str(team.id),
+        namespace_id=str(team.namespace_id),
         name=team.name,
         description=team.description,
-        team_lead_id=team.team_lead_id,
+        team_lead_id=str(team.team_lead_id) if team.team_lead_id else None,
         is_active=team.is_active,
         created_at=team.created_at,
     )
@@ -509,8 +509,8 @@ async def create_team(
 @router.get("/{namespace_id}/teams", response_model=TeamListResponse)
 async def list_teams(
     namespace_id: str,
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_current_user),
 ) -> TeamListResponse:
     """List teams in namespace."""
     if not current_user:
@@ -522,11 +522,11 @@ async def list_teams(
     return TeamListResponse(
         teams=[
             TeamResponse(
-                id=t.id,
-                namespace_id=t.namespace_id,
+                id=str(t.id),
+                namespace_id=str(t.namespace_id),
                 name=t.name,
                 description=t.description,
-                team_lead_id=t.team_lead_id,
+                team_lead_id=str(t.team_lead_id) if t.team_lead_id else None,
                 is_active=t.is_active,
                 created_at=t.created_at,
             )
@@ -539,8 +539,8 @@ async def list_teams(
 @router.post("/{namespace_id}/quota", response_model=NamespaceQuotaResponse)
 async def get_or_create_quota(
     namespace_id: str,
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_current_user),
 ) -> NamespaceQuotaResponse:
     """Get or create namespace quota."""
     if not current_user:
@@ -550,7 +550,7 @@ async def get_or_create_quota(
     quota = await quota_repo.get_or_create(namespace_id)
 
     return NamespaceQuotaResponse(
-        namespace_id=quota.namespace_id,
+        namespace_id=str(quota.namespace_id),
         max_gpus=quota.max_gpus,
         max_gpus_per_user=quota.max_gpus_per_user,
         max_storage_gb=quota.max_storage_gb,
@@ -567,8 +567,8 @@ async def get_or_create_quota(
 async def update_quota(
     namespace_id: str,
     request: QuotaUpdateRequest,
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_current_user),
 ) -> NamespaceQuotaResponse:
     """Update namespace quota."""
     if not current_user:
@@ -580,9 +580,10 @@ async def update_quota(
     quota_repo = NamespaceQuotaRepository(db)
     update_data = request.model_dump(exclude_unset=True)
     quota = await quota_repo.update(namespace_id, **update_data)
+    assert quota is not None
 
     return NamespaceQuotaResponse(
-        namespace_id=quota.namespace_id,
+        namespace_id=str(quota.namespace_id),
         max_gpus=quota.max_gpus,
         max_gpus_per_user=quota.max_gpus_per_user,
         max_storage_gb=quota.max_storage_gb,
@@ -598,8 +599,8 @@ async def update_quota(
 @router.get("/{namespace_id}/usage", response_model=NamespaceUsageResponse)
 async def get_usage(
     namespace_id: str,
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_current_user),
 ) -> NamespaceUsageResponse:
     """Get namespace resource usage."""
     if not current_user:
@@ -609,7 +610,7 @@ async def get_usage(
     usage = await usage_repo.get_or_create(namespace_id)
 
     return NamespaceUsageResponse(
-        namespace_id=usage.namespace_id,
+        namespace_id=str(usage.namespace_id),
         current_gpus=usage.current_gpus,
         current_storage_gb=usage.current_storage_gb,
         total_tasks=usage.total_tasks,
@@ -623,8 +624,8 @@ async def get_usage(
 
 @router.get("/me", response_model=list[NamespaceResponse])
 async def get_my_namespaces(
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_current_user),
 ) -> list[NamespaceResponse]:
     """Get namespaces for current user."""
     if not current_user:
@@ -635,12 +636,12 @@ async def get_my_namespaces(
 
     return [
         NamespaceResponse(
-            id=n.id,
+            id=str(n.id),
             name=n.name,
             display_name=n.display_name,
             description=n.description,
             status=n.status.value,
-            owner_id=n.owner_id,
+            owner_id=str(n.owner_id) if n.owner_id else None,
             is_default=n.is_default,
             created_at=n.created_at,
             updated_at=n.updated_at,

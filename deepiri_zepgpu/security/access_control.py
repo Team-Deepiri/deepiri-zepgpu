@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 
 from deepiri_zepgpu.core.task import Task
@@ -40,7 +40,7 @@ class ResourceUsage:
     peak_gpu_memory_mb: int = 0
     concurrent_tasks: int = 0
     storage_used_gb: float = 0.0
-    period_start: datetime = field(default_factory=datetime.utcnow)
+    period_start: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def reset(self) -> None:
         """Reset usage counters."""
@@ -48,7 +48,7 @@ class ResourceUsage:
         self.gpu_seconds = 0.0
         self.concurrent_tasks = 0
         self.storage_used_gb = 0.0
-        self.period_start = datetime.utcnow()
+        self.period_start = datetime.now(UTC)
 
 
 class AccessControl:
@@ -139,7 +139,7 @@ class AccessControl:
 
     def _is_period_expired(self, usage: ResourceUsage) -> bool:
         """Check if usage period has expired."""
-        return datetime.utcnow() > usage.period_start + timedelta(hours=self._period_hours)
+        return datetime.now(UTC) > usage.period_start + timedelta(hours=self._period_hours)
 
     def get_remaining_quota(self, user_id: str) -> dict[str, float]:
         """Get remaining quota for user."""
@@ -148,7 +148,7 @@ class AccessControl:
             quota = self.get_quota(user_id)
 
             period_elapsed = min(
-                (datetime.utcnow() - usage.period_start).total_seconds() / 3600, self._period_hours
+                (datetime.now(UTC) - usage.period_start).total_seconds() / 3600, self._period_hours
             )
 
             return {

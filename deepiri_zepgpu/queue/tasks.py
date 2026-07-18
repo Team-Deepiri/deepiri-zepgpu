@@ -6,7 +6,7 @@ import asyncio
 import logging
 import traceback
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import cloudpickle
@@ -36,29 +36,48 @@ logger = logging.getLogger(__name__)
 class GPUTask(Task):
     """Base task class for GPU operations."""
 
+    def _get_db_task_id(self, args: tuple) -> str | None:
+        """Get the application/database task ID from Celery task args."""
+        if args and len(args) > 0:
+            return str(args[0])
+        return None
+
     def on_failure(
         self, exc: Exception, task_id: str, args: tuple, kwargs: dict, einfo: Any
     ) -> None:
         """Handle task failure."""
         logger.error(f"Task {task_id} failed: {exc}")
-        asyncio.run(_mark_task_failed(task_id, str(exc), traceback.format_exc()))
-        asyncio.run(_execute_callback(task_id, "failed"))
+
+        db_task_id = self._get_db_task_id(args)
+        if db_task_id:
+            asyncio.run(_mark_task_failed(db_task_id, str(exc), traceback.format_exc()))
+            asyncio.run(_execute_callback(db_task_id, "failed"))
 
     def on_success(self, retval: Any, task_id: str, args: tuple, kwargs: dict) -> None:
         """Handle task success."""
         logger.info(f"Task {task_id} succeeded")
-        asyncio.run(_execute_callback(task_id, "completed"))
+
+        db_task_id = self._get_db_task_id(args)
+        if db_task_id:
+            asyncio.run(_execute_callback(db_task_id, "completed"))
 
 
 async def _execute_callback(task_id: str, status: str) -> None:
     """Execute callback webhook if configured."""
     import httpx
 
+    logger.info(f"Checking callback for task {task_id} with status {status}")
+
     async with get_db_context() as db:
         repo = TaskRepository(db)
         task = await repo.get_by_id(task_id)
 
-        if not task or not task.callback_url:
+        if not task:
+            logger.warning(f"Callback skipped: task {task_id} not found")
+            return
+
+        if not task.callback_url:
+            logger.info(f"Callback skipped: task {task_id} has no callback_url")
             return
 
         try:
@@ -66,13 +85,15 @@ async def _execute_callback(task_id: str, status: str) -> None:
                 await client.post(
                     task.callback_url,
                     json={
-                        "task_id": task_id,
+                        "task_id": str(task_id),
                         "status": status,
-                        "user_id": task.user_id,
+                        "user_id": str(task.user_id) if task.user_id else None,
                     },
                     timeout=10.0,
                 )
-                logger.info(f"Callback executed for task {task_id}")
+
+            logger.info(f"Callback executed for task {task_id} to {task.callback_url}")
+
         except Exception as e:
             logger.warning(f"Callback failed for task {task_id}: {e}")
 
@@ -133,7 +154,7 @@ async def _record_ledger_completion(
         logger.warning("Compute ledger attestation failed for task %s: %s", task_id, exc)
 
 
-@celery_app.task(
+@celery_app.task(  # type: ignore[untyped-decorator]
     bind=True,
     base=GPUTask,
     autoretry_for=(Exception,),
@@ -142,7 +163,9 @@ async def _record_ledger_completion(
     soft_time_limit=3600,
     time_limit=3700,
 )
-def execute_task(self, task_id: str) -> dict[str, Any]:  # noqa: C901
+def execute_task(  # noqa: C901
+    task_id: str,
+) -> dict[str, Any]:
     """Execute a GPU task.
 
     Args:
@@ -162,6 +185,20 @@ def execute_task(self, task_id: str) -> dict[str, Any]:  # noqa: C901
             if not task:
                 logger.warning(f"Task {task_id} not found in database")
                 return {"status": "error", "message": "Task not found"}
+
+            if (
+                task.dispatch_mode in {"room_auto", "room_specific_node"}
+                and task.status.value == "assigned"
+            ):
+                logger.info(
+                    "Task %s is room-assigned and awaiting node execution (Phase 5)",
+                    task_id,
+                )
+                return {
+                    "status": "deferred",
+                    "task_id": task_id,
+                    "message": "Room-assigned task awaiting remote execution",
+                }
 
             await repo.mark_running(task_id)
             await _log_audit(AuditAction.TASK_START, task_id, task.user_id)
@@ -225,7 +262,7 @@ def execute_task(self, task_id: str) -> dict[str, Any]:  # noqa: C901
                     await repo.mark_completed(task_id)
 
                 await _log_audit(AuditAction.TASK_COMPLETE, task_id, task.user_id)
-                # Refresh task for execution timing if available
+
                 completed = await repo.get_by_id(task_id)
                 gpu_seconds = 0.0
                 if completed and completed.execution_time_ms:
@@ -267,13 +304,13 @@ def execute_task(self, task_id: str) -> dict[str, Any]:  # noqa: C901
     return asyncio.run(_execute())
 
 
-@celery_app.task(
+@celery_app.task(  # type: ignore[untyped-decorator]
     bind=True,
     base=GPUTask,
     soft_time_limit=7200,
     time_limit=7300,
 )
-def execute_pipeline(self, pipeline_id: str) -> dict[str, Any]:
+def execute_pipeline(self: GPUTask, pipeline_id: str) -> dict[str, Any]:
     """Execute a multi-stage pipeline.
 
     Args:
@@ -356,7 +393,7 @@ def execute_pipeline(self, pipeline_id: str) -> dict[str, Any]:
     return asyncio.run(_execute())
 
 
-@celery_app.task
+@celery_app.task  # type: ignore[untyped-decorator]
 def cleanup_old_results(days: int = 7) -> dict[str, int]:
     """Clean up old task results from storage.
 
@@ -376,7 +413,7 @@ def cleanup_old_results(days: int = 7) -> dict[str, int]:
     return asyncio.run(_cleanup())
 
 
-@celery_app.task
+@celery_app.task  # type: ignore[untyped-decorator]
 def sync_gpu_devices() -> dict[str, Any]:
     """Synchronize GPU device information from NVML.
 
@@ -411,7 +448,7 @@ def sync_gpu_devices() -> dict[str, Any]:
     return asyncio.run(_sync())
 
 
-@celery_app.task
+@celery_app.task  # type: ignore[untyped-decorator]
 def health_check() -> dict[str, Any]:
     """Perform system health check.
 
@@ -425,12 +462,7 @@ def health_check() -> dict[str, Any]:
         memory = psutil.virtual_memory()
 
         async with get_db_context() as db:
-            task_repo = TaskRepository(db)
             gpu_repo = GPURepository(db)
-
-            await task_repo.count_by_status(
-                db.models.Task.status if hasattr(db, "models") else None
-            )
             available_gpus = await gpu_repo.count_available()
 
             return {
@@ -443,7 +475,7 @@ def health_check() -> dict[str, Any]:
     return asyncio.run(_check())
 
 
-@celery_app.task
+@celery_app.task  # type: ignore[untyped-decorator]
 def update_gpu_metrics() -> dict[str, Any]:
     """Update GPU metrics from NVML.
 
@@ -478,13 +510,15 @@ def update_gpu_metrics() -> dict[str, Any]:
     return asyncio.run(_update())
 
 
-@celery_app.task(
+@celery_app.task(  # type: ignore[untyped-decorator]
     bind=True,
     base=GPUTask,
     soft_time_limit=3600,
     time_limit=3700,
 )
-def execute_scheduled_task(self, schedule_id: str, run_id: str | None = None) -> dict[str, Any]:
+def execute_scheduled_task(
+    self: GPUTask, schedule_id: str, run_id: str | None = None
+) -> dict[str, Any]:
     """Execute a scheduled task.
 
     Args:
@@ -510,7 +544,7 @@ def execute_scheduled_task(self, schedule_id: str, run_id: str | None = None) ->
                 logger.info(f"Schedule {schedule_id} is disabled, skipping")
                 return {"status": "skipped", "message": "Schedule is disabled"}
 
-            scheduled_at = datetime.utcnow()
+            scheduled_at = datetime.now(UTC)
 
             run = None
             if run_id:
@@ -595,13 +629,13 @@ def execute_scheduled_task(self, schedule_id: str, run_id: str | None = None) ->
     return asyncio.run(_execute())
 
 
-@celery_app.task(
+@celery_app.task(  # type: ignore[untyped-decorator]
     bind=True,
     base=GPUTask,
     soft_time_limit=3600,
     time_limit=3700,
 )
-def execute_delayed_task(self, task_id: str) -> dict[str, Any]:
+def execute_delayed_task(self: GPUTask, task_id: str) -> dict[str, Any]:
     """Execute a task that was delayed (scheduled for a future time).
 
     Args:
@@ -637,7 +671,7 @@ def execute_delayed_task(self, task_id: str) -> dict[str, Any]:
     return asyncio.run(_execute())
 
 
-@celery_app.task
+@celery_app.task  # type: ignore[untyped-decorator]
 def sync_schedules_to_beat() -> dict[str, Any]:
     """Sync all enabled schedules to Celery Beat.
 
@@ -663,7 +697,7 @@ def sync_schedules_to_beat() -> dict[str, Any]:
         }
 
 
-@celery_app.task
+@celery_app.task  # type: ignore[untyped-decorator]
 def cleanup_old_schedule_runs(days: int = 30) -> dict[str, int]:
     """Clean up old scheduled task run records.
 
@@ -683,13 +717,15 @@ def cleanup_old_schedule_runs(days: int = 30) -> dict[str, int]:
     return asyncio.run(_cleanup())
 
 
-@celery_app.task(
+@celery_app.task(  # type: ignore[untyped-decorator]
     bind=True,
     base=GPUTask,
     soft_time_limit=7200,
     time_limit=7300,
 )
-def execute_gang_task(self, gang_task_id: str) -> dict[str, Any]:  # noqa: C901
+def execute_gang_task(  # noqa: C901
+    gang_task_id: str,
+) -> dict[str, Any]:
     """Execute a gang scheduled task requiring multiple GPUs.
 
     Args:
@@ -783,7 +819,7 @@ def execute_gang_task(self, gang_task_id: str) -> dict[str, Any]:  # noqa: C901
                     execution_time_ms = 0
                     if gang_task.started_at:
                         execution_time_ms = int(
-                            (datetime.utcnow() - gang_task.started_at).total_seconds() * 1000
+                            (datetime.now(UTC) - gang_task.started_at).total_seconds() * 1000
                         )
                     await fair_share_repo.record_gpu_usage(
                         gang_task.user_id,
@@ -817,8 +853,8 @@ def execute_gang_task(self, gang_task_id: str) -> dict[str, Any]:  # noqa: C901
     return asyncio.run(_execute())
 
 
-@celery_app.task(bind=True, base=GPUTask, soft_time_limit=300, time_limit=330)
-def preempt_task(self, task_id: str, gang_task_id: str | None = None) -> dict[str, Any]:
+@celery_app.task(bind=True, base=GPUTask, soft_time_limit=300, time_limit=330)  # type: ignore[untyped-decorator]
+def preempt_task(self: GPUTask, task_id: str, gang_task_id: str | None = None) -> dict[str, Any]:
     """Preempt a running task to make room for a higher priority task.
 
     Args:
@@ -857,7 +893,7 @@ def preempt_task(self, task_id: str, gang_task_id: str | None = None) -> dict[st
             execution_time_ms = 0
             if task.started_at:
                 execution_time_ms = int(
-                    (datetime.utcnow() - task.started_at).total_seconds() * 1000
+                    (datetime.now(UTC) - task.started_at).total_seconds() * 1000
                 )
 
             checkpoint_ref = None
@@ -865,7 +901,7 @@ def preempt_task(self, task_id: str, gang_task_id: str | None = None) -> dict[st
                 await preempt_repo.create(
                     gang_task_id=gang_task_id,
                     preempted_task_id=task_id,
-                    preempted_at=datetime.utcnow(),
+                    preempted_at=datetime.now(UTC),
                     reason="Higher priority gang task requires GPU",
                     execution_time_before_preemption_ms=execution_time_ms,
                     checkpoint_ref=checkpoint_ref,
@@ -888,7 +924,7 @@ def preempt_task(self, task_id: str, gang_task_id: str | None = None) -> dict[st
     return asyncio.run(_execute())
 
 
-@celery_app.task
+@celery_app.task  # type: ignore[untyped-decorator]
 def check_and_preempt() -> dict[str, Any]:
     """Check for pending high-priority tasks and preempt if needed.
 
@@ -941,7 +977,7 @@ def check_and_preempt() -> dict[str, Any]:
     return asyncio.run(_check())
 
 
-@celery_app.task
+@celery_app.task  # type: ignore[untyped-decorator]
 def update_fair_share_usage() -> dict[str, Any]:
     """Update GPU usage tracking for fair share scheduling.
 
@@ -974,7 +1010,7 @@ def update_fair_share_usage() -> dict[str, Any]:
     return asyncio.run(_update())
 
 
-@celery_app.task
+@celery_app.task  # type: ignore[untyped-decorator]
 def get_fair_share_weights() -> dict[str, Any]:
     """Get fair share weights for all active users.
 
@@ -1008,7 +1044,7 @@ def get_fair_share_weights() -> dict[str, Any]:
     return asyncio.run(_get())
 
 
-@celery_app.task
+@celery_app.task  # type: ignore[untyped-decorator]
 def reset_expired_fair_share_periods() -> dict[str, int]:
     """Reset fair share counters for users whose period has expired.
 
@@ -1030,7 +1066,7 @@ def reset_expired_fair_share_periods() -> dict[str, int]:
                     bucket.tasks_completed = 0
                     bucket.tasks_failed = 0
                     bucket.tasks_preempted = 0
-                    bucket.period_start = datetime.utcnow()
+                    bucket.period_start = datetime.now(UTC)
                     reset_count += 1
 
             if reset_count > 0:

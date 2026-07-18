@@ -164,7 +164,7 @@ export default function Users() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-700/30">
-              {auditLogs?.logs.map(log => (
+              {(auditLogs?.logs ?? []).map(log => (
                 <tr key={log.id} className="hover:bg-slate-700/30">
                   <td className="px-5 py-3.5 text-slate-400 text-sm">
                     {new Date(log.timestamp).toLocaleString()}
@@ -184,7 +184,8 @@ export default function Users() {
                   </td>
                   <td className="px-5 py-3.5 text-slate-500 text-xs font-mono">{log.ip_address ?? '—'}</td>
                 </tr>
-              )) || (
+              ))}
+              {(auditLogs?.logs ?? []).length === 0 && (
                 <tr><td colSpan={6} className="px-5 py-8 text-center text-slate-400">No audit logs</td></tr>
               )}
             </tbody>

@@ -4,7 +4,7 @@ import { useAuthStore } from '@/stores/authStore'
 import {
   LayoutDashboard, ListTodo, GitBranch, Cpu, LogOut, Menu, X,
   BarChart3, Calendar,   Globe, Users, Shield, Zap, Bell,
-  Activity, Network, Link2
+  Activity, Network, Link2, Home,
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -23,10 +23,21 @@ const navItems = [
   { href: '/alerts', label: 'Alerts', icon: Bell, color: 'text-yellow-400' },
   { href: '/namespaces', label: 'Namespaces', icon: Shield, color: 'text-teal-400' },
   { href: '/cloud', label: 'Cloud', icon: Globe, color: 'text-sky-400' },
+  { href: '/rooms', label: 'GPU Rooms', icon: Home, color: 'text-amber-400', matchPrefix: true },
   { href: '/vpn', label: 'VPN Pool', icon: Network, color: 'text-emerald-400' },
   { href: '/ledger', label: 'Ledger', icon: Link2, color: 'text-lime-400' },
   { href: '/users', label: 'Users', icon: Users, color: 'text-violet-400' },
 ]
+
+function isNavActive(pathname: string, href: string, matchPrefix?: boolean): boolean {
+  if (href === '/') {
+    return pathname === '/'
+  }
+  if (matchPrefix) {
+    return pathname === href || pathname.startsWith(`${href}/`)
+  }
+  return pathname === href
+}
 
 export default function Layout({ children }: LayoutProps) {
   const location = useLocation()
@@ -38,7 +49,7 @@ export default function Layout({ children }: LayoutProps) {
       {/* Top Nav */}
       <nav className="bg-slate-800/95 border-b border-slate-700/50 backdrop-blur-sm sticky top-0 z-40">
         <div className="max-w-[1920px] mx-auto px-4 sm:px-6">
-          <div className="flex items-center justify-between h-14">
+          <div className="flex items-center justify-between h-14 gap-2">
             {/* Logo */}
             <Link to="/" className="flex items-center gap-3 flex-shrink-0">
               <div className="w-8 h-8 bg-gradient-to-br from-cyan-400 via-blue-500 to-purple-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-500/30">
@@ -48,11 +59,11 @@ export default function Layout({ children }: LayoutProps) {
               <span className="hidden md:block text-xs bg-gradient-to-r from-cyan-500 to-purple-500 text-white px-2 py-0.5 rounded-full font-medium">Control Hub</span>
             </Link>
 
-            {/* Desktop Nav */}
-            <div className="hidden xl:flex items-center gap-0.5">
+            {/* Desktop Nav — scroll when many items overflow */}
+            <div className="hidden xl:flex items-center gap-0.5 flex-1 min-w-0 overflow-x-auto mx-1 [scrollbar-width:thin]">
               {navItems.map((item) => {
                 const Icon = item.icon
-                const isActive = location.pathname === item.href
+                const isActive = isNavActive(location.pathname, item.href, item.matchPrefix)
                 return (
                   <Link
                     key={item.href}
@@ -72,7 +83,7 @@ export default function Layout({ children }: LayoutProps) {
             </div>
 
             {/* Right side */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-shrink-0">
               {/* Status dot */}
               <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 bg-green-500/10 border border-green-500/20 rounded-full">
                 <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
@@ -105,7 +116,7 @@ export default function Layout({ children }: LayoutProps) {
             <div className="px-2 py-3 grid grid-cols-2 sm:grid-cols-3 gap-1">
               {navItems.map((item) => {
                 const Icon = item.icon
-                const isActive = location.pathname === item.href
+                const isActive = isNavActive(location.pathname, item.href, item.matchPrefix)
                 return (
                   <Link
                     key={item.href}

@@ -7,6 +7,8 @@ import base64
 import logging
 import pickle
 import time
+from collections.abc import Callable
+from typing import Any
 
 import httpx
 
@@ -18,14 +20,14 @@ logger = logging.getLogger(__name__)
 class TaskRouter:
     """Route GPU tasks to remote peer nodes over the VPN."""
 
-    def __init__(self, relay_api_url: str | None = None):
+    def __init__(self, relay_api_url: str | None = None) -> None:
         self._relay_url = relay_api_url or vpn_settings.relay_api_url
 
     async def execute_on_peer(
         self,
         peer_vpn_ip: str,
         task_id: str,
-        func,
+        func: Callable[..., Any],
         args: tuple,
         kwargs: dict,
         gpu_device_id: int,
@@ -65,7 +67,7 @@ class TaskRouter:
                         network_id=network_id,
                         consumer_account=consumer_account,
                     )
-                return result
+                return result  # type: ignore[no-any-return]
             except httpx.TimeoutException:
                 return {
                     "task_id": task_id,
@@ -155,7 +157,7 @@ class TaskRouter:
                         timeout=5,
                     )
                     if response.status_code == 200:
-                        return response.json()
+                        return response.json()  # type: ignore[no-any-return]
                     await asyncio.sleep(poll_interval)
                 except Exception:
                     await asyncio.sleep(poll_interval)

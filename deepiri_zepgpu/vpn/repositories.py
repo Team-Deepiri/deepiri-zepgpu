@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import secrets
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -103,7 +103,7 @@ class PeerRepository:
             endpoint=endpoint,
             is_gpu_host=is_gpu_host,
             is_relay=is_relay,
-            last_seen=datetime.utcnow(),
+            last_seen=datetime.now(UTC),
             auth_token_encrypted=auth_token_encrypted,
             ledger_public_key=ledger_public_key,
             ledger_private_key_encrypted=ledger_private_key_encrypted,
@@ -130,9 +130,7 @@ class PeerRepository:
 
     async def get_by_id(self, peer_id: str) -> Peer | None:
         result = await self.db.execute(
-            select(Peer)
-            .options(joinedload(Peer.user), joinedload(Peer.gpu_shares))
-            .where(Peer.id == peer_id)
+            select(Peer).options(joinedload(Peer.user)).where(Peer.id == peer_id)
         )
         return result.unique().scalar_one_or_none()
 
@@ -146,16 +144,12 @@ class PeerRepository:
 
     async def get_by_network(self, network_id: str) -> list[Peer]:
         result = await self.db.execute(
-            select(Peer)
-            .options(joinedload(Peer.user), joinedload(Peer.gpu_shares))
-            .where(Peer.vpn_network_id == network_id)
+            select(Peer).options(joinedload(Peer.user)).where(Peer.vpn_network_id == network_id)
         )
         return list(result.unique().scalars().all())
 
     async def list_all(self) -> list[Peer]:
-        result = await self.db.execute(
-            select(Peer).options(joinedload(Peer.user), joinedload(Peer.gpu_shares))
-        )
+        result = await self.db.execute(select(Peer).options(joinedload(Peer.user)))
         return list(result.unique().scalars().all())
 
     async def heartbeat(
@@ -168,7 +162,7 @@ class PeerRepository:
         result = await self.db.execute(select(Peer).where(Peer.id == peer_id))
         peer = result.scalar_one_or_none()
         if peer:
-            peer.last_seen = datetime.utcnow()
+            peer.last_seen = datetime.now(UTC)
             peer.online_status = PeerOnlineStatus.ONLINE if is_online else PeerOnlineStatus.OFFLINE
             if endpoint:
                 peer.endpoint = endpoint
@@ -179,7 +173,7 @@ class PeerRepository:
         return peer
 
     async def mark_awol_peers(self, timeout_seconds: int = 90) -> int:
-        threshold = datetime.utcnow() - timedelta(seconds=timeout_seconds)
+        threshold = datetime.now(UTC) - timedelta(seconds=timeout_seconds)
         result = await self.db.execute(
             select(Peer).where(
                 and_(
@@ -211,6 +205,20 @@ class PeerRepository:
     async def set_auth_token(self, peer: Peer, token: str) -> None:
         peer.auth_token_encrypted = encrypt_value(token)
         await self.db.commit()
+
+    async def get_or_create_auth_token(self, peer: Peer) -> str:
+        """Return the peer's node-task auth token, generating one if missing.
+
+        Covers both freshly created peers (join/create flows) and peers
+        that existed before per-peer node-task auth was added, so any
+        call to fetch a peer's config transparently provisions a token.
+        """
+        existing = await self.get_auth_token(peer)
+        if existing:
+            return existing
+        token = secrets.token_urlsafe(32)
+        await self.set_auth_token(peer, token)
+        return token
 
     async def get_private_key(self, peer: Peer) -> str | None:
         if peer.wireguard_private_key_encrypted:
@@ -354,7 +362,7 @@ class FriendshipRepository:
         friendship = result.scalar_one_or_none()
         if friendship:
             friendship.status = FriendshipStatus.ACCEPTED
-            friendship.accepted_at = datetime.utcnow()
+            friendship.accepted_at = datetime.now(UTC)
             await self.db.commit()
             await self.db.refresh(friendship)
         return friendship
@@ -396,7 +404,7 @@ class VpnInviteRepository:
         expires_in_days: int = 7,
     ) -> VpnInvite:
         code = generate_invite_code(vpn_settings.invite_code_length)
-        expires_at = datetime.utcnow() + timedelta(days=expires_in_days)
+        expires_at = datetime.now(UTC) + timedelta(days=expires_in_days)
         invite = VpnInvite(
             code=code,
             creator_id=creator_id,
@@ -427,8 +435,10 @@ class VpnInviteRepository:
             return False
         if invite.used_count >= invite.max_uses:
             return False
-        if invite.expires_at and datetime.utcnow() > invite.expires_at:
-            return False
+        if invite.expires_at:
+            now = datetime.now(invite.expires_at.tzinfo or UTC)
+            if now > invite.expires_at:
+                return False
         return True
 
     async def use(self, invite: VpnInvite) -> bool:

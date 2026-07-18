@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import DateTime, Float, ForeignKey, Integer
-from sqlalchemy.dialects.postgresql import NUMERIC
+from sqlalchemy.dialects.postgresql import NUMERIC, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from deepiri_zepgpu.database.models.base import Base
@@ -18,6 +18,7 @@ class UserQuota(Base):
     __tablename__ = "user_quotas"
 
     user_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
         primary_key=True,
     )
@@ -75,7 +76,7 @@ class UserQuota(Base):
         """Check if quota period has expired."""
         from datetime import timedelta
 
-        return datetime.utcnow() > self.period_start + timedelta(hours=self.period_hours)
+        return datetime.now(UTC) > self.period_start + timedelta(hours=self.period_hours)
 
     def reset_period(self) -> None:
         """Reset usage counters for new period."""
@@ -83,7 +84,7 @@ class UserQuota(Base):
         self.gpu_seconds_used = 0.0
         self.concurrent_tasks = 0
         self.storage_used_gb = 0.0
-        self.period_start = datetime.utcnow()
+        self.period_start = datetime.now(UTC)
 
     def __repr__(self) -> str:
         return f"<UserQuota(user_id={self.user_id}, tasks={self.tasks_submitted}/{self.max_tasks})>"

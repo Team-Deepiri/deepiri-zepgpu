@@ -49,19 +49,20 @@ botocore = ">=1.34.0"
 aiobotocore = ">=2.9.0"
 prometheus-client = ">=0.19.0"
 structlog = ">=24.1.0"
-pynvml = ">=11.5.0"
 cloudpickle = ">=3.0.0"
 psutil = ">=5.9.0"
 croniter = ">=1.4.0"
 cryptography = ">=41.0.0"
+nvidia-ml-py = "^13.610.43"
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=8,<10"
-pytest-asyncio = ">=0.24.0"
+pytest-asyncio = ">=0.25.0"
 pytest-cov = "^4.1.0"
 black = ">=24,<27"
 ruff = "^0.2.0"
 mypy = "^1.8.0"
+types-croniter = ">=6.2.0"
 
 [tool.poetry.group.gpu]
 optional = true
@@ -137,25 +138,16 @@ warn_no_return = true
 strict_equality = true
 ignore_missing_imports = true
 
-[[tool.mypy.overrides]]
-module = [
-    "deepiri_zepgpu.api.server.routes.*",
-    "deepiri_zepgpu.queue.*",
-    "deepiri_zepgpu.vpn.*",
-    "deepiri_zepgpu.database.repositories.*",
-]
-ignore_errors = true
-
 [tool.pytest.ini_options]
+filterwarnings = [
+    "ignore:.*class-based `config` is deprecated.*",
+    "ignore:.*Using `httpx` with `starlette.testclient` is deprecated.*",
+]
 minversion = "8.0"
 addopts = "-ra -q --strict-markers"
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-filterwarnings = [
-    "ignore:.*class-based `config` is deprecated.*",
-    "ignore:.*Using `httpx` with `starlette.testclient` is deprecated.*",
-]
 markers = [
     "unit: unit tests with no external services",
     "integration: requires Postgres (docker/docker-compose.test.yml)",

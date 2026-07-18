@@ -1,15 +1,16 @@
 """Tests for executor module."""
 
-import asyncio
+from collections.abc import AsyncGenerator
+
 import pytest
 
-from deepiri_zepgpu.core.executor import TaskExecutor
+from deepiri_zepgpu.core.executor import ExecutionResult, TaskExecutor
 from deepiri_zepgpu.core.gpu_manager import GPUManager
 from deepiri_zepgpu.core.task import Task, TaskResources
 
 
 @pytest.fixture
-async def gpu_manager():
+async def gpu_manager() -> AsyncGenerator[GPUManager, None]:
     """Create a test GPU manager."""
     manager = GPUManager(enable_nvml=False)
     await manager.initialize()
@@ -18,16 +19,18 @@ async def gpu_manager():
 
 
 @pytest.fixture
-def executor(gpu_manager):
+def executor(gpu_manager: GPUManager) -> TaskExecutor:
     """Create a test executor."""
     return TaskExecutor(gpu_manager)
 
 
 @pytest.fixture
-def sample_task():
+def sample_task() -> Task:
     """Create a sample task."""
-    def dummy_func():
+
+    def dummy_func() -> int:
         return 42
+
     return Task(
         func=dummy_func,
         resources=TaskResources(gpu_memory_mb=1024),
@@ -39,16 +42,17 @@ class TestTaskExecutor:
     """Test cases for TaskExecutor."""
 
     @pytest.mark.asyncio
-    async def test_execute_simple_task(self, executor, sample_task):
+    async def test_execute_simple_task(self, executor: TaskExecutor, sample_task: Task) -> None:
         """Test executing a simple task."""
-        result = await executor.execute_task(sample_task)
+        result: ExecutionResult = await executor.execute_task(sample_task)
         assert result.success is True
         assert result.result == 42
 
     @pytest.mark.asyncio
-    async def test_execute_task_with_args(self, executor):
+    async def test_execute_task_with_args(self, executor: TaskExecutor) -> None:
         """Test executing task with arguments."""
-        def add_func(a, b):
+
+        def add_func(a: int, b: int) -> int:
             return a + b
 
         task = Task(
@@ -57,14 +61,15 @@ class TestTaskExecutor:
             resources=TaskResources(),
             gpu_device_id=0,
         )
-        result = await executor.execute_task(task)
+        result: ExecutionResult = await executor.execute_task(task)
         assert result.success is True
         assert result.result == 5
 
     @pytest.mark.asyncio
-    async def test_execute_task_with_kwargs(self, executor):
+    async def test_execute_task_with_kwargs(self, executor: TaskExecutor) -> None:
         """Test executing task with keyword arguments."""
-        def multiply_func(a, b=2):
+
+        def multiply_func(a: int, b: int = 2) -> int:
             return a * b
 
         task = Task(
@@ -73,14 +78,15 @@ class TestTaskExecutor:
             resources=TaskResources(),
             gpu_device_id=0,
         )
-        result = await executor.execute_task(task)
+        result: ExecutionResult = await executor.execute_task(task)
         assert result.success is True
         assert result.result == 12
 
     @pytest.mark.asyncio
-    async def test_execute_failing_task(self, executor):
+    async def test_execute_failing_task(self, executor: TaskExecutor) -> None:
         """Test executing a failing task."""
-        def failing_func():
+
+        def failing_func() -> None:
             raise ValueError("Test error")
 
         task = Task(
@@ -88,21 +94,22 @@ class TestTaskExecutor:
             resources=TaskResources(),
             gpu_device_id=0,
         )
-        result = await executor.execute_task(task)
+        result: ExecutionResult = await executor.execute_task(task)
         assert result.success is False
         assert result.error is not None
 
     @pytest.mark.asyncio
-    async def test_execute_batch(self, executor):
+    async def test_execute_batch(self, executor: TaskExecutor) -> None:
         """Test batch execution."""
-        def increment(x):
+
+        def increment(x: int) -> int:
             return x + 1
 
         tasks = [
             Task(func=increment, args=(i,), resources=TaskResources(), gpu_device_id=0)
             for i in range(5)
         ]
-        results = await executor.execute_batch(tasks)
+        results: list[ExecutionResult] = await executor.execute_batch(tasks)
         assert len(results) == 5
         assert all(r.success for r in results)
         assert [r.result for r in results] == [1, 2, 3, 4, 5]

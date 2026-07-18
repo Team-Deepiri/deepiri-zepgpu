@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { ensureList } from '@/utils/listUtils'
 import type {
   Task, TaskCreateRequest, TaskListResponse, GPUDevice, Pipeline, User, AuthToken, SystemStats,
   ScheduledTask, ScheduledTaskRun, GangTask, PreemptionRecord, FairShareBucket,
@@ -24,14 +25,14 @@ api.interceptors.request.use((config) => {
   return config
 })
 
+/** @deprecated Use ensureList from @/utils/listUtils */
+function asList<T>(data: T[] | Record<string, unknown> | null | undefined, key: string): T[] {
+  return ensureList(data, key)
+}
+
 export const authApi = {
   login: async (username: string, password: string): Promise<AuthToken> => {
-    const formData = new URLSearchParams()
-    formData.append('username', username)
-    formData.append('password', password)
-    const { data } = await api.post<AuthToken>('/auth/login', formData, {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    })
+    const { data } = await api.post<AuthToken>('/auth/login', { username, password })
     return data
   },
   register: async (username: string, email: string, password: string): Promise<User> => {
@@ -80,8 +81,8 @@ export const tasksApi = {
 
 export const pipelinesApi = {
   list: async (params?: { namespace_id?: string; status?: string }): Promise<Pipeline[]> => {
-    const { data } = await api.get<Pipeline[]>('/pipelines', { params })
-    return data
+    const { data } = await api.get<{ pipelines: Pipeline[] } | Pipeline[]>('/pipelines', { params })
+    return asList(data, 'pipelines')
   },
   get: async (pipelineId: string): Promise<Pipeline> => {
     const { data } = await api.get<Pipeline>(`/pipelines/${pipelineId}`)
@@ -109,8 +110,12 @@ export const pipelinesApi = {
 
 export const gpuApi = {
   list: async (params?: { status?: string; namespace_id?: string }): Promise<GPUDevice[]> => {
-    const { data } = await api.get<GPUDevice[]>('/gpu/devices', { params })
-    return data
+    const { data } = await api.get<{ devices: GPUDevice[] } | GPUDevice[]>('/gpu/devices', { params })
+    const devices = Array.isArray(data) ? data : (data.devices ?? [])
+    return devices.map((device) => ({
+      ...device,
+      status: device.status ?? (device as GPUDevice & { state?: string }).state ?? 'unknown',
+    }))
   },
   get: async (deviceId: number): Promise<GPUDevice> => {
     const { data } = await api.get<GPUDevice>(`/gpu/devices/${deviceId}`)
@@ -157,8 +162,8 @@ export const systemApi = {
 
 export const schedulesApi = {
   list: async (params?: { enabled?: boolean; namespace_id?: string }): Promise<ScheduledTask[]> => {
-    const { data } = await api.get<ScheduledTask[]>('/schedules', { params })
-    return data
+    const { data } = await api.get<{ schedules: ScheduledTask[] } | ScheduledTask[]>('/schedules', { params })
+    return asList(data, 'schedules')
   },
   get: async (scheduleId: string): Promise<ScheduledTask> => {
     const { data } = await api.get<ScheduledTask>(`/schedules/${scheduleId}`)
@@ -248,8 +253,8 @@ export const gangApi = {
 
 export const namespacesApi = {
   list: async (): Promise<Namespace[]> => {
-    const { data } = await api.get<Namespace[]>('/namespaces')
-    return data
+    const { data } = await api.get<{ namespaces: Namespace[] } | Namespace[]>('/namespaces')
+    return asList(data, 'namespaces')
   },
   get: async (namespaceId: string): Promise<Namespace> => {
     const { data } = await api.get<Namespace>(`/namespaces/${namespaceId}`)
@@ -313,8 +318,13 @@ export const cloudApi = {
     return data
   },
   instances: async (params?: { provider_id?: string; status?: string; namespace_id?: string }): Promise<CloudGPUInstance[]> => {
-    const { data } = await api.get<CloudGPUInstance[]>('/cloud/instances', { params })
-    return data
+    try {
+      const { data } = await api.get<{ instances: CloudGPUInstance[] } | CloudGPUInstance[]>('/cloud/instances', { params })
+      return asList(data, 'instances')
+    } catch (err) {
+      if (axios.isAxiosError(err) && err.response?.status === 404) return []
+      throw err
+    }
   },
   getInstance: async (instanceId: string): Promise<CloudGPUInstance> => {
     const { data } = await api.get<CloudGPUInstance>(`/cloud/instances/${instanceId}`)
@@ -341,8 +351,13 @@ export const cloudApi = {
 
 export const usersApi = {
   list: async (params?: { role?: string; is_active?: boolean }): Promise<User[]> => {
-    const { data } = await api.get<User[]>('/users', { params })
-    return data
+    try {
+      const { data } = await api.get<{ users: User[] } | User[]>('/users', { params })
+      return asList(data, 'users')
+    } catch (err) {
+      if (axios.isAxiosError(err) && err.response?.status === 404) return []
+      throw err
+    }
   },
   get: async (userId: string): Promise<User> => {
     const { data } = await api.get<User>(`/users/${userId}`)
@@ -360,27 +375,54 @@ export const usersApi = {
     await api.delete(`/users/${userId}`)
   },
   auditLogs: async (params?: { user_id?: string; action?: string; limit?: number; offset?: number }): Promise<{ logs: AuditLog[]; total: number }> => {
-    const { data } = await api.get('/users/audit-logs', { params })
-    return data
+    try {
+      const { data } = await api.get<{ logs: AuditLog[]; total: number }>('/users/audit-logs', { params })
+      return { logs: data?.logs ?? [], total: data?.total ?? 0 }
+    } catch (err) {
+      if (axios.isAxiosError(err) && err.response?.status === 404) {
+        return { logs: [], total: 0 }
+      }
+      throw err
+    }
   },
   serviceMetrics: async (): Promise<ServiceMetrics[]> => {
-    const { data } = await api.get<ServiceMetrics[]>('/users/service-metrics')
-    return data
+    try {
+      const { data } = await api.get<ServiceMetrics[] | { metrics: ServiceMetrics[] }>('/users/service-metrics')
+      return asList(data, 'metrics')
+    } catch (err) {
+      if (axios.isAxiosError(err) && err.response?.status === 404) return []
+      throw err
+    }
   },
   leaderboard: async (metric: string = 'tasks'): Promise<LeaderboardEntry[]> => {
-    const { data } = await api.get<LeaderboardEntry[]>('/users/leaderboard', { params: { metric } })
-    return data
+    try {
+      const { data } = await api.get<LeaderboardEntry[] | { entries: LeaderboardEntry[] }>('/users/leaderboard', { params: { metric } })
+      return asList(data, 'entries')
+    } catch (err) {
+      if (axios.isAxiosError(err) && err.response?.status === 404) return []
+      throw err
+    }
   },
   achievements: async (userId?: string): Promise<Achievement[]> => {
-    const { data } = await api.get<Achievement[]>('/users/achievements', { params: userId ? { user_id: userId } : {} })
-    return data
+    try {
+      const { data } = await api.get<Achievement[] | { achievements: Achievement[] }>('/users/achievements', { params: userId ? { user_id: userId } : {} })
+      return asList(data, 'achievements')
+    } catch (err) {
+      if (axios.isAxiosError(err) && err.response?.status === 404) return []
+      throw err
+    }
   },
 }
 
 export const alertsApi = {
   list: async (params?: { severity?: string; acknowledged?: boolean; resolved?: boolean }): Promise<Alert[]> => {
-    const { data } = await api.get<Alert[]>('/alerts', { params })
-    return data
+    try {
+      const { data } = await api.get<{ alerts: Alert[] } | Alert[]>('/alerts', { params })
+      return asList(data, 'alerts')
+    } catch (err) {
+      if (axios.isAxiosError(err) && err.response?.status === 404) return []
+      throw err
+    }
   },
   acknowledge: async (alertId: string): Promise<Alert> => {
     const { data } = await api.post<Alert>(`/alerts/${alertId}/acknowledge`)

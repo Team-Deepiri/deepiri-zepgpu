@@ -18,9 +18,52 @@ export interface Task {
   tags: string[]
   metadata: Record<string, unknown>
   result_url: string | null
+  room_id?: string | null
+  dispatch_mode?: DispatchMode
+  target_peer_id?: string | null
+  target_gpu_share_id?: string | null
+  assignment?: RoomTaskAssignment | null
 }
 
-export type TaskStatus = 'pending' | 'queued' | 'scheduled' | 'running' | 'completed' | 'failed' | 'cancelled' | 'timeout'
+export type TaskStatus =
+  | 'pending'
+  | 'queued'
+  | 'scheduled'
+  | 'assigned'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+  | 'timeout'
+
+export type DispatchMode = 'local' | 'room_auto' | 'room_specific_node'
+
+export type NodeAssignmentStatus =
+  | 'assigned'
+  | 'accepted'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+
+export interface RoomTaskAssignment {
+  assignment_id: string
+  room_id: string
+  peer_id: string
+  gpu_share_id: string
+  status: NodeAssignmentStatus
+}
+
+export interface NodeTaskResult {
+  assignment_id: string
+  task_id: string
+  status: TaskStatus
+  assignment_status: NodeAssignmentStatus
+  result_metadata: Record<string, unknown>
+  result_ref: string | null
+  result_size_bytes: number | null
+  error: string | null
+}
 
 export interface TaskCreateRequest {
   name?: string
@@ -39,6 +82,22 @@ export interface TaskCreateRequest {
   callback_url?: string
   namespace_id?: string
   service_name?: string
+  room_id?: string
+  dispatch_mode?: DispatchMode
+  target_peer_id?: string
+  target_gpu_share_id?: string
+}
+
+export interface RoomDispatchRequest {
+  func_name: string
+  room_id: string
+  dispatch_mode: 'room_auto' | 'room_specific_node'
+  target_peer_id?: string
+  target_gpu_share_id?: string
+  name?: string
+  gpu_memory_mb?: number
+  priority?: number
+  timeout_seconds?: number
 }
 
 export interface TaskListResponse {
@@ -467,6 +526,8 @@ export interface VpnNetwork {
   is_active: boolean
   peer_count: number
   created_at: string
+  owner_id?: string | null
+  updated_at?: string
 }
 
 export interface Peer {
@@ -479,6 +540,12 @@ export interface Peer {
   is_online: boolean
   last_seen: string
   gpu_count: number
+  network_id?: string | null
+  public_key?: string | null
+  endpoint?: string | null
+  allowed_ips?: string[] | null
+  created_at?: string
+  updated_at?: string
 }
 
 export interface GpuShare {
@@ -497,13 +564,34 @@ export interface GpuShare {
   last_updated: string
 }
 
+export interface DynamicGpu {
+  id: string
+  device_id: number
+  device_index?: number
+  name: string
+  gpu_type: string
+  state: string
+  total_memory_mb: number
+  available_memory_mb: number
+  utilization_percent: number | null
+  temperature_celsius?: number | null
+  power_draw_watts?: number | null
+  peer_id?: string | null
+  peer_username?: string | null
+  vpn_ip?: string | null
+  last_updated: string
+}
+
 export interface GpuPoolSummary {
   total_gpus: number
+  available_gpus: number
   total_memory_mb: number
   available_memory_mb: number
   online_peers: number
   online_gpu_hosts: number
   gpu_breakdown: GpuShare[]
+  peers: Peer[]
+  gpus: DynamicGpu[]
 }
 
 export interface VpnInvite {
@@ -516,6 +604,9 @@ export interface VpnInvite {
   expires_at: string | null
   is_revoked: boolean
   created_at: string
+  network_id?: string | null
+  invite_code?: string
+  uses?: number
 }
 
 export interface Friend {
@@ -532,12 +623,144 @@ export interface FriendList {
   friends: Friend[]
   pending: Friend[]
   sent_requests: Friend[]
+  incoming_requests?: unknown[]
+  outgoing_requests?: unknown[]
 }
 
 export interface VpnConfigResponse {
   config_text: string
   vpn_ip: string
   peer_id: string
+  config?: string
+  network?: VpnNetwork
+  peer?: Peer
+  wireguard_config?: string
+}
+
+export type RoomStatus = 'active' | 'archived'
+
+export type RoomMemberStatus = 'connected' | 'disconnected' | 'pending'
+
+export interface RoomCreateRequest {
+  name: string
+  description: string | null
+}
+
+export interface Room {
+  id: string
+  name: string
+  description: string | null
+  host_id: string | null
+  status: RoomStatus
+  created_at: string
+  updated_at: string | null
+}
+
+export interface RoomMember {
+  id: string
+  user_id: string | null
+  display_name: string | null
+  status: RoomMemberStatus
+  joined_at: string | null
+  last_seen_at: string | null
+}
+
+export interface RoomGpuPoolSummary {
+  room_id: string
+  total_gpus: number
+  available_gpus: number
+  allocated_gpus: number
+  total_memory_mb: number
+  available_memory_mb: number
+  providers: string[]
+}
+
+export type RoomNodeStatus = 'connected' | 'disconnected' | 'awol' | 'pending'
+
+export interface RoomNode {
+  id: string
+  room_id: string
+  user_id: string
+  username: string
+  vpn_ip: string
+  status: RoomNodeStatus
+  is_gpu_host: boolean
+  is_online: boolean
+  last_seen: string
+  gpu_count: number
+  available_gpu_count: number
+  /** Sum of total_memory_mb across active GPU shares on this node. */
+  total_memory_mb: number
+  /** Sum of available_memory_mb across active GPU shares on this node (not single-GPU capacity). */
+  available_memory_mb: number
+}
+
+export interface RoomNodeGpu {
+  id: string
+  peer_id: string
+  room_id: string
+  device_index: number
+  name: string | null
+  total_memory_mb: number
+  /** Available memory on this single GPU share — used for per-task dispatch eligibility. */
+  available_memory_mb: number
+  compute_capability: string | null
+  gpu_type: string
+  state: string
+  utilization_percent: number | null
+  is_active: boolean
+  last_updated: string
+}
+
+export interface RoomNodeHeartbeatGpu {
+  device_index: number
+  name?: string | null
+  total_memory_mb: number
+  available_memory_mb: number
+  compute_capability?: string | null
+  gpu_type?: string
+  state?: string
+  utilization_percent?: number | null
+}
+
+export interface RoomNodeHeartbeatRequest {
+  gpu_status: RoomNodeHeartbeatGpu[]
+  is_online?: boolean
+  endpoint?: string | null
+}
+
+export interface RoomInviteCreateRequest {
+  expires_at: string | null
+  max_uses: number
+}
+
+export interface RoomInvite {
+  id: string
+  room_id: string
+  code: string
+  created_by: string
+  expires_at: string | null
+  max_uses: number
+  use_count: number
+  is_revoked: boolean
+  created_at: string
+}
+
+export interface RoomJoinRequest {
+  invite_code: string
+}
+
+export interface RoomJoinResponse {
+  room: Room
+  member: RoomMember
+  config_available: boolean
+}
+
+export interface RoomConnectionConfig {
+  room_id: string
+  peer_id: string
+  config: string
+  filename: string
 }
 
 export interface LedgerTransaction {

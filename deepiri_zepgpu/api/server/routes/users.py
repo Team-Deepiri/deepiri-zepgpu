@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-import hashlib
-import secrets
-from datetime import datetime
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from deepiri_zepgpu.api.server.dependencies import get_current_user, get_db_session
+from deepiri_zepgpu.database.models import User
 from deepiri_zepgpu.database.repositories import UserRepository
 
 router = APIRouter()
@@ -79,6 +79,9 @@ class QuotaResponse(BaseModel):
 
 def hash_password(password: str) -> str:
     """Hash a password."""
+    import hashlib
+    import secrets
+
     salt = secrets.token_hex(16)
     return (
         hashlib.pbkdf2_hmac(
@@ -94,6 +97,8 @@ def hash_password(password: str) -> str:
 
 def verify_password(password: str, password_hash: str) -> bool:
     """Verify a password."""
+    import hashlib
+
     try:
         hash_value, salt = password_hash.rsplit(":", 1)
         computed_hash = hashlib.pbkdf2_hmac(
@@ -110,7 +115,7 @@ def verify_password(password: str, password_hash: str) -> bool:
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def register(
     request: UserRegisterRequest,
-    db=Depends(get_db_session),
+    db: AsyncSession = Depends(get_db_session),
 ) -> UserResponse:
     """Register a new user."""
     repo = UserRepository(db)
@@ -148,7 +153,7 @@ async def register(
 @router.post("/login", response_model=TokenResponse)
 async def login(
     request: UserLoginRequest,
-    db=Depends(get_db_session),
+    db: AsyncSession = Depends(get_db_session),
 ) -> TokenResponse:
     """Login and get access token."""
     import jwt
@@ -171,7 +176,7 @@ async def login(
             "sub": str(user.id),
             "username": user.username,
             "role": user.role.value,
-            "exp": datetime.utcnow().timestamp() + settings.auth.access_token_expire_minutes * 60,
+            "exp": datetime.now(UTC).timestamp() + settings.auth.access_token_expire_minutes * 60,
         },
         settings.auth.secret_key,
         algorithm=settings.auth.algorithm,
@@ -185,11 +190,9 @@ async def login(
 
 @router.get("/me", response_model=UserResponse)
 async def get_current_user_info(
-    current_user=Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> UserResponse:
     """Get current user information."""
-    if not current_user:
-        raise HTTPException(status_code=401, detail="Authentication required")
     return UserResponse(
         id=str(current_user.id),
         username=current_user.username,
@@ -207,8 +210,8 @@ async def get_current_user_info(
 @router.put("/me", response_model=UserResponse)
 async def update_current_user(
     request: UserUpdateRequest,
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(get_current_user),
 ) -> UserResponse:
     """Update current user information."""
     repo = UserRepository(db)
@@ -224,9 +227,10 @@ async def update_current_user(
         update_data["email"] = request.email
 
     user = await repo.update(current_user.id, **update_data)
+    assert user is not None
 
     return UserResponse(
-        id=user.id,
+        id=str(user.id),
         username=user.username,
         email=user.email,
         role=user.role.value,
@@ -241,8 +245,8 @@ async def update_current_user(
 
 @router.get("/me/quota", response_model=QuotaResponse)
 async def get_user_quota(
-    db=Depends(get_db_session),
-    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(get_current_user),
 ) -> QuotaResponse:
     """Get user quota information."""
     from deepiri_zepgpu.database.models.user_quota import UserQuota
@@ -250,7 +254,7 @@ async def get_user_quota(
     if not current_user.quota:
         quota = UserQuota(
             user_id=current_user.id,
-            period_start=datetime.utcnow(),
+            period_start=datetime.now(UTC),
         )
         db.add(quota)
         await db.flush()

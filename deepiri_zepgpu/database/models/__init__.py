@@ -27,6 +27,11 @@ from deepiri_zepgpu.database.models.namespace import (
     TeamMember,
     TeamRole,
 )
+from deepiri_zepgpu.database.models.node_task_assignment import (
+    NodeAssignmentStatus,
+    NodeTaskAssignment,
+    NodeTaskEvent,
+)
 from deepiri_zepgpu.database.models.pipeline import Pipeline
 from deepiri_zepgpu.database.models.scheduled_task import (
     ScheduledTask,
@@ -34,7 +39,7 @@ from deepiri_zepgpu.database.models.scheduled_task import (
     ScheduleType,
 )
 from deepiri_zepgpu.database.models.scheduled_task_run import ScheduledTaskRun, ScheduleRunStatus
-from deepiri_zepgpu.database.models.task import Task
+from deepiri_zepgpu.database.models.task import Task, TaskStatus
 from deepiri_zepgpu.database.models.user import User
 from deepiri_zepgpu.database.models.user_quota import UserQuota
 from deepiri_zepgpu.database.models.vpn_models import (
@@ -53,6 +58,7 @@ __all__ = [
     "Base",
     "User",
     "Task",
+    "TaskStatus",
     "Pipeline",
     "GPUDevice",
     "GPUState",
@@ -91,4 +97,7 @@ __all__ = [
     "LedgerBalance",
     "LedgerTxType",
     "LedgerBridgeReceipt",
+    "NodeTaskAssignment",
+    "NodeTaskEvent",
+    "NodeAssignmentStatus",
 ]

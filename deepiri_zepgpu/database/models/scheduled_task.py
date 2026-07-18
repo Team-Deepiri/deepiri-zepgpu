@@ -48,6 +48,12 @@ class ScheduledTask(UUIDMixin, TimestampMixin, Base):
 
     __tablename__ = "scheduled_tasks"
 
+    runs: Mapped[list[ScheduledTaskRun]] = relationship(
+        "ScheduledTaskRun",
+        back_populates="schedule",
+        cascade="all, delete-orphan",
+    )
+
     user_id: Mapped[str | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
@@ -106,11 +112,6 @@ class ScheduledTask(UUIDMixin, TimestampMixin, Base):
     callback_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     user: Mapped[User | None] = relationship("User", back_populates="scheduled_tasks")
-    runs: Mapped[list[ScheduledTaskRun]] = relationship(
-        "ScheduledTaskRun",
-        back_populates="schedule",
-        lazy="dynamic",
-    )
 
     __table_args__ = (
         Index("idx_scheduled_tasks_user_enabled", "user_id", "is_enabled"),

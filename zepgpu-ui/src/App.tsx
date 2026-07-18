@@ -1,6 +1,8 @@
+import { useEffect } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuthStore } from '@/stores/authStore'
 import Layout from '@/components/Layout'
+import RouteErrorBoundary from '@/components/RouteErrorBoundary'
 import Dashboard from '@/pages/Dashboard'
 import Tasks from '@/pages/Tasks'
 import TaskDetail from '@/pages/TaskDetail'
@@ -18,12 +20,25 @@ import Control from '@/pages/Control'
 import Alerts from '@/pages/Alerts'
 import Vpn from '@/pages/Vpn'
 import Ledger from '@/pages/Ledger'
+import Rooms from '@/pages/Rooms'
+import RoomDetail from '@/pages/RoomDetail'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
-  if (!isAuthenticated) {
+  const token = useAuthStore((state) => state.token)
+
+  useEffect(() => {
+    const stored = localStorage.getItem('token')
+    if (stored && !useAuthStore.getState().token) {
+      useAuthStore.setState({ token: stored, isAuthenticated: true })
+    }
+  }, [token])
+
+  const effectiveToken = token ?? localStorage.getItem('token')
+
+  if (!effectiveToken) {
     return <Navigate to="/login" replace />
   }
+
   return <>{children}</>
 }
 
@@ -37,7 +52,8 @@ function App() {
         element={
           <ProtectedRoute>
             <Layout>
-              <Routes>
+              <RouteErrorBoundary>
+                <Routes>
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/tasks" element={<Tasks />} />
                 <Route path="/tasks/new" element={<NewTask />} />
@@ -50,10 +66,13 @@ function App() {
                 <Route path="/alerts" element={<Alerts />} />
                 <Route path="/namespaces" element={<Namespaces />} />
                 <Route path="/cloud" element={<Cloud />} />
+                <Route path="/rooms" element={<Rooms />} />
+                <Route path="/rooms/:roomId" element={<RoomDetail />} />
                 <Route path="/vpn" element={<Vpn />} />
                 <Route path="/ledger" element={<Ledger />} />
                 <Route path="/users" element={<Users />} />
-              </Routes>
+                </Routes>
+              </RouteErrorBoundary>
             </Layout>
           </ProtectedRoute>
         }

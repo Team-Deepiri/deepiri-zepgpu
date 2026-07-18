@@ -23,6 +23,7 @@ from deepiri_zepgpu.database.models.base import Base, TimestampMixin, UUIDMixin
 from deepiri_zepgpu.database.models.types import str_enum
 
 if TYPE_CHECKING:
+    from deepiri_zepgpu.database.models.node_task_assignment import NodeTaskAssignment
     from deepiri_zepgpu.database.models.user import User
 
 
@@ -32,6 +33,7 @@ class TaskStatus(str, enum.Enum):
     PENDING = "pending"
     QUEUED = "queued"
     SCHEDULED = "scheduled"
+    ASSIGNED = "assigned"
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
@@ -114,7 +116,30 @@ class Task(UUIDMixin, TimestampMixin, Base):
 
     callback_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
+    vpn_network_id: Mapped[str | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("vpn_networks.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    dispatch_mode: Mapped[str] = mapped_column(String(50), default="local", nullable=False)
+    target_peer_id: Mapped[str | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("vpn_peers.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    target_gpu_share_id: Mapped[str | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("gpu_shares.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
     user: Mapped[User | None] = relationship("User", back_populates="tasks")
+    node_assignments: Mapped[list[NodeTaskAssignment]] = relationship(
+        "NodeTaskAssignment",
+        back_populates="task",
+        lazy="selectin",
+    )
 
     __table_args__ = (
         Index("idx_tasks_user_status", "user_id", "status"),

@@ -2,30 +2,30 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 
 class SimulationClock:
     """Virtual clock for time-controllable simulations."""
 
     def __init__(self, start_time: datetime | None = None):
-        self._current_time = start_time or datetime.utcnow()
+        self._current_time = start_time or datetime.now(UTC)
         self._offset = timedelta(0)
         self._speed = 1.0
         self._paused = False
-        self._start_real = datetime.utcnow()
+        self._start_real = datetime.now(UTC)
 
     def now(self) -> datetime:
         """Get current simulation time."""
         if self._paused:
             return self._current_time
-        elapsed = datetime.utcnow() - self._start_real
+        elapsed = datetime.now(UTC) - self._start_real
         return self._current_time + (elapsed * self._speed)
 
     def set_time(self, time: datetime) -> None:
         """Set simulation time."""
         self._current_time = time
-        self._start_real = datetime.utcnow()
+        self._start_real = datetime.now(UTC)
 
     def advance(self, delta: timedelta) -> None:
         """Advance simulation time by delta."""
@@ -34,7 +34,7 @@ class SimulationClock:
     def set_speed(self, speed: float) -> None:
         """Set simulation speed multiplier."""
         self._speed = max(0.0, speed)
-        self._start_real = datetime.utcnow()
+        self._start_real = datetime.now(UTC)
 
     def pause(self) -> None:
         """Pause simulation time."""
@@ -43,12 +43,12 @@ class SimulationClock:
     def resume(self) -> None:
         """Resume simulation time."""
         self._paused = False
-        self._start_real = datetime.utcnow()
+        self._start_real = datetime.now(UTC)
 
     def reset(self, start_time: datetime | None = None) -> None:
         """Reset clock to start time."""
-        self._current_time = start_time or datetime.utcnow()
-        self._start_real = datetime.utcnow()
+        self._current_time = start_time or datetime.now(UTC)
+        self._start_real = datetime.now(UTC)
         self._paused = False
 
 
@@ -128,11 +128,11 @@ class RateLimiter:
         self._max_per_second = max_per_second
         self._burst = burst
         self._tokens = float(burst)
-        self._last_update = datetime.utcnow()
+        self._last_update = datetime.now(UTC)
 
     def allow(self) -> bool:
         """Check if request is allowed under rate limit."""
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         elapsed = (now - self._last_update).total_seconds()
         self._tokens = min(self._burst, self._tokens + (elapsed * self._max_per_second))
         self._last_update = now

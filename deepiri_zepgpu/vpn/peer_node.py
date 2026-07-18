@@ -6,7 +6,9 @@ import asyncio
 import base64
 import pickle
 import time
-from datetime import datetime
+from collections.abc import Callable
+from datetime import UTC, datetime
+from typing import Any
 
 import httpx
 from fastapi import FastAPI, HTTPException
@@ -71,7 +73,7 @@ except ImportError:
 
 def discover_local_gpus() -> list[GpuInfo]:
     """Discover local GPUs using NVML."""
-    gpus = []
+    gpus: list[GpuInfo] = []
     if not PYNVML_AVAILABLE:
         return gpus
 
@@ -108,17 +110,17 @@ def discover_local_gpus() -> list[GpuInfo]:
 
 
 @app.get("/health")
-async def health():
+async def health() -> dict:
     return {"status": "ok", "vpn_ip": _vpn_ip, "peer_id": _peer_id}
 
 
 @app.get("/gpu/status")
-async def gpu_status():
-    return {"gpus": _local_gpus, "timestamp": datetime.utcnow().isoformat()}
+async def gpu_status() -> dict:
+    return {"gpus": _local_gpus, "timestamp": datetime.now(UTC).isoformat()}
 
 
 @app.post("/execute", response_model=TaskResult)
-async def execute_task(payload: TaskPayload):
+async def execute_task(payload: TaskPayload) -> TaskResult:
     start_time = time.time()
     result_digest = None
     try:
@@ -188,19 +190,19 @@ async def execute_task(payload: TaskPayload):
     return task_result
 
 
-def _run_func_sync(func, args, kwargs):
+def _run_func_sync(func: Callable[..., Any], args: tuple, kwargs: dict[str, Any]) -> object:
     return func(*args, **kwargs)
 
 
 @app.get("/result/{task_id}")
-async def get_result(task_id: str):
+async def get_result(task_id: str) -> TaskResult:
     result = _task_results.get(task_id)
     if not result:
         raise HTTPException(status_code=404, detail="Result not found")
     return result
 
 
-async def advertise_gpus_to_relay():
+async def advertise_gpus_to_relay() -> None:
     """Periodically advertise GPU status to relay."""
     global _local_gpus
     while True:
@@ -227,7 +229,7 @@ async def start_peer_server(
     *,
     ledger_private_key: str = "",
     ledger_public_key: str = "",
-):
+) -> None:
     """Start the peer node server."""
     global _relay_url, _peer_id, _vpn_ip, _ledger_private_key, _ledger_public_key
     _relay_url = relay_url

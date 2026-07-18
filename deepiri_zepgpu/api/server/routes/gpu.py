@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter
@@ -155,7 +155,7 @@ async def get_gpu_metrics() -> list[GPUMetricsResponse]:
             memory_total_mb=d.total_memory_mb,
             temperature_celsius=int(d.temperature_celsius) if d.temperature_celsius else None,
             power_draw_watts=d.power_draw_watts,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(UTC),
         )
         for d in devices
     ]

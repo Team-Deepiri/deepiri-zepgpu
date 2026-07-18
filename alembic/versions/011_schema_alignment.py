@@ -1,7 +1,7 @@
 """Align core tables with ORM models used by API regression.
 
-Revision ID: 009_schema_alignment
-Revises: 008_ledger_bridge
+Revision ID: 011_schema_alignment
+Revises: 010
 Create Date: 2026-07-18
 """
 
@@ -13,8 +13,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision: str = "009_schema_alignment"
-down_revision: Union[str, None] = "008"
+revision: str = "011_schema_alignment"
+down_revision: Union[str, None] = "010"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

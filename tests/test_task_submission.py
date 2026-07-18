@@ -1,6 +1,7 @@
 """Tests for task submission API."""
 
-import asyncio
+from collections.abc import AsyncGenerator
+
 import pytest
 
 from deepiri_zepgpu.api.submit import TaskSubmitter
@@ -8,7 +9,7 @@ from deepiri_zepgpu.core.task import TaskPriority
 
 
 @pytest.fixture
-async def submitter():
+async def submitter() -> AsyncGenerator[TaskSubmitter, None]:
     """Create a test submitter."""
     submitter = TaskSubmitter(auto_start=True)
     await submitter.start()
@@ -20,27 +21,30 @@ class TestTaskSubmission:
     """Test cases for task submission."""
 
     @pytest.mark.asyncio
-    async def test_submit_simple_task(self, submitter):
+    async def test_submit_simple_task(self, submitter: TaskSubmitter) -> None:
         """Test submitting a simple task."""
-        def dummy():
+
+        def dummy() -> str:
             return "hello"
 
         task_id = await submitter.submit(dummy)
         assert task_id is not None
 
     @pytest.mark.asyncio
-    async def test_submit_with_priority(self, submitter):
+    async def test_submit_with_priority(self, submitter: TaskSubmitter) -> None:
         """Test submitting with priority."""
-        def dummy():
+
+        def dummy() -> int:
             return 42
 
         task_id = await submitter.submit(dummy, priority=TaskPriority.HIGH)
         assert task_id is not None
 
     @pytest.mark.asyncio
-    async def test_submit_with_resources(self, submitter):
+    async def test_submit_with_resources(self, submitter: TaskSubmitter) -> None:
         """Test submitting with resource requirements."""
-        def dummy():
+
+        def dummy() -> int:
             return 42
 
         task_id = await submitter.submit(
@@ -51,9 +55,10 @@ class TestTaskSubmission:
         assert task_id is not None
 
     @pytest.mark.asyncio
-    async def test_get_task(self, submitter):
+    async def test_get_task(self, submitter: TaskSubmitter) -> None:
         """Test getting task by ID."""
-        def dummy():
+
+        def dummy() -> int:
             return 42
 
         task_id = await submitter.submit(dummy)
@@ -62,9 +67,10 @@ class TestTaskSubmission:
         assert task.task_id == task_id
 
     @pytest.mark.asyncio
-    async def test_list_tasks(self, submitter):
+    async def test_list_tasks(self, submitter: TaskSubmitter) -> None:
         """Test listing tasks."""
-        def dummy():
+
+        def dummy() -> int:
             return 42
 
         for _ in range(3):
@@ -74,10 +80,12 @@ class TestTaskSubmission:
         assert len(tasks) >= 3
 
     @pytest.mark.asyncio
-    async def test_cancel_task(self, submitter):
+    async def test_cancel_task(self, submitter: TaskSubmitter) -> None:
         """Test cancelling a task."""
-        def dummy():
+
+        def dummy() -> int:
             import time
+
             time.sleep(10)
             return 42
 
