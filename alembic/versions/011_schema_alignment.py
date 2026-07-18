@@ -1,8 +1,10 @@
-"""Align core tables with ORM models used by API regression.
+"""Align pipeline columns with ORM models used by API regression.
 
 Revision ID: 011_schema_alignment
 Revises: 010
 Create Date: 2026-07-18
+
+User/quota columns previously in this migration are covered by 007.
 """
 
 from __future__ import annotations
@@ -11,6 +13,7 @@ from typing import Sequence, Union
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy import inspect
 from sqlalchemy.dialects import postgresql
 
 revision: str = "011_schema_alignment"
@@ -19,58 +22,48 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
-def upgrade() -> None:
-    op.add_column(
-        "users",
-        sa.Column("is_verified", sa.Boolean(), nullable=False, server_default="false"),
-    )
-    op.add_column("users", sa.Column("first_name", sa.String(100), nullable=True))
-    op.add_column("users", sa.Column("last_name", sa.String(100), nullable=True))
-    op.add_column(
-        "users",
-        sa.Column("last_login_at", sa.DateTime(timezone=True), nullable=True),
-    )
+def _add_column_if_missing(table: str, column: sa.Column) -> None:
+    bind = op.get_bind()
+    cols = {c["name"] for c in inspect(bind).get_columns(table)}
+    if column.name not in cols:
+        op.add_column(table, column)
 
-    op.add_column("pipelines", sa.Column("description", sa.Text(), nullable=True))
-    op.add_column("pipelines", sa.Column("stage_results", postgresql.JSONB(), nullable=True))
-    op.add_column("pipelines", sa.Column("stage_statuses", postgresql.JSONB(), nullable=True))
-    op.add_column("pipelines", sa.Column("current_stage", sa.String(255), nullable=True))
-    op.add_column(
+
+def upgrade() -> None:
+    _add_column_if_missing("pipelines", sa.Column("description", sa.Text(), nullable=True))
+    _add_column_if_missing(
+        "pipelines", sa.Column("stage_results", postgresql.JSONB(), nullable=True)
+    )
+    _add_column_if_missing(
+        "pipelines", sa.Column("stage_statuses", postgresql.JSONB(), nullable=True)
+    )
+    _add_column_if_missing(
+        "pipelines", sa.Column("current_stage", sa.String(255), nullable=True)
+    )
+    _add_column_if_missing(
         "pipelines",
         sa.Column("completed_stages", sa.Integer(), nullable=False, server_default="0"),
     )
-    op.add_column(
+    _add_column_if_missing(
         "pipelines",
         sa.Column("total_execution_time_ms", sa.BigInteger(), nullable=True),
     )
-    op.add_column("pipelines", sa.Column("metadata_json", postgresql.JSONB(), nullable=True))
-
-    op.add_column(
-        "user_quotas",
-        sa.Column("max_storage_gb", sa.Integer(), nullable=False, server_default="100"),
-    )
-    op.add_column(
-        "user_quotas",
-        sa.Column(
-            "storage_used_gb",
-            sa.Numeric(10, 2),
-            nullable=False,
-            server_default="0",
-        ),
+    _add_column_if_missing(
+        "pipelines", sa.Column("metadata_json", postgresql.JSONB(), nullable=True)
     )
 
 
 def downgrade() -> None:
-    op.drop_column("user_quotas", "storage_used_gb")
-    op.drop_column("user_quotas", "max_storage_gb")
-    op.drop_column("pipelines", "metadata_json")
-    op.drop_column("pipelines", "total_execution_time_ms")
-    op.drop_column("pipelines", "completed_stages")
-    op.drop_column("pipelines", "current_stage")
-    op.drop_column("pipelines", "stage_statuses")
-    op.drop_column("pipelines", "stage_results")
-    op.drop_column("pipelines", "description")
-    op.drop_column("users", "last_login_at")
-    op.drop_column("users", "last_name")
-    op.drop_column("users", "first_name")
-    op.drop_column("users", "is_verified")
+    bind = op.get_bind()
+    cols = {c["name"] for c in inspect(bind).get_columns("pipelines")}
+    for name in (
+        "metadata_json",
+        "total_execution_time_ms",
+        "completed_stages",
+        "current_stage",
+        "stage_statuses",
+        "stage_results",
+        "description",
+    ):
+        if name in cols:
+            op.drop_column("pipelines", name)
