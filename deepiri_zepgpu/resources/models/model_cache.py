@@ -7,7 +7,7 @@ import pickle
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Generic, TypeVar
 
 T = TypeVar("T")
@@ -21,8 +21,8 @@ class ModelMetadata:
     version: str
     checksum: str
     size_bytes: int
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    last_accessed: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    last_accessed: datetime = field(default_factory=lambda: datetime.now(UTC))
     load_count: int = 0
 
 
@@ -68,7 +68,7 @@ class ModelCache(Generic[T]):
             if name not in self._cache:
                 return None
 
-            self._metadata[name].last_accessed = datetime.utcnow()
+            self._metadata[name].last_accessed = datetime.now(UTC)
             self._metadata[name].load_count += 1
 
             self._access_order.remove(name)

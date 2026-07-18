@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field
@@ -176,7 +176,7 @@ async def login(
             "sub": user.id,
             "username": user.username,
             "role": user.role.value,
-            "exp": datetime.utcnow().timestamp() + settings.auth.access_token_expire_minutes * 60,
+            "exp": datetime.now(UTC).timestamp() + settings.auth.access_token_expire_minutes * 60,
         },
         settings.auth.secret_key,
         algorithm=settings.auth.algorithm,
@@ -254,7 +254,7 @@ async def get_user_quota(
     if not current_user.quota:
         quota = UserQuota(
             user_id=current_user.id,
-            period_start=datetime.utcnow(),
+            period_start=datetime.now(UTC),
         )
         db.add(quota)
         await db.flush()

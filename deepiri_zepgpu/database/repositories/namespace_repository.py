@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import and_, select
@@ -121,7 +121,7 @@ class NamespaceMemberRepository:
         """Create a new namespace member."""
         member = NamespaceMember(
             id=str(uuid.uuid4()),
-            joined_at=datetime.utcnow(),
+            joined_at=datetime.now(UTC),
             **kwargs,
         )
         self.session.add(member)
@@ -273,7 +273,7 @@ class TeamMemberRepository:
         """Create a new team member."""
         member = TeamMember(
             id=str(uuid.uuid4()),
-            joined_at=datetime.utcnow(),
+            joined_at=datetime.now(UTC),
             **kwargs,
         )
         self.session.add(member)
@@ -326,8 +326,8 @@ class NamespaceQuotaRepository:
         """Create namespace quota."""
         quota = NamespaceQuota(
             id=str(uuid.uuid4()),
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
             **kwargs,
         )
         self.session.add(quota)
@@ -356,7 +356,7 @@ class NamespaceQuotaRepository:
         for key, value in kwargs.items():
             if hasattr(quota, key):
                 setattr(quota, key, value)
-        quota.updated_at = datetime.utcnow()
+        quota.updated_at = datetime.now(UTC)
         await self.session.flush()
         return quota
 
@@ -371,8 +371,8 @@ class NamespaceUsageRepository:
         """Create namespace usage record."""
         usage = NamespaceUsage(
             id=str(uuid.uuid4()),
-            period_start=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            period_start=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
             **kwargs,
         )
         self.session.add(usage)
@@ -397,7 +397,7 @@ class NamespaceUsageRepository:
         """Increment current GPU count."""
         usage = await self.get_or_create(namespace_id)
         usage.current_gpus += delta
-        usage.updated_at = datetime.utcnow()
+        usage.updated_at = datetime.now(UTC)
         await self.session.flush()
         return usage
 
@@ -406,7 +406,7 @@ class NamespaceUsageRepository:
         usage = await self.get_or_create(namespace_id)
         usage.gpu_hours_today += hours
         usage.gpu_hours_this_month += hours
-        usage.updated_at = datetime.utcnow()
+        usage.updated_at = datetime.now(UTC)
         await self.session.flush()
         return usage
 
@@ -423,7 +423,7 @@ class NamespaceUsageRepository:
             usage.scheduled_tasks += 1
         elif task_type == "gang":
             usage.gang_tasks += 1
-        usage.updated_at = datetime.utcnow()
+        usage.updated_at = datetime.now(UTC)
         await self.session.flush()
         return usage
 
@@ -431,7 +431,7 @@ class NamespaceUsageRepository:
         """Decrement running task count."""
         usage = await self.get_or_create(namespace_id)
         usage.running_tasks = max(0, usage.running_tasks - 1)
-        usage.updated_at = datetime.utcnow()
+        usage.updated_at = datetime.now(UTC)
         await self.session.flush()
         return usage
 
@@ -439,7 +439,7 @@ class NamespaceUsageRepository:
         """Reset daily counters."""
         usage = await self.get_or_create(namespace_id)
         usage.gpu_hours_today = 0
-        usage.updated_at = datetime.utcnow()
+        usage.updated_at = datetime.now(UTC)
         await self.session.flush()
         return usage
 
@@ -448,7 +448,7 @@ class NamespaceUsageRepository:
         usage = await self.get_or_create(namespace_id)
         usage.gpu_hours_this_month = 0
         usage.gpu_hours_today = 0
-        usage.period_start = datetime.utcnow()
-        usage.updated_at = datetime.utcnow()
+        usage.period_start = datetime.now(UTC)
+        usage.updated_at = datetime.now(UTC)
         await self.session.flush()
         return usage

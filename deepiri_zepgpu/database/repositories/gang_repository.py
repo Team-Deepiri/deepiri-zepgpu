@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -84,11 +84,11 @@ class GangScheduleRepository:
         gang_task.status = status
 
         if status == GangStatus.ALLOCATED:
-            gang_task.started_at = datetime.utcnow()
+            gang_task.started_at = datetime.now(UTC)
         elif status == GangStatus.RUNNING:
             pass
         elif status in [GangStatus.COMPLETED, GangStatus.FAILED, GangStatus.CANCELLED]:
-            gang_task.completed_at = datetime.utcnow()
+            gang_task.completed_at = datetime.now(UTC)
 
         for key, value in kwargs.items():
             if hasattr(gang_task, key):
@@ -185,7 +185,7 @@ class PreemptionRepository:
         record.resume_attempted = attempted
         if successful is not None:
             record.resume_successful = successful
-        record.resume_at = datetime.utcnow()
+        record.resume_at = datetime.now(UTC)
 
         await self.session.flush()
         return record
@@ -201,8 +201,8 @@ class FairShareRepository:
         """Create a new fair share bucket."""
         bucket = FairShareBucket(
             id=str(uuid.uuid4()),
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
             **kwargs,
         )
         self.session.add(bucket)
@@ -239,7 +239,7 @@ class FairShareRepository:
                 bucket.tasks_completed = 0
                 bucket.tasks_failed = 0
                 bucket.tasks_preempted = 0
-                bucket.period_start = datetime.utcnow()
+                bucket.period_start = datetime.now(UTC)
                 await self.session.flush()
             return bucket
 
@@ -248,7 +248,7 @@ class FairShareRepository:
             weight=weight,
             gpu_seconds_limit=gpu_seconds_limit,
             period_hours=period_hours,
-            period_start=datetime.utcnow(),
+            period_start=datetime.now(UTC),
             is_active=True,
         )
 
@@ -257,7 +257,7 @@ class FairShareRepository:
         if bucket.period_start is None:
             return True
         period_end = bucket.period_start + timedelta(hours=bucket.period_hours)
-        return datetime.utcnow() > period_end
+        return datetime.now(UTC) > period_end
 
     async def record_gpu_usage(
         self,
@@ -273,7 +273,7 @@ class FairShareRepository:
             return None
 
         bucket.gpu_seconds_used += gpu_seconds
-        bucket.updated_at = datetime.utcnow()
+        bucket.updated_at = datetime.now(UTC)
 
         if completed:
             bucket.tasks_completed += 1
@@ -292,7 +292,7 @@ class FairShareRepository:
             return None
 
         bucket.weight = weight
-        bucket.updated_at = datetime.utcnow()
+        bucket.updated_at = datetime.now(UTC)
 
         await self.session.flush()
         return bucket

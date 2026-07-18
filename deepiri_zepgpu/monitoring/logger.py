@@ -6,7 +6,7 @@ import json
 import logging
 import sys
 import threading
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -97,7 +97,7 @@ class StructuredLogger:
         if self._json_output:
             return json.dumps(
                 {
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                     "level": level,
                     "logger": self._name,
                     "message": message,

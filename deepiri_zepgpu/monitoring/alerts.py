@@ -6,7 +6,7 @@ import asyncio
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -42,7 +42,7 @@ class Alert:
     alert_type: AlertType
     severity: AlertSeverity
     message: str
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     task_id: str | None = None
     device_id: int | None = None
     user_id: str | None = None

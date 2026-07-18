@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import and_, func, select
@@ -43,7 +43,7 @@ class AuditRepository:
             user_agent=user_agent,
             status_code=status_code,
             error_message=error_message,
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(UTC),
         )
         self.session.add(log)
         await self.session.flush()
@@ -151,7 +151,7 @@ class AuditRepository:
 
     async def delete_old(self, days: int = 90) -> int:
         """Delete old audit logs."""
-        cutoff = datetime.utcnow() - timedelta(days=days)
+        cutoff = datetime.now(UTC) - timedelta(days=days)
 
         from sqlalchemy import delete
 

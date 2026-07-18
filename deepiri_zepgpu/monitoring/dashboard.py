@@ -6,7 +6,7 @@ import asyncio
 import contextlib
 import json
 import threading
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 try:
@@ -79,7 +79,7 @@ class MonitoringDashboard:
                 json.dumps(
                     {
                         "type": "connected",
-                        "timestamp": datetime.utcnow().isoformat(),
+                        "timestamp": datetime.now(UTC).isoformat(),
                         "message": "Connected to DeepIRI GPU Monitor",
                     }
                 )
@@ -139,7 +139,7 @@ class MonitoringDashboard:
     def _get_system_status(self) -> dict[str, Any]:
         """Get current system status."""
         return {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "connected_clients": len(self._clients),
         }
 
@@ -152,7 +152,7 @@ class MonitoringDashboard:
         message = json.dumps(
             {
                 "type": event_type,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "data": data,
             }
         )

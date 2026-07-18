@@ -6,7 +6,7 @@ import asyncio
 import contextlib
 import threading
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 
 try:
@@ -51,7 +51,7 @@ class GPUDevice:
     utilization_percent: float = 0.0
     temperature_celsius: float = 0.0
     power_draw_watts: float = 0.0
-    last_updated: datetime = field(default_factory=datetime.utcnow)
+    last_updated: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def can_allocate(self, required_memory_mb: int) -> bool:
         """Check if GPU can allocate requested memory."""
@@ -224,7 +224,7 @@ class GPUManager:
                             handle, pynvml.NVML_TEMPERATURE_GPU
                         )
                         device.power_draw_watts = pynvml.nvmlDeviceGetPowerUsage(handle) / 1000.0
-                        device.last_updated = datetime.utcnow()
+                        device.last_updated = datetime.now(UTC)
                     except Exception:
                         pass
 
