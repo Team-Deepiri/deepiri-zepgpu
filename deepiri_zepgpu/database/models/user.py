@@ -11,6 +11,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from deepiri_zepgpu.database.models.base import Base, TimestampMixin, UUIDMixin
+from deepiri_zepgpu.database.models.types import str_enum
 
 if TYPE_CHECKING:
     from deepiri_zepgpu.database.models.task import Task
@@ -40,7 +41,7 @@ class User(UUIDMixin, TimestampMixin, Base):
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     
     role: Mapped[UserRole] = mapped_column(
-        Enum(UserRole),
+        str_enum(UserRole),
         default=UserRole.USER,
         nullable=False,
     )

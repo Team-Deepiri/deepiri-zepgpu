@@ -185,7 +185,7 @@ async def create_namespace(
     current_user=Depends(get_current_user),
 ) -> NamespaceResponse:
     """Create a new namespace."""
-    from deepiri_zepgpu.database.models import Namespace, NamespaceStatus
+    from deepiri_zepgpu.database.models import Namespace, NamespaceMember, NamespaceStatus, TeamRole
     
     namespace_repo = NamespaceRepository(db)
     
@@ -194,7 +194,7 @@ async def create_namespace(
         raise HTTPException(status_code=400, detail="Namespace name already exists")
     
     namespace = Namespace(
-        id=str(uuid.uuid4()),
+        id=uuid.uuid4(),
         name=request.name,
         display_name=request.display_name,
         description=request.description,
@@ -211,22 +211,22 @@ async def create_namespace(
     if current_user:
         member_repo = NamespaceMemberRepository(db)
         member = NamespaceMember(
-            id=str(uuid.uuid4()),
+            id=uuid.uuid4(),
             namespace_id=namespace.id,
             user_id=current_user.id,
-            role="owner",
+            role=TeamRole.OWNER,
             joined_at=datetime.utcnow(),
         )
         db.add(member)
         await db.flush()
     
     return NamespaceResponse(
-        id=namespace.id,
+        id=str(namespace.id),
         name=namespace.name,
         display_name=namespace.display_name,
         description=namespace.description,
         status=namespace.status.value,
-        owner_id=namespace.owner_id,
+        owner_id=str(namespace.owner_id) if namespace.owner_id else None,
         is_default=namespace.is_default,
         created_at=namespace.created_at,
         updated_at=namespace.updated_at,
@@ -249,12 +249,12 @@ async def list_namespaces(
     return NamespaceListResponse(
         namespaces=[
             NamespaceResponse(
-                id=n.id,
+                id=str(n.id),
                 name=n.name,
                 display_name=n.display_name,
                 description=n.description,
                 status=n.status.value,
-                owner_id=n.owner_id,
+                owner_id=str(n.owner_id) if n.owner_id else None,
                 is_default=n.is_default,
                 created_at=n.created_at,
                 updated_at=n.updated_at,

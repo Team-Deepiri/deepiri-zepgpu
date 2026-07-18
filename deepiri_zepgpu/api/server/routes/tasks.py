@@ -73,6 +73,26 @@ class TaskResultResponse(BaseModel):
     presigned_url: str | None = None
 
 
+def _task_response(task) -> TaskResponse:
+    priority = task.priority.value if hasattr(task.priority, "value") else int(task.priority)
+    return TaskResponse(
+        id=str(task.id),
+        name=task.name,
+        status=task.status.value if hasattr(task.status, "value") else str(task.status),
+        priority=priority,
+        gpu_memory_mb=task.gpu_memory_mb,
+        timeout_seconds=task.timeout_seconds,
+        gpu_type=task.gpu_type,
+        gpu_device_id=task.gpu_device_id,
+        created_at=task.created_at,
+        started_at=task.started_at,
+        completed_at=task.completed_at,
+        error=task.error,
+        execution_time_ms=task.execution_time_ms,
+        user_id=str(task.user_id) if task.user_id else None,
+    )
+
+
 async def enqueue_task_to_celery(task_id: str) -> None:
     """Enqueue task to Celery for execution."""
     from deepiri_zepgpu.queue.tasks import execute_task
@@ -110,14 +130,14 @@ async def create_task(
     from deepiri_zepgpu.database.models import Task
     
     task = Task(
-        id=str(uuid.uuid4()),
+        id=uuid.uuid4(),
         user_id=current_user.id if current_user else None,
         name=request.name,
         func_name=request.func_name,
         serialized_func=request.serialized_func.encode() if request.serialized_func else None,
         args=request.args.encode() if request.args else None,
         kwargs=request.kwargs.encode() if request.kwargs else None,
-        priority=DBTaskPriority(request.priority),
+        priority=int(DBTaskPriority(request.priority)),
         gpu_memory_mb=request.gpu_memory_mb,
         cpu_cores=request.cpu_cores,
         timeout_seconds=request.timeout_seconds,
@@ -132,24 +152,9 @@ async def create_task(
     db.add(task)
     await db.flush()
     
-    background_tasks.add_task(enqueue_task_to_celery, task.id)
+    background_tasks.add_task(enqueue_task_to_celery, str(task.id))
     
-    return TaskResponse(
-        id=task.id,
-        name=task.name,
-        status=task.status.value,
-        priority=task.priority.value,
-        gpu_memory_mb=task.gpu_memory_mb,
-        timeout_seconds=task.timeout_seconds,
-        gpu_type=task.gpu_type,
-        gpu_device_id=task.gpu_device_id,
-        created_at=task.created_at,
-        started_at=task.started_at,
-        completed_at=task.completed_at,
-        error=task.error,
-        execution_time_ms=task.execution_time_ms,
-        user_id=task.user_id,
-    )
+    return _task_response(task)
 
 
 @router.get("", response_model=TaskListResponse)
@@ -171,25 +176,7 @@ async def list_tasks(
     )
     
     return TaskListResponse(
-        tasks=[
-            TaskResponse(
-                id=t.id,
-                name=t.name,
-                status=t.status.value,
-                priority=t.priority.value,
-                gpu_memory_mb=t.gpu_memory_mb,
-                timeout_seconds=t.timeout_seconds,
-                gpu_type=t.gpu_type,
-                gpu_device_id=t.gpu_device_id,
-                created_at=t.created_at,
-                started_at=t.started_at,
-                completed_at=t.completed_at,
-                error=t.error,
-                execution_time_ms=t.execution_time_ms,
-                user_id=t.user_id,
-            )
-            for t in tasks
-        ],
+        tasks=[_task_response(t) for t in tasks],
         total=len(tasks),
         limit=limit,
         offset=offset,
@@ -212,22 +199,7 @@ async def get_task(
     if current_user and task.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
     
-    return TaskResponse(
-        id=task.id,
-        name=task.name,
-        status=task.status.value,
-        priority=task.priority.value,
-        gpu_memory_mb=task.gpu_memory_mb,
-        timeout_seconds=task.timeout_seconds,
-        gpu_type=task.gpu_type,
-        gpu_device_id=task.gpu_device_id,
-        created_at=task.created_at,
-        started_at=task.started_at,
-        completed_at=task.completed_at,
-        error=task.error,
-        execution_time_ms=task.execution_time_ms,
-        user_id=task.user_id,
-    )
+    return _task_response(task)
 
 
 @router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -277,22 +249,7 @@ async def retry_task(
     
     task = await repo.get_by_id(task_id)
     
-    return TaskResponse(
-        id=task.id,
-        name=task.name,
-        status=task.status.value,
-        priority=task.priority.value,
-        gpu_memory_mb=task.gpu_memory_mb,
-        timeout_seconds=task.timeout_seconds,
-        gpu_type=task.gpu_type,
-        gpu_device_id=task.gpu_device_id,
-        created_at=task.created_at,
-        started_at=task.started_at,
-        completed_at=task.completed_at,
-        error=task.error,
-        execution_time_ms=task.execution_time_ms,
-        user_id=task.user_id,
-    )
+    return _task_response(task)
 
 
 @router.get("/{task_id}/result", response_model=TaskResultResponse)

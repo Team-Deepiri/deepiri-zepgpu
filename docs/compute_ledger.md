@@ -64,6 +64,23 @@ LEDGER__ISOLATE_VPN_NETWORKS=true
 - This file — operator overview
 - [`threat-model-ledger.md`](./threat-model-ledger.md) — STRIDE / residual risks
 
+## Integration tests
+
+Ledger service + HTTP API tests run against real Postgres (Alembic migrations; not `create_all`).
+
+```bash
+# Start test DB (host port 5433)
+docker compose -f docker/docker-compose.test.yml up -d
+
+# Apply migrations + run ITs
+export TEST_DATABASE_URL=postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5433/zepgpu_test
+export DATABASE__URL="$TEST_DATABASE_URL"
+export PYTHONPATH=.
+poetry run pytest tests/integration/ -m integration -v
+```
+
+Without Postgres reachable, integration tests skip. Unit tests: `poetry run pytest tests/ -m "not integration"`.
+
 ## Honest limits
 
 - Permissioned PoA, not permissionless consensus.

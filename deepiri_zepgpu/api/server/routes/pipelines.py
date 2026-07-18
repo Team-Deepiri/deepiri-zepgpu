@@ -87,7 +87,7 @@ async def create_pipeline(
     ]
     
     pipeline = Pipeline(
-        id=str(uuid.uuid4()),
+        id=uuid.uuid4(),
         user_id=current_user.id if current_user else None,
         name=request.name,
         description=request.description,
@@ -100,7 +100,7 @@ async def create_pipeline(
     await db.flush()
     
     return PipelineResponse(
-        id=pipeline.id,
+        id=str(pipeline.id),
         name=pipeline.name,
         description=pipeline.description,
         status=pipeline.status.value,
@@ -113,7 +113,7 @@ async def create_pipeline(
         started_at=pipeline.started_at,
         completed_at=pipeline.completed_at,
         error=pipeline.error,
-        user_id=pipeline.user_id,
+        user_id=str(pipeline.user_id) if pipeline.user_id else None,
     )
 
 
@@ -138,7 +138,7 @@ async def list_pipelines(
     return PipelineListResponse(
         pipelines=[
             PipelineResponse(
-                id=p.id,
+                id=str(p.id),
                 name=p.name,
                 description=p.description,
                 status=p.status.value,
@@ -151,7 +151,7 @@ async def list_pipelines(
                 started_at=p.started_at,
                 completed_at=p.completed_at,
                 error=p.error,
-                user_id=p.user_id,
+                user_id=str(p.user_id) if p.user_id else None,
             )
             for p in pipelines
         ],

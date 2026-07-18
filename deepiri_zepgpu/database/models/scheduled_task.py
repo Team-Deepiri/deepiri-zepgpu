@@ -6,13 +6,15 @@ import enum
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import BigInteger, Boolean, Column, DateTime, Enum, ForeignKey, Index, Integer, LargeBinary, String, Text
+from sqlalchemy import BigInteger, Boolean, Column, DateTime, ForeignKey, Index, Integer, LargeBinary, String, Text
 from sqlalchemy.dialects.postgresql import BYTEA, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from deepiri_zepgpu.database.models.base import Base, TimestampMixin, UUIDMixin
+from deepiri_zepgpu.database.models.types import str_enum
 
 if TYPE_CHECKING:
+    from deepiri_zepgpu.database.models.scheduled_task_run import ScheduledTaskRun
     from deepiri_zepgpu.database.models.user import User
 
 
@@ -47,7 +49,7 @@ class ScheduledTask(UUIDMixin, TimestampMixin, Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     
     schedule_type: Mapped[ScheduleType] = mapped_column(
-        Enum(ScheduleType),
+        str_enum(ScheduleType),
         default=ScheduleType.CRON,
         nullable=False,
     )
@@ -60,7 +62,7 @@ class ScheduledTask(UUIDMixin, TimestampMixin, Base):
     
     is_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
     status: Mapped[ScheduleStatus] = mapped_column(
-        Enum(ScheduleStatus),
+        str_enum(ScheduleStatus),
         default=ScheduleStatus.ACTIVE,
         nullable=False,
     )
@@ -92,7 +94,12 @@ class ScheduledTask(UUIDMixin, TimestampMixin, Base):
     callback_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     
     user: Mapped["User | None"] = relationship("User", back_populates="scheduled_tasks")
-    
+    runs: Mapped[list["ScheduledTaskRun"]] = relationship(
+        "ScheduledTaskRun",
+        back_populates="schedule",
+        lazy="dynamic",
+    )
+
     __table_args__ = (
         Index("idx_scheduled_tasks_user_enabled", "user_id", "is_enabled"),
         Index("idx_scheduled_tasks_next_run", "next_run_at", "is_enabled"),

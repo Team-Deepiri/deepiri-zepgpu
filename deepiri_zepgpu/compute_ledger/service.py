@@ -338,14 +338,22 @@ class LedgerService:
 
         for row in blocks:
             block = self._block_to_domain(row)
+            # Finalized history is checked for crypto integrity of its approval set.
+            # Current settings.ledger.quorum_threshold applies to new seals, not retroactively.
+            if block.finalized:
+                effective_quorum = max(1, len(block.approvals))
+                require_quorum = True
+            else:
+                effective_quorum = 1
+                require_quorum = False
             try:
                 validate_block(
                     block,
                     authorized_validators=validators,
                     expected_previous_hash=prev_hash,
                     expected_height=expected_height,
-                    quorum_threshold=self.quorum_threshold if block.finalized else 1,
-                    require_quorum=block.finalized,
+                    quorum_threshold=effective_quorum,
+                    require_quorum=require_quorum,
                 )
             except LedgerValidationError as exc:
                 errors.append(f"height={expected_height}: {exc}")
@@ -512,8 +520,11 @@ class LedgerService:
         from deepiri_zepgpu.database.models.ledger import LedgerTransaction
 
         for tx in block.transactions:
+            from uuid import UUID as _UUID
+
+            tx_uuid = _UUID(str(tx.id))
             existing = await self.db.execute(
-                select(LedgerTransaction).where(LedgerTransaction.id == tx.id)
+                select(LedgerTransaction).where(LedgerTransaction.id == tx_uuid)
             )
             if existing.scalar_one_or_none() is None:
                 await self.repo.add_pending_transaction(

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import secrets
 from datetime import datetime
 from typing import Any
 
@@ -75,8 +77,6 @@ class QuotaResponse(BaseModel):
 
 def hash_password(password: str) -> str:
     """Hash a password."""
-    import hashlib
-    import secrets
     salt = secrets.token_hex(16)
     return hashlib.pbkdf2_hmac(
         "sha256",
@@ -126,7 +126,7 @@ async def register(
     )
     
     return UserResponse(
-        id=user.id,
+        id=str(user.id),
         username=user.username,
         email=user.email,
         role=user.role.value,
@@ -162,7 +162,7 @@ async def login(
     
     token = jwt.encode(
         {
-            "sub": user.id,
+            "sub": str(user.id),
             "username": user.username,
             "role": user.role.value,
             "exp": datetime.utcnow().timestamp() + settings.auth.access_token_expire_minutes * 60,
@@ -182,8 +182,10 @@ async def get_current_user_info(
     current_user=Depends(get_current_user),
 ) -> UserResponse:
     """Get current user information."""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
     return UserResponse(
-        id=current_user.id,
+        id=str(current_user.id),
         username=current_user.username,
         email=current_user.email,
         role=current_user.role.value,

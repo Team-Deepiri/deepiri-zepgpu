@@ -251,8 +251,19 @@ ws.send(JSON.stringify({
 # Install dependencies
 poetry install
 
-# Run tests
-poetry run pytest tests/ -v
+# Run unit tests
+poetry run pytest tests/ -m "not integration and not regression" -v
+
+# Integration tests (Postgres on :5433)
+docker compose -f docker/docker-compose.test.yml up -d
+TEST_DATABASE_URL=postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5433/zepgpu_test \
+DATABASE__URL=postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5433/zepgpu_test \
+PYTHONPATH=. poetry run pytest tests/integration/ -m integration -v
+
+# Full-system regression (same Postgres)
+TEST_DATABASE_URL=postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5433/zepgpu_test \
+DATABASE__URL=postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5433/zepgpu_test \
+PYTHONPATH=. poetry run pytest tests/regression/ -m regression -v
 
 # Run linters
 poetry run ruff check deepiri_zepgpu

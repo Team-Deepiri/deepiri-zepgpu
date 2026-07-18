@@ -6,11 +6,12 @@ import enum
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import BigInteger, Boolean, Column, DateTime, Enum, ForeignKey, Index, Integer, LargeBinary, String, Text
+from sqlalchemy import BigInteger, Boolean, Column, DateTime, ForeignKey, Index, Integer, LargeBinary, String, Text
 from sqlalchemy.dialects.postgresql import BYTEA, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from deepiri_zepgpu.database.models.base import Base, TimestampMixin, UUIDMixin
+from deepiri_zepgpu.database.models.types import str_enum
 
 if TYPE_CHECKING:
     from deepiri_zepgpu.database.models.user import User
@@ -59,14 +60,14 @@ class Task(UUIDMixin, TimestampMixin, Base):
     name: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     
     status: Mapped[TaskStatus] = mapped_column(
-        Enum(TaskStatus),
+        str_enum(TaskStatus),
         default=TaskStatus.PENDING,
         nullable=False,
         index=True,
     )
     
     priority: Mapped[TaskPriority] = mapped_column(
-        Enum(TaskPriority),
+        Integer,
         default=TaskPriority.NORMAL,
         nullable=False,
     )

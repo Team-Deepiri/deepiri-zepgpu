@@ -123,6 +123,33 @@ class ScheduleResponse(BaseModel):
     class Config:
         from_attributes = True
 
+    @classmethod
+    def from_orm_schedule(cls, schedule) -> "ScheduleResponse":
+        return cls(
+            id=str(schedule.id),
+            name=schedule.name,
+            description=schedule.description,
+            schedule_type=schedule.schedule_type.value
+            if hasattr(schedule.schedule_type, "value")
+            else str(schedule.schedule_type),
+            cron_expression=schedule.cron_expression,
+            interval_seconds=schedule.interval_seconds,
+            start_datetime=schedule.start_datetime,
+            end_datetime=schedule.end_datetime,
+            is_enabled=schedule.is_enabled,
+            status=schedule.status.value if hasattr(schedule.status, "value") else str(schedule.status),
+            last_run_at=schedule.last_run_at,
+            next_run_at=schedule.next_run_at,
+            run_count=schedule.run_count,
+            consecutive_failures=schedule.consecutive_failures,
+            last_error=schedule.last_error,
+            priority=schedule.priority,
+            gpu_memory_mb=schedule.gpu_memory_mb,
+            timeout_seconds=schedule.timeout_seconds,
+            created_at=schedule.created_at,
+            user_id=str(schedule.user_id) if schedule.user_id else None,
+        )
+
 
 class ScheduleListResponse(BaseModel):
     """Schedule list response."""
@@ -275,7 +302,7 @@ async def create_schedule(
     )
     
     schedule = ScheduledTask(
-        id=str(uuid.uuid4()),
+        id=uuid.uuid4(),
         user_id=current_user.id if current_user else None,
         name=request.name,
         description=request.description,
@@ -304,30 +331,9 @@ async def create_schedule(
     db.add(schedule)
     await db.flush()
     
-    background_tasks.add_task(_sync_schedule_to_beat, schedule.id)
+    background_tasks.add_task(_sync_schedule_to_beat, str(schedule.id))
     
-    return ScheduleResponse(
-        id=schedule.id,
-        name=schedule.name,
-        description=schedule.description,
-        schedule_type=schedule.schedule_type.value,
-        cron_expression=schedule.cron_expression,
-        interval_seconds=schedule.interval_seconds,
-        start_datetime=schedule.start_datetime,
-        end_datetime=schedule.end_datetime,
-        is_enabled=schedule.is_enabled,
-        status=schedule.status.value,
-        last_run_at=schedule.last_run_at,
-        next_run_at=schedule.next_run_at,
-        run_count=schedule.run_count,
-        consecutive_failures=schedule.consecutive_failures,
-        last_error=schedule.last_error,
-        priority=schedule.priority,
-        gpu_memory_mb=schedule.gpu_memory_mb,
-        timeout_seconds=schedule.timeout_seconds,
-        created_at=schedule.created_at,
-        user_id=schedule.user_id,
-    )
+    return ScheduleResponse.from_orm_schedule(schedule)
 
 
 @router.get("", response_model=ScheduleListResponse)
@@ -349,31 +355,7 @@ async def list_schedules(
     )
     
     return ScheduleListResponse(
-        schedules=[
-            ScheduleResponse(
-                id=s.id,
-                name=s.name,
-                description=s.description,
-                schedule_type=s.schedule_type.value,
-                cron_expression=s.cron_expression,
-                interval_seconds=s.interval_seconds,
-                start_datetime=s.start_datetime,
-                end_datetime=s.end_datetime,
-                is_enabled=s.is_enabled,
-                status=s.status.value,
-                last_run_at=s.last_run_at,
-                next_run_at=s.next_run_at,
-                run_count=s.run_count,
-                consecutive_failures=s.consecutive_failures,
-                last_error=s.last_error,
-                priority=s.priority,
-                gpu_memory_mb=s.gpu_memory_mb,
-                timeout_seconds=s.timeout_seconds,
-                created_at=s.created_at,
-                user_id=s.user_id,
-            )
-            for s in schedules
-        ],
+        schedules=[ScheduleResponse.from_orm_schedule(s) for s in schedules],
         total=len(schedules),
         limit=limit,
         offset=offset,

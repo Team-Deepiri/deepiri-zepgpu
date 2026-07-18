@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import uuid
 from datetime import datetime, timedelta
 from typing import Any, Sequence
 
@@ -12,6 +11,7 @@ from sqlalchemy.orm import selectinload
 
 from deepiri_zepgpu.database.models.user import User, UserRole
 from deepiri_zepgpu.database.models.user_quota import UserQuota
+from deepiri_zepgpu.database.uuid_util import as_uuid, new_uuid
 
 
 class UserRepository:
@@ -30,7 +30,7 @@ class UserRepository:
     ) -> User:
         """Create a new user."""
         user = User(
-            id=str(uuid.uuid4()),
+            id=new_uuid(),
             username=username,
             email=email,
             password_hash=password_hash,

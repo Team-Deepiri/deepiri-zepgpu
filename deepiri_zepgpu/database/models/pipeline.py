@@ -6,11 +6,12 @@ import enum
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import BigInteger, Column, DateTime, Enum, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import BigInteger, Column, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from deepiri_zepgpu.database.models.base import Base, TimestampMixin, UUIDMixin
+from deepiri_zepgpu.database.models.types import str_enum
 
 if TYPE_CHECKING:
     from deepiri_zepgpu.database.models.user import User
@@ -52,7 +53,7 @@ class Pipeline(UUIDMixin, TimestampMixin, Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     
     status: Mapped[PipelineStatus] = mapped_column(
-        Enum(PipelineStatus),
+        str_enum(PipelineStatus),
         default=PipelineStatus.PENDING,
         nullable=False,
         index=True,
