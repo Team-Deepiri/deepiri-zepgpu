@@ -9,14 +9,15 @@ import type { RoomNode } from '@/types'
 interface RoomNodeCardProps {
   roomId: string
   node: RoomNode
+  enablePolling?: boolean
 }
 
-export default function RoomNodeCard({ roomId, node }: RoomNodeCardProps) {
+export default function RoomNodeCard({ roomId, node, enablePolling = true }: RoomNodeCardProps) {
   const gpusQuery = useQuery({
     queryKey: ['room-node-gpus', roomId, node.id],
     queryFn: () => roomsApi.getRoomNodeGpus(roomId, node.id),
     enabled: node.is_gpu_host && node.gpu_count > 0,
-    refetchInterval: 10000,
+    refetchInterval: enablePolling ? 10000 : false,
   })
 
   return (

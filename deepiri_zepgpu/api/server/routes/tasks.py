@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from deepiri_zepgpu.api.server.dependencies import get_current_user, get_db_session
+from deepiri_zepgpu.api.server.room_events import assignment_payload, emit_room_event
 from deepiri_zepgpu.database.models import User
 from deepiri_zepgpu.database.models.task import TaskPriority as DBTaskPriority
 from deepiri_zepgpu.database.models.task import TaskStatus as DBTaskStatus
@@ -314,6 +315,18 @@ async def create_task(
             peer_id=dispatch_result.peer_id,
             gpu_share_id=dispatch_result.gpu_share_id,
             status=dispatch_result.assignment.status.value,
+        )
+        await emit_room_event(
+            dispatch_result.vpn_network_id,
+            "room_task_assigned",
+            assignment_payload(
+                task_id=str(task.id),
+                assignment_id=str(dispatch_result.assignment.id),
+                peer_id=dispatch_result.peer_id,
+                gpu_share_id=dispatch_result.gpu_share_id,
+                status=task.status.value,
+                assignment_status=dispatch_result.assignment.status.value,
+            ),
         )
     else:
         background_tasks.add_task(enqueue_task_to_celery, task.id)

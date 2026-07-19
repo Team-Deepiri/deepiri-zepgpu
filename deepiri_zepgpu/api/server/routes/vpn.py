@@ -75,6 +75,7 @@ async def create_vpn_network(
         relay_endpoint=relay_endpoint,
         relay_public_key=public_key,
         private_key_encrypted=encrypt_value(private_key),
+        host_id=str(user.id),
     )
     peer_repo = PeerRepository(db)
     peer_priv, peer_pub = generate_keypair()

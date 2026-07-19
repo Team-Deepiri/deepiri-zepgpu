@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import clsx from 'clsx'
-import { ArrowLeft, Home, UserPlus, Users, Shield } from 'lucide-react'
+import { ArrowLeft, Home, LogOut, UserPlus, Users, Shield } from 'lucide-react'
+import toast from 'react-hot-toast'
 import { getRoomErrorMessage, getRoomErrorStatus } from '@/utils/roomErrors'
 import { roomsApi } from '@/api/rooms'
 import InvitePanel from '@/components/rooms/InvitePanel'
@@ -12,6 +13,8 @@ import RoomGpuPoolSummary from '@/components/rooms/RoomGpuPoolSummary'
 import RoomNodeList from '@/components/rooms/RoomNodeList'
 import RoomDispatchPanel from '@/components/rooms/RoomDispatchPanel'
 import RoomActivityLog from '@/components/rooms/RoomActivityLog'
+import { useRoomWebSocket } from '@/hooks/useRoomWebSocket'
+import { useAuthStore } from '@/stores/authStore'
 import type { RoomMember, RoomMemberStatus } from '@/types'
 
 function getErrorStatus(err: unknown): number | null {
@@ -58,7 +61,12 @@ function MemberRow({ member }: { member: RoomMember }) {
 
 export default function RoomDetail() {
   const { roomId } = useParams<{ roomId: string }>()
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const currentUser = useAuthStore((state) => state.user)
   const [dispatchedTaskIds, setDispatchedTaskIds] = useState<string[]>([])
+  const { status: wsStatus } = useRoomWebSocket(roomId)
+  const enablePolling = wsStatus !== 'connected'
 
   const roomQuery = useQuery({
     queryKey: ['room', roomId],
@@ -71,11 +79,29 @@ export default function RoomDetail() {
     queryKey: ['room-members', roomId],
     queryFn: () => roomsApi.getRoomMembers(roomId!),
     enabled: !!roomId && roomQuery.isSuccess,
-    refetchInterval: 10000,
+    refetchInterval: enablePolling ? 10000 : false,
   })
 
   const handleTaskDispatched = (taskId: string) => {
     setDispatchedTaskIds((prev) => (prev.includes(taskId) ? prev : [taskId, ...prev]))
+  }
+
+  const leaveRoom = useMutation({
+    mutationFn: () => roomsApi.leaveRoom(roomId!),
+    onSuccess: () => {
+      toast.success('Left room')
+      void queryClient.invalidateQueries({ queryKey: ['rooms'] })
+      navigate('/rooms')
+    },
+    onError: (err) => {
+      toast.error(getRoomErrorMessage(err, 'Failed to leave room'))
+    },
+  })
+
+  const handleLeaveRoom = () => {
+    if (window.confirm('Leave this room? You will need a new invite to rejoin.')) {
+      leaveRoom.mutate()
+    }
   }
 
   if (!roomId) {
@@ -131,6 +157,7 @@ export default function RoomDetail() {
   }
 
   const room = roomQuery.data
+  const canLeaveRoom = !!currentUser && currentUser.id !== room.host_id
 
   return (
     <div className="space-y-8 max-w-6xl">
@@ -167,14 +194,39 @@ export default function RoomDetail() {
               Host <span className="font-mono text-slate-400">{room.host_id}</span>
               {' · '}
               Created {format(new Date(room.created_at), 'MMM d, yyyy')}
+              {' · '}
+              <span
+                className={clsx(
+                  wsStatus === 'connected' && 'text-green-400',
+                  wsStatus === 'connecting' && 'text-amber-400',
+                  wsStatus === 'disconnected' && 'text-slate-500',
+                )}
+              >
+                Live {wsStatus}
+              </span>
             </p>
           </div>
+          {canLeaveRoom && (
+            <button
+              type="button"
+              onClick={handleLeaveRoom}
+              disabled={leaveRoom.isPending}
+              className="ml-auto inline-flex items-center gap-2 rounded-lg border border-red-500/40 px-3 py-2 text-sm font-medium text-red-300 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <LogOut className="h-4 w-4" />
+              {leaveRoom.isPending ? 'Leaving…' : 'Leave room'}
+            </button>
+          )}
         </div>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <RoomDispatchPanel roomId={roomId} onTaskDispatched={handleTaskDispatched} />
-        <RoomActivityLog taskIds={dispatchedTaskIds} />
+        <RoomDispatchPanel
+          roomId={roomId}
+          onTaskDispatched={handleTaskDispatched}
+          enablePolling={enablePolling}
+        />
+        <RoomActivityLog taskIds={dispatchedTaskIds} enablePolling={enablePolling} />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -202,11 +254,11 @@ export default function RoomDetail() {
 
         <section className="rounded-xl border border-slate-700/80 bg-slate-800/40 p-5">
           <h2 className="text-sm font-semibold text-slate-200 mb-4">GPU pool</h2>
-          <RoomGpuPoolSummary roomId={roomId} />
+          <RoomGpuPoolSummary roomId={roomId} enablePolling={enablePolling} />
         </section>
       </div>
 
-      <RoomNodeList roomId={roomId} />
+      <RoomNodeList roomId={roomId} enablePolling={enablePolling} />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="rounded-xl border border-slate-700/80 bg-slate-800/40 p-5">

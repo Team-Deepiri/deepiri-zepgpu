@@ -8,6 +8,7 @@ import type { RoomNodeGpu } from '@/types'
 
 interface RoomGpuPoolSummaryProps {
   roomId: string
+  enablePolling?: boolean
 }
 
 function GpuMetricCard({ gpu }: { gpu: RoomNodeGpu }) {
@@ -54,17 +55,17 @@ function GpuMetricCard({ gpu }: { gpu: RoomNodeGpu }) {
   )
 }
 
-export default function RoomGpuPoolSummary({ roomId }: RoomGpuPoolSummaryProps) {
+export default function RoomGpuPoolSummary({ roomId, enablePolling = true }: RoomGpuPoolSummaryProps) {
   const poolQuery = useQuery({
     queryKey: ['room-gpu-pool', roomId],
     queryFn: () => roomsApi.getRoomGpuPool(roomId),
-    refetchInterval: 10000,
+    refetchInterval: enablePolling ? 10000 : false,
   })
 
   const nodesQuery = useQuery({
     queryKey: ['room-nodes', roomId],
     queryFn: () => roomsApi.getRoomNodes(roomId),
-    refetchInterval: 10000,
+    refetchInterval: enablePolling ? 10000 : false,
   })
 
   const onlineNodeCount = (nodesQuery.data ?? []).filter((n) => n.is_online).length

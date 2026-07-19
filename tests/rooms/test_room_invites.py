@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
@@ -94,7 +95,7 @@ def _make_invite(**overrides: object) -> SimpleNamespace:
     return invite
 
 
-def _make_room(room_id: object) -> SimpleNamespace:
+def _make_room(room_id: object, host_id: object | None = None) -> SimpleNamespace:
     return SimpleNamespace(
         id=room_id,
         name="Test Room",
@@ -105,6 +106,7 @@ def _make_room(room_id: object) -> SimpleNamespace:
         relay_public_key="relay-public-key",
         relay_endpoint="127.0.0.1",
         listen_port=51820,
+        host_id=host_id,
     )
 
 
@@ -252,6 +254,8 @@ def test_join_room_success_creates_peer_and_uses_invite(
     )
     monkeypatch.setattr(rooms, "generate_keypair", lambda: ("private-key", "public-key"))
     monkeypatch.setattr(rooms, "encrypt_value", lambda value: f"encrypted-{value}")
+    grant_membership = AsyncMock()
+    monkeypatch.setattr(rooms.manager, "grant_room_membership", grant_membership)
 
     response = asyncio.run(
         rooms.join_room(
@@ -265,6 +269,7 @@ def test_join_room_success_creates_peer_and_uses_invite(
     assert response.member.user_id == user_id
     assert response.member.status == "disconnected"
     assert response.config_available is True
+    grant_membership.assert_awaited_once_with(str(user_id), str(room_id))
 
     assert FakeInviteRepository.last_instance is not None
     assert FakeInviteRepository.last_instance.used_invite == invite

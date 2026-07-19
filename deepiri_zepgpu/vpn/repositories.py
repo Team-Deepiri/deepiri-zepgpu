@@ -41,6 +41,7 @@ class VpnNetworkRepository:
         relay_endpoint: str | None = None,
         relay_public_key: str | None = None,
         private_key_encrypted: str | None = None,
+        host_id: str | None = None,
     ) -> VpnNetwork:
         network = VpnNetwork(
             name=name,
@@ -49,6 +50,7 @@ class VpnNetworkRepository:
             relay_endpoint=relay_endpoint,
             relay_public_key=relay_public_key,
             private_key_encrypted=private_key_encrypted,
+            host_id=host_id,
         )
         self.db.add(network)
         await self.db.commit()
@@ -64,6 +66,18 @@ class VpnNetworkRepository:
             select(VpnNetwork).join(Peer).where(Peer.user_id == user_id).distinct()
         )
         return list(result.scalars().all())
+
+    async def user_belongs_to_network(self, user_id: str, network_id: str) -> bool:
+        """Return True if the user has a peer on the given network."""
+        result = await self.db.execute(
+            select(Peer.id)
+            .where(
+                Peer.user_id == user_id,
+                Peer.vpn_network_id == network_id,
+            )
+            .limit(1)
+        )
+        return result.scalar_one_or_none() is not None
 
     async def list_all(self) -> list[VpnNetwork]:
         result = await self.db.execute(select(VpnNetwork))
@@ -153,7 +167,7 @@ class PeerRepository:
             await self.db.refresh(peer)
         return peer
 
-    async def mark_awol_peers(self, timeout_seconds: int = 90) -> int:
+    async def mark_awol_peers(self, timeout_seconds: int = 90) -> list[Peer]:
         threshold = datetime.now(UTC) - timedelta(seconds=timeout_seconds)
         result = await self.db.execute(
             select(Peer).where(
@@ -167,7 +181,7 @@ class PeerRepository:
         for peer in peers:
             peer.online_status = PeerOnlineStatus.AWOL
         await self.db.commit()
-        return len(peers)
+        return peers
 
     async def delete(self, peer_id: str) -> bool:
         result = await self.db.execute(select(Peer).where(Peer.id == peer_id))
