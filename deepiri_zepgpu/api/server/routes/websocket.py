@@ -299,7 +299,7 @@ async def _load_user_room_ids(user_id: str) -> set[str]:
 
 async def _resolve_user_room_ids(user_id: str) -> set[str]:
     """Prefer Redis membership cache; fall back to DB (write-through via set_user_room_memberships)."""
-    cached = manager.membership_cache.get_rooms(user_id)
+    cached = await asyncio.to_thread(manager.membership_cache.get_rooms, user_id)
     if cached is not None:
         return cached
     return await _load_user_room_ids(user_id)

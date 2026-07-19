@@ -111,17 +111,17 @@ class ConnectionManager:
             memberships = self._user_room_memberships.get(user_id)
             if memberships is not None:
                 memberships.discard(room_id)
-        self._membership_cache.remove(user_id, room_id)
+        await asyncio.to_thread(self._membership_cache.remove, user_id, room_id)
 
     async def set_user_room_memberships(self, user_id: str, room_ids: set[str]) -> None:
         """Replace L1 + Redis memberships for a user (after connect hydrate)."""
         async with self._lock:
             self._user_room_memberships[user_id] = set(room_ids)
-        self._membership_cache.replace(user_id, set(room_ids))
+        await asyncio.to_thread(self._membership_cache.replace, user_id, set(room_ids))
 
     async def grant_room_membership(self, user_id: str, room_id: str) -> None:
         """Grant membership in Redis always; warm L1 when the user is present."""
-        self._membership_cache.add(user_id, room_id)
+        await asyncio.to_thread(self._membership_cache.add, user_id, room_id)
         async with self._lock:
             if user_id not in self._connections and user_id not in self._user_room_memberships:
                 return
@@ -129,13 +129,18 @@ class ConnectionManager:
             memberships.add(room_id)
 
     def user_is_room_member(self, user_id: str, room_id: str) -> bool:
-        """L1 first, then Redis (cross-worker grants / reconnect without DB)."""
+        """L1 first; Redis only when L1 misses or lacks the room (cross-worker grant)."""
         memberships = self._user_room_memberships.get(user_id)
         if memberships is not None and room_id in memberships:
             return True
-        if self._membership_cache.contains(user_id, room_id):
-            return True
-        return False
+        if not self._membership_cache.contains(user_id, room_id):
+            return False
+        # Warm L1 so subsequent subscribe checks stay in-process.
+        if memberships is not None:
+            memberships.add(room_id)
+        else:
+            self._user_room_memberships[user_id] = {room_id}
+        return True
 
     async def _drop_dead_socket(self, websocket: WebSocket) -> None:
         """Remove a failed socket from user and room indexes."""

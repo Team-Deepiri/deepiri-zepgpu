@@ -3,11 +3,13 @@
 L2 store shared across API workers so reconnects and cross-worker join/leave
 do not require a DB round-trip on every ``/ws/rooms`` connect. Fail-open when
 Redis is unavailable (same posture as ``RemoteGpuLock``).
+
+Uses Redis SETs (``SADD`` / ``SREM`` / ``SISMEMBER``) for O(1) membership checks
+instead of rewriting a JSON blob on every grant/revoke.
 """
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 try:
@@ -18,6 +20,7 @@ except ImportError:  # pragma: no cover
 from deepiri_zepgpu.config import settings
 
 _PREFIX = "zepgpu:ws:user_rooms:"
+_EMPTY_MARKER = "__empty__"
 _DEFAULT_TTL_SECONDS = 86_400  # 24h; refreshed on write
 
 
@@ -54,46 +57,67 @@ class RoomMembershipCache:
         c = self._conn()
         if c is None:
             return None
+        key = self._key(user_id)
         try:
-            raw = c.get(self._key(user_id))
-            if raw is None:
+            if not c.exists(key):
                 return None
-            data = json.loads(raw)
-            if not isinstance(data, list):
-                return None
-            return {str(v) for v in data}
+            members = {str(v) for v in (c.smembers(key) or set())}
+            members.discard(_EMPTY_MARKER)
+            return members
         except Exception:
             return None
 
     def contains(self, user_id: str, room_id: str) -> bool:
-        rooms = self.get_rooms(user_id)
-        if rooms is None:
+        c = self._conn()
+        if c is None:
             return False
-        return room_id in rooms
+        try:
+            return bool(c.sismember(self._key(user_id), room_id))
+        except Exception:
+            return False
 
     def replace(self, user_id: str, room_ids: set[str]) -> None:
         """Overwrite the user's membership set (write-through after DB load)."""
         c = self._conn()
         if c is None:
             return
+        key = self._key(user_id)
         try:
-            payload = json.dumps(sorted(room_ids))
-            c.set(self._key(user_id), payload, ex=self._ttl_seconds)
+            pipe = c.pipeline()
+            pipe.delete(key)
+            if room_ids:
+                pipe.sadd(key, *sorted(room_ids))
+            else:
+                # Distinguish "known empty" from cache miss.
+                pipe.sadd(key, _EMPTY_MARKER)
+            pipe.expire(key, self._ttl_seconds)
+            pipe.execute()
         except Exception:
             return
 
     def add(self, user_id: str, room_id: str) -> None:
-        rooms = self.get_rooms(user_id)
-        if rooms is None:
-            rooms = set()
-        rooms.add(room_id)
-        self.replace(user_id, rooms)
+        c = self._conn()
+        if c is None:
+            return
+        key = self._key(user_id)
+        try:
+            pipe = c.pipeline()
+            pipe.sadd(key, room_id)
+            pipe.srem(key, _EMPTY_MARKER)
+            pipe.expire(key, self._ttl_seconds)
+            pipe.execute()
+        except Exception:
+            return
 
     def remove(self, user_id: str, room_id: str) -> None:
-        rooms = self.get_rooms(user_id)
-        if rooms is None:
+        c = self._conn()
+        if c is None:
             return
-        if room_id not in rooms:
+        key = self._key(user_id)
+        try:
+            pipe = c.pipeline()
+            pipe.srem(key, room_id)
+            pipe.expire(key, self._ttl_seconds)
+            pipe.execute()
+        except Exception:
             return
-        rooms.discard(room_id)
-        self.replace(user_id, rooms)
