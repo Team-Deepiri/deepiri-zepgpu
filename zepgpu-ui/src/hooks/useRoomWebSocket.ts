@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { buildRoomWebSocketUrl } from '@/api/roomWs'
+import { useAuthStore } from '@/stores/authStore'
 import type { RoomWebSocketMessage } from '@/types'
 
 export type RoomWebSocketStatus = 'connecting' | 'connected' | 'disconnected'
@@ -8,7 +9,7 @@ export type RoomWebSocketStatus = 'connecting' | 'connected' | 'disconnected'
 const MAX_BACKOFF_MS = 15000
 
 function getAuthToken(): string | null {
-  return localStorage.getItem('token')
+  return useAuthStore.getState().token ?? localStorage.getItem('token')
 }
 
 function invalidateForEvent(

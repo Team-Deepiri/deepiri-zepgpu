@@ -10,6 +10,7 @@ instead of rewriting a JSON blob on every grant/revoke.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 try:
@@ -18,6 +19,8 @@ except ImportError:  # pragma: no cover
     redis = None  # type: ignore
 
 from deepiri_zepgpu.config import settings
+
+logger = logging.getLogger(__name__)
 
 _PREFIX = "zepgpu:ws:user_rooms:"
 _EMPTY_MARKER = "__empty__"
@@ -36,16 +39,26 @@ class RoomMembershipCache:
         self._url = url or settings.redis.url
         self._client = client
         self._ttl_seconds = max(60, int(ttl_seconds))
+        self._warned_unavailable = False
 
     def _conn(self) -> Any | None:
         if self._client is not None:
             return self._client
         if redis is None:
+            if not self._warned_unavailable:
+                logger.warning("RoomMembershipCache: redis package unavailable; fail-open")
+                self._warned_unavailable = True
             return None
         try:
             self._client = redis.Redis.from_url(self._url, decode_responses=True)
             return self._client
         except Exception:
+            if not self._warned_unavailable:
+                logger.warning(
+                    "RoomMembershipCache: Redis connect failed; operating fail-open",
+                    exc_info=True,
+                )
+                self._warned_unavailable = True
             return None
 
     @staticmethod
