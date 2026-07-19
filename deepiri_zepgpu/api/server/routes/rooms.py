@@ -71,21 +71,11 @@ async def _ensure_room_member(
     return room
 
 
-async def _ensure_room_host(
-    peer_repo: PeerRepository,
-    user_id: str,
-    room_id: str,
-) -> None:
-    """Ensure the current user is the room host.
+async def _ensure_room_host(room: VpnNetwork, user_id: str) -> None:
+    """Ensure the current user is the room host."""
 
-    Until rooms have a first-class host field, the relay peer created with
-    the room is treated as the host.
-    """
-
-    peers = await peer_repo.get_by_network(room_id)
-    for peer in peers:
-        if str(peer.user_id) == str(user_id) and peer.is_relay:
-            return
+    if room.host_id is not None and str(room.host_id) == str(user_id):
+        return
 
     raise HTTPException(
         status_code=403,
@@ -139,15 +129,6 @@ async def _get_current_user_peer(
     return None
 
 
-async def _get_room_host_id(peer_repo: PeerRepository, room_id: str) -> UUID | None:
-    """Return the relay peer owner's user ID for a room."""
-    peers = await peer_repo.get_by_network(room_id)
-    for peer in peers:
-        if peer.is_relay:
-            return UUID(str(peer.user_id))
-    return None
-
-
 @router.post("", response_model=RoomResponse, status_code=status.HTTP_201_CREATED)
 async def create_room(
     data: RoomCreateRequest,
@@ -166,6 +147,7 @@ async def create_room(
         relay_endpoint=relay_endpoint,
         relay_public_key=public_key,
         private_key_encrypted=encrypt_value(private_key),
+        host_id=str(user.id),
     )
 
     peer_repo = PeerRepository(db)
@@ -182,7 +164,7 @@ async def create_room(
         is_relay=True,
     )
 
-    return vpn_network_to_room_response(network, host_id=UUID(str(user.id)))
+    return vpn_network_to_room_response(network)
 
 
 @router.get("", response_model=list[RoomResponse])
@@ -207,9 +189,7 @@ async def get_room(
 
     network_repo = VpnNetworkRepository(db)
     room = await _ensure_room_member(network_repo, str(user.id), room_id)
-    peer_repo = PeerRepository(db)
-    host_id = await _get_room_host_id(peer_repo, room_id)
-    return vpn_network_to_room_response(room, host_id=host_id)
+    return vpn_network_to_room_response(room)
 
 
 @router.delete("/{room_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -222,9 +202,7 @@ async def delete_room(
 
     network_repo = VpnNetworkRepository(db)
     room = await _ensure_room_member(network_repo, str(user.id), room_id)
-
-    peer_repo = PeerRepository(db)
-    await _ensure_room_host(peer_repo, str(user.id), room_id)
+    await _ensure_room_host(room, str(user.id))
 
     room.is_active = False
     await db.commit()
@@ -257,13 +235,13 @@ async def leave_room(
     """Remove the current user's peer membership from a room."""
 
     network_repo = VpnNetworkRepository(db)
-    await _ensure_room_member(network_repo, str(user.id), room_id)
+    room = await _ensure_room_member(network_repo, str(user.id), room_id)
 
     peer_repo = PeerRepository(db)
     peer = await _get_current_user_peer(peer_repo, str(user.id), room_id)
     if not peer:
         raise HTTPException(status_code=404, detail="Room membership not found")
-    if peer.is_relay:
+    if room.host_id is not None and str(room.host_id) == str(user.id):
         raise HTTPException(
             status_code=409,
             detail="The room host cannot leave; archive the room instead",
@@ -467,10 +445,8 @@ async def create_room_invite(
     """Create a room invite backed by VpnInvite."""
 
     network_repo = VpnNetworkRepository(db)
-    await _ensure_room_member(network_repo, str(user.id), room_id)
-
-    peer_repo = PeerRepository(db)
-    await _ensure_room_host(peer_repo, str(user.id), room_id)
+    room = await _ensure_room_member(network_repo, str(user.id), room_id)
+    await _ensure_room_host(room, str(user.id))
 
     invite_repo = VpnInviteRepository(db)
     invite = await invite_repo.create(
@@ -492,10 +468,8 @@ async def list_room_invites(
     """List active invites for a room."""
 
     network_repo = VpnNetworkRepository(db)
-    await _ensure_room_member(network_repo, str(user.id), room_id)
-
-    peer_repo = PeerRepository(db)
-    await _ensure_room_host(peer_repo, str(user.id), room_id)
+    room = await _ensure_room_member(network_repo, str(user.id), room_id)
+    await _ensure_room_host(room, str(user.id))
 
     invites = await _list_room_invites(db, room_id)
     active_invites = [
@@ -519,15 +493,14 @@ async def revoke_room_invite(
     """Revoke a room invite."""
 
     network_repo = VpnNetworkRepository(db)
-    await _ensure_room_member(network_repo, str(user.id), room_id)
+    room = await _ensure_room_member(network_repo, str(user.id), room_id)
 
     invite = await _get_invite_by_id(db, invite_id)
     if not invite or str(invite.vpn_network_id) != str(room_id):
         raise HTTPException(status_code=404, detail="Invite not found")
 
-    peer_repo = PeerRepository(db)
     try:
-        await _ensure_room_host(peer_repo, str(user.id), room_id)
+        await _ensure_room_host(room, str(user.id))
     except HTTPException:
         if str(invite.creator_id) != str(user.id):
             raise HTTPException(

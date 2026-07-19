@@ -41,6 +41,7 @@ class VpnNetworkRepository:
         relay_endpoint: str | None = None,
         relay_public_key: str | None = None,
         private_key_encrypted: str | None = None,
+        host_id: str | None = None,
     ) -> VpnNetwork:
         network = VpnNetwork(
             name=name,
@@ -49,6 +50,7 @@ class VpnNetworkRepository:
             relay_endpoint=relay_endpoint,
             relay_public_key=relay_public_key,
             private_key_encrypted=private_key_encrypted,
+            host_id=host_id,
         )
         self.db.add(network)
         await self.db.commit()

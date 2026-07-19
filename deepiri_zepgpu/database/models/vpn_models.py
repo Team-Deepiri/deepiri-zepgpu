@@ -55,6 +55,12 @@ class VpnNetwork(UUIDMixin, TimestampMixin, Base):
     relay_public_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
     private_key_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    host_id: Mapped[str | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     peers: Mapped[list[Peer]] = relationship("Peer", back_populates="vpn_network", lazy="dynamic")
     invites: Mapped[list[VpnInvite]] = relationship(

@@ -94,7 +94,7 @@ def _make_invite(**overrides: object) -> SimpleNamespace:
     return invite
 
 
-def _make_room(room_id: object) -> SimpleNamespace:
+def _make_room(room_id: object, host_id: object | None = None) -> SimpleNamespace:
     return SimpleNamespace(
         id=room_id,
         name="Test Room",
@@ -105,6 +105,7 @@ def _make_room(room_id: object) -> SimpleNamespace:
         relay_public_key="relay-public-key",
         relay_endpoint="127.0.0.1",
         listen_port=51820,
+        host_id=host_id,
     )
 
 

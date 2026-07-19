@@ -28,6 +28,7 @@ def test_vpn_network_to_room_response_maps_active_network() -> None:
         is_active=True,
         created_at=created_at,
         updated_at=None,
+        host_id=None,
     )
 
     response = vpn_network_to_room_response(network, host_id=host_id)
@@ -37,6 +38,25 @@ def test_vpn_network_to_room_response_maps_active_network() -> None:
     assert response.host_id == host_id
     assert response.status == "active"
     assert response.created_at == created_at
+
+
+def test_vpn_network_to_room_response_uses_network_host_id() -> None:
+    room_id = uuid4()
+    host_id = uuid4()
+    created_at = datetime.now(UTC)
+
+    network = SimpleNamespace(
+        id=room_id,
+        name="Hosted Room",
+        is_active=True,
+        created_at=created_at,
+        updated_at=None,
+        host_id=host_id,
+    )
+
+    response = vpn_network_to_room_response(network)
+
+    assert response.host_id == host_id
 
 
 def test_vpn_network_to_room_response_maps_archived_network() -> None:
@@ -49,6 +69,7 @@ def test_vpn_network_to_room_response_maps_archived_network() -> None:
         is_active=False,
         created_at=created_at,
         updated_at=None,
+        host_id=None,
     )
 
     response = vpn_network_to_room_response(network)

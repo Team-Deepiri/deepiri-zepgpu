@@ -54,11 +54,13 @@ def vpn_network_to_room_response(
 ) -> RoomResponse:
     """Convert an internal VpnNetwork into a room-facing response."""
 
+    resolved_host_id = host_id if host_id is not None else getattr(network, "host_id", None)
+
     return RoomResponse(
         id=_uuid_value(network.id),
         name=network.name,
         description=None,
-        host_id=_optional_uuid_value(host_id),
+        host_id=_optional_uuid_value(resolved_host_id),
         status="active" if network.is_active else "archived",
         created_at=network.created_at,
         updated_at=getattr(network, "updated_at", None),

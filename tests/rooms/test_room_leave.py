@@ -49,7 +49,7 @@ class FakeGpuShareRepository:
         return 1
 
 
-def _make_peer(*, room_id: object, user_id: object, is_relay: bool = False) -> SimpleNamespace:
+def _make_peer(*, room_id: object, user_id: object) -> SimpleNamespace:
     return SimpleNamespace(
         id=uuid4(),
         user_id=user_id,
@@ -58,7 +58,6 @@ def _make_peer(*, room_id: object, user_id: object, is_relay: bool = False) -> S
         online_status=PeerOnlineStatus.ONLINE,
         last_seen=datetime.now(UTC),
         created_at=datetime.now(UTC),
-        is_relay=is_relay,
     )
 
 
@@ -67,7 +66,8 @@ def test_leave_room_deletes_peer_emits_event_and_unsubscribes(
 ) -> None:
     room_id = uuid4()
     user_id = uuid4()
-    room = SimpleNamespace(id=room_id)
+    host_id = uuid4()
+    room = SimpleNamespace(id=room_id, host_id=host_id)
     peer = _make_peer(room_id=room_id, user_id=user_id)
     peer_repo = FakePeerRepository(object(), peer)
     gpu_repo = FakeGpuShareRepository(object())
@@ -105,8 +105,8 @@ def test_leave_room_deletes_peer_emits_event_and_unsubscribes(
 def test_room_host_cannot_leave(monkeypatch: pytest.MonkeyPatch) -> None:
     room_id = uuid4()
     user_id = uuid4()
-    room = SimpleNamespace(id=room_id)
-    peer = _make_peer(room_id=room_id, user_id=user_id, is_relay=True)
+    room = SimpleNamespace(id=room_id, host_id=user_id)
+    peer = _make_peer(room_id=room_id, user_id=user_id)
     peer_repo = FakePeerRepository(object(), peer)
     emit_event = AsyncMock()
 
