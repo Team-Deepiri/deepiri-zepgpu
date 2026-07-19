@@ -24,9 +24,9 @@ async def test_room_event_reaches_subscribed_client() -> None:
             return_value="user-1",
         ),
         patch(
-            "deepiri_zepgpu.api.server.routes.websocket._user_is_room_member",
+            "deepiri_zepgpu.api.server.routes.websocket._load_user_room_ids",
             new_callable=AsyncMock,
-            return_value=True,
+            return_value={ROOM_ID},
         ),
         client.websocket_connect("/api/v1/ws/rooms?token=ok") as ws,
     ):
@@ -55,9 +55,9 @@ async def test_room_event_does_not_leak_across_rooms() -> None:
             return_value="user-1",
         ),
         patch(
-            "deepiri_zepgpu.api.server.routes.websocket._user_is_room_member",
+            "deepiri_zepgpu.api.server.routes.websocket._load_user_room_ids",
             new_callable=AsyncMock,
-            return_value=True,
+            return_value={ROOM_ID},
         ),
         client.websocket_connect("/api/v1/ws/rooms?token=ok") as ws,
     ):
@@ -81,9 +81,9 @@ async def test_reconnected_client_can_resubscribe_without_stale_delivery() -> No
             return_value="user-1",
         ),
         patch(
-            "deepiri_zepgpu.api.server.routes.websocket._user_is_room_member",
+            "deepiri_zepgpu.api.server.routes.websocket._load_user_room_ids",
             new_callable=AsyncMock,
-            return_value=True,
+            return_value={ROOM_ID},
         ),
     ):
         with client.websocket_connect("/api/v1/ws/rooms?token=ok") as first:

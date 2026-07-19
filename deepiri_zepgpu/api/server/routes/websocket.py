@@ -289,10 +289,12 @@ async def metrics_websocket(  # noqa: C901
         await manager.disconnect(websocket, user_id)
 
 
-async def _user_is_room_member(user_id: str, room_id: str) -> bool:
+async def _load_user_room_ids(user_id: str) -> set[str]:
+    """Load room IDs the user belongs to for WebSocket membership caching."""
     async with get_db_context() as db:
         network_repo = VpnNetworkRepository(db)
-        return await network_repo.user_belongs_to_network(user_id, room_id)
+        networks = await network_repo.list_user_networks(user_id)
+        return {str(network.id) for network in networks}
 
 
 @router.websocket("/ws/rooms")
@@ -312,6 +314,8 @@ async def room_updates_websocket(  # noqa: C901
         return
 
     await manager.connect(websocket, user_id)
+    room_ids = await _load_user_room_ids(user_id)
+    await manager.set_user_room_memberships(user_id, room_ids)
 
     try:
         await websocket.send_json(
@@ -343,7 +347,7 @@ async def room_updates_websocket(  # noqa: C901
                         {"type": "room_error", "detail": "room_id is required"}
                     )
                     continue
-                if not await _user_is_room_member(user_id, room_id):
+                if not manager.user_is_room_member(user_id, room_id):
                     await websocket.send_json(
                         {
                             "type": "room_error",

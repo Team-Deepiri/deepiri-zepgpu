@@ -47,6 +47,11 @@ def test_ws_rooms_connected_ack() -> None:
             new_callable=AsyncMock,
             return_value="user-1",
         ),
+        patch(
+            "deepiri_zepgpu.api.server.routes.websocket._load_user_room_ids",
+            new_callable=AsyncMock,
+            return_value=set(),
+        ),
         client.websocket_connect("/api/v1/ws/rooms?token=ok") as ws,
     ):
         msg = ws.receive_json()
@@ -60,6 +65,11 @@ def test_ws_rooms_ping_pong() -> None:
             "deepiri_zepgpu.api.server.routes.websocket.authenticate_websocket",
             new_callable=AsyncMock,
             return_value="user-1",
+        ),
+        patch(
+            "deepiri_zepgpu.api.server.routes.websocket._load_user_room_ids",
+            new_callable=AsyncMock,
+            return_value=set(),
         ),
         client.websocket_connect("/api/v1/ws/rooms?token=ok") as ws,
     ):
@@ -76,9 +86,9 @@ def test_ws_rooms_subscribe_requires_membership() -> None:
             return_value="user-1",
         ),
         patch(
-            "deepiri_zepgpu.api.server.routes.websocket._user_is_room_member",
+            "deepiri_zepgpu.api.server.routes.websocket._load_user_room_ids",
             new_callable=AsyncMock,
-            return_value=False,
+            return_value=set(),
         ),
         client.websocket_connect("/api/v1/ws/rooms?token=ok") as ws,
     ):
@@ -91,6 +101,7 @@ def test_ws_rooms_subscribe_requires_membership() -> None:
 
 
 def test_ws_rooms_subscribe_member_ack() -> None:
+    room_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
     with (
         patch(
             "deepiri_zepgpu.api.server.routes.websocket.authenticate_websocket",
@@ -98,14 +109,13 @@ def test_ws_rooms_subscribe_member_ack() -> None:
             return_value="user-1",
         ),
         patch(
-            "deepiri_zepgpu.api.server.routes.websocket._user_is_room_member",
+            "deepiri_zepgpu.api.server.routes.websocket._load_user_room_ids",
             new_callable=AsyncMock,
-            return_value=True,
+            return_value={room_id},
         ),
         client.websocket_connect("/api/v1/ws/rooms?token=ok") as ws,
     ):
         assert ws.receive_json()["type"] == "connected"
-        room_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
         ws.send_json({"type": "subscribe_room", "room_id": room_id})
         ack = ws.receive_json()
         assert ack == {"type": "subscribed", "room_id": room_id}

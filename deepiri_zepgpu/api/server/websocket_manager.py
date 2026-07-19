@@ -24,6 +24,7 @@ class ConnectionManager:
         self._socket_to_user_id: dict[WebSocket, str] = {}
         self._room_subscriptions: dict[str, set[WebSocket]] = defaultdict(set)
         self._socket_rooms: dict[WebSocket, set[str]] = defaultdict(set)
+        self._user_room_memberships: dict[str, set[str]] = {}
         self._lock = asyncio.Lock()
 
     async def connect(self, websocket: WebSocket, user_id: str) -> None:
@@ -41,6 +42,7 @@ class ConnectionManager:
                 self._connections[user_id].remove(websocket)
                 if not self._connections[user_id]:
                     del self._connections[user_id]
+                    self._user_room_memberships.pop(user_id, None)
             self._socket_to_user_id.pop(websocket, None)
             self._remove_socket_from_rooms_locked(websocket)
         logger.info(f"WebSocket disconnected for user {user_id}")
@@ -81,7 +83,7 @@ class ConnectionManager:
             self._remove_socket_from_rooms_locked(websocket)
 
     async def unsubscribe_user_from_room(self, user_id: str, room_id: str) -> None:
-        """Remove all of a user's sockets from one room channel."""
+        """Remove all of a user's sockets from one room channel and revoke membership cache."""
         async with self._lock:
             for websocket in list(self._connections.get(user_id, [])):
                 subscribers = self._room_subscriptions.get(room_id)
@@ -96,6 +98,30 @@ class ConnectionManager:
                     if not rooms:
                         del self._socket_rooms[websocket]
 
+            memberships = self._user_room_memberships.get(user_id)
+            if memberships is not None:
+                memberships.discard(room_id)
+
+    async def set_user_room_memberships(self, user_id: str, room_ids: set[str]) -> None:
+        """Replace the cached room memberships for a user."""
+        async with self._lock:
+            self._user_room_memberships[user_id] = set(room_ids)
+
+    async def grant_room_membership(self, user_id: str, room_id: str) -> None:
+        """Add a room to the user's membership cache if they are connected."""
+        async with self._lock:
+            if user_id not in self._connections and user_id not in self._user_room_memberships:
+                return
+            memberships = self._user_room_memberships.setdefault(user_id, set())
+            memberships.add(room_id)
+
+    def user_is_room_member(self, user_id: str, room_id: str) -> bool:
+        """Return whether the cached membership set includes the room."""
+        memberships = self._user_room_memberships.get(user_id)
+        if memberships is None:
+            return False
+        return room_id in memberships
+
     async def _drop_dead_socket(self, websocket: WebSocket) -> None:
         """Remove a failed socket from user and room indexes."""
         async with self._lock:
@@ -106,6 +132,7 @@ class ConnectionManager:
                     connections.remove(websocket)
                     if not connections:
                         del self._connections[user_id]
+                        self._user_room_memberships.pop(user_id, None)
             self._remove_socket_from_rooms_locked(websocket)
 
     async def send_personal_message(self, message: dict[str, Any], user_id: str) -> None:

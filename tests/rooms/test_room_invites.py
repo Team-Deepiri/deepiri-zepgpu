@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
@@ -253,6 +254,8 @@ def test_join_room_success_creates_peer_and_uses_invite(
     )
     monkeypatch.setattr(rooms, "generate_keypair", lambda: ("private-key", "public-key"))
     monkeypatch.setattr(rooms, "encrypt_value", lambda value: f"encrypted-{value}")
+    grant_membership = AsyncMock()
+    monkeypatch.setattr(rooms.manager, "grant_room_membership", grant_membership)
 
     response = asyncio.run(
         rooms.join_room(
@@ -266,6 +269,7 @@ def test_join_room_success_creates_peer_and_uses_invite(
     assert response.member.user_id == user_id
     assert response.member.status == "disconnected"
     assert response.config_available is True
+    grant_membership.assert_awaited_once_with(str(user_id), str(room_id))
 
     assert FakeInviteRepository.last_instance is not None
     assert FakeInviteRepository.last_instance.used_invite == invite

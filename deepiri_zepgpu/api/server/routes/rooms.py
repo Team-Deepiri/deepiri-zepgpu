@@ -164,6 +164,7 @@ async def create_room(
         is_relay=True,
     )
 
+    await manager.grant_room_membership(str(user.id), str(network.id))
     return vpn_network_to_room_response(network)
 
 
@@ -563,6 +564,7 @@ async def join_room(
     await invite_repo.use(invite)
 
     member = peer_to_room_member_response(peer)
+    await manager.grant_room_membership(str(user.id), str(room.id))
     await emit_room_event(
         str(room.id),
         "room_member_joined",

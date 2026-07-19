@@ -159,3 +159,81 @@ async def test_unsubscribe_user_from_room_removes_all_user_sockets_only() -> Non
     user_socket_b.send_json.assert_not_awaited()
     other_socket.send_json.assert_awaited_once()
     assert mgr.get_room_subscriber_count(room_id) == 1
+
+
+@pytest.mark.asyncio
+async def test_set_and_lookup_room_memberships() -> None:
+    mgr = ConnectionManager()
+    room_a = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    room_b = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+    ws = _fake_ws()
+    await mgr.connect(ws, "user-1")
+
+    await mgr.set_user_room_memberships("user-1", {room_a})
+    assert mgr.user_is_room_member("user-1", room_a) is True
+    assert mgr.user_is_room_member("user-1", room_b) is False
+
+
+@pytest.mark.asyncio
+async def test_grant_room_membership_for_connected_user() -> None:
+    mgr = ConnectionManager()
+    room_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    ws = _fake_ws()
+    await mgr.connect(ws, "user-1")
+    await mgr.set_user_room_memberships("user-1", set())
+
+    await mgr.grant_room_membership("user-1", room_id)
+    assert mgr.user_is_room_member("user-1", room_id) is True
+
+
+@pytest.mark.asyncio
+async def test_grant_room_membership_skipped_when_user_offline() -> None:
+    mgr = ConnectionManager()
+    room_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+
+    await mgr.grant_room_membership("user-1", room_id)
+    assert mgr.user_is_room_member("user-1", room_id) is False
+
+
+@pytest.mark.asyncio
+async def test_unsubscribe_user_from_room_revokes_membership_cache() -> None:
+    mgr = ConnectionManager()
+    room_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    ws = _fake_ws()
+    await mgr.connect(ws, "user-1")
+    await mgr.set_user_room_memberships("user-1", {room_id})
+    await mgr.subscribe_room(ws, room_id)
+
+    await mgr.unsubscribe_user_from_room("user-1", room_id)
+
+    assert mgr.user_is_room_member("user-1", room_id) is False
+    assert mgr.get_room_subscriber_count(room_id) == 0
+
+
+@pytest.mark.asyncio
+async def test_disconnect_clears_memberships_when_last_socket_closes() -> None:
+    mgr = ConnectionManager()
+    room_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    ws = _fake_ws()
+    await mgr.connect(ws, "user-1")
+    await mgr.set_user_room_memberships("user-1", {room_id})
+
+    await mgr.disconnect(ws, "user-1")
+    assert mgr.user_is_room_member("user-1", room_id) is False
+
+
+@pytest.mark.asyncio
+async def test_memberships_retained_while_another_socket_remains() -> None:
+    mgr = ConnectionManager()
+    room_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    ws_a = _fake_ws()
+    ws_b = _fake_ws()
+    await mgr.connect(ws_a, "user-1")
+    await mgr.connect(ws_b, "user-1")
+    await mgr.set_user_room_memberships("user-1", {room_id})
+
+    await mgr.disconnect(ws_a, "user-1")
+    assert mgr.user_is_room_member("user-1", room_id) is True
+
+    await mgr.disconnect(ws_b, "user-1")
+    assert mgr.user_is_room_member("user-1", room_id) is False
