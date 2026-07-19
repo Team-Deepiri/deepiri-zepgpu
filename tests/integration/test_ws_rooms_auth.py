@@ -48,7 +48,7 @@ def test_ws_rooms_connected_ack() -> None:
             return_value="user-1",
         ),
         patch(
-            "deepiri_zepgpu.api.server.routes.websocket._load_user_room_ids",
+            "deepiri_zepgpu.api.server.routes.websocket._resolve_user_room_ids",
             new_callable=AsyncMock,
             return_value=set(),
         ),
@@ -67,7 +67,7 @@ def test_ws_rooms_ping_pong() -> None:
             return_value="user-1",
         ),
         patch(
-            "deepiri_zepgpu.api.server.routes.websocket._load_user_room_ids",
+            "deepiri_zepgpu.api.server.routes.websocket._resolve_user_room_ids",
             new_callable=AsyncMock,
             return_value=set(),
         ),
@@ -86,7 +86,7 @@ def test_ws_rooms_subscribe_requires_membership() -> None:
             return_value="user-1",
         ),
         patch(
-            "deepiri_zepgpu.api.server.routes.websocket._load_user_room_ids",
+            "deepiri_zepgpu.api.server.routes.websocket._resolve_user_room_ids",
             new_callable=AsyncMock,
             return_value=set(),
         ),
@@ -109,7 +109,7 @@ def test_ws_rooms_subscribe_member_ack() -> None:
             return_value="user-1",
         ),
         patch(
-            "deepiri_zepgpu.api.server.routes.websocket._load_user_room_ids",
+            "deepiri_zepgpu.api.server.routes.websocket._resolve_user_room_ids",
             new_callable=AsyncMock,
             return_value={room_id},
         ),

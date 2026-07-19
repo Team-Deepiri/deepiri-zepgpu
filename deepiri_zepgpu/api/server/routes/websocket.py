@@ -290,11 +290,19 @@ async def metrics_websocket(  # noqa: C901
 
 
 async def _load_user_room_ids(user_id: str) -> set[str]:
-    """Load room IDs the user belongs to for WebSocket membership caching."""
+    """Load room IDs the user belongs to from the database."""
     async with get_db_context() as db:
         network_repo = VpnNetworkRepository(db)
         networks = await network_repo.list_user_networks(user_id)
         return {str(network.id) for network in networks}
+
+
+async def _resolve_user_room_ids(user_id: str) -> set[str]:
+    """Prefer Redis membership cache; fall back to DB (write-through via set_user_room_memberships)."""
+    cached = manager.membership_cache.get_rooms(user_id)
+    if cached is not None:
+        return cached
+    return await _load_user_room_ids(user_id)
 
 
 @router.websocket("/ws/rooms")
@@ -314,7 +322,7 @@ async def room_updates_websocket(  # noqa: C901
         return
 
     await manager.connect(websocket, user_id)
-    room_ids = await _load_user_room_ids(user_id)
+    room_ids = await _resolve_user_room_ids(user_id)
     await manager.set_user_room_memberships(user_id, room_ids)
 
     try:

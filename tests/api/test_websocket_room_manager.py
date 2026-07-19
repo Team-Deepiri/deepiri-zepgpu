@@ -6,7 +6,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from deepiri_zepgpu.api.server.room_membership_cache import RoomMembershipCache
 from deepiri_zepgpu.api.server.websocket_manager import ConnectionManager
+from tests.rooms.conftest import FakeRedis
 
 
 def _fake_ws() -> MagicMock:
@@ -16,9 +18,13 @@ def _fake_ws() -> MagicMock:
     return ws
 
 
+def _mgr() -> ConnectionManager:
+    return ConnectionManager(membership_cache=RoomMembershipCache(client=FakeRedis()))
+
+
 @pytest.mark.asyncio
 async def test_subscribe_and_broadcast_to_room_only() -> None:
-    mgr = ConnectionManager()
+    mgr = _mgr()
     room_a = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
     room_b = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
 
@@ -38,7 +44,7 @@ async def test_subscribe_and_broadcast_to_room_only() -> None:
 
 @pytest.mark.asyncio
 async def test_unsubscribe_room_stops_delivery() -> None:
-    mgr = ConnectionManager()
+    mgr = _mgr()
     room_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
     ws = _fake_ws()
     await mgr.connect(ws, "user-1")
@@ -52,7 +58,7 @@ async def test_unsubscribe_room_stops_delivery() -> None:
 
 @pytest.mark.asyncio
 async def test_disconnect_clears_room_subscriptions() -> None:
-    mgr = ConnectionManager()
+    mgr = _mgr()
     room_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
     ws = _fake_ws()
     await mgr.connect(ws, "user-1")
@@ -67,7 +73,7 @@ async def test_disconnect_clears_room_subscriptions() -> None:
 
 @pytest.mark.asyncio
 async def test_multi_room_same_socket() -> None:
-    mgr = ConnectionManager()
+    mgr = _mgr()
     room_a = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
     room_b = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
     ws = _fake_ws()
@@ -82,7 +88,7 @@ async def test_multi_room_same_socket() -> None:
 
 @pytest.mark.asyncio
 async def test_failed_send_drops_socket_from_room() -> None:
-    mgr = ConnectionManager()
+    mgr = _mgr()
     room_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
     ws = _fake_ws()
     ws.send_json = AsyncMock(side_effect=RuntimeError("gone"))
@@ -96,7 +102,7 @@ async def test_failed_send_drops_socket_from_room() -> None:
 
 @pytest.mark.asyncio
 async def test_unsubscribe_all() -> None:
-    mgr = ConnectionManager()
+    mgr = _mgr()
     room_a = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
     room_b = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
     ws = _fake_ws()
@@ -111,7 +117,7 @@ async def test_unsubscribe_all() -> None:
 
 @pytest.mark.asyncio
 async def test_failed_send_drops_only_dead_socket_among_many_users() -> None:
-    mgr = ConnectionManager()
+    mgr = _mgr()
     room_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
     dead = _fake_ws()
     dead.send_json = AsyncMock(side_effect=RuntimeError("gone"))
@@ -139,7 +145,7 @@ async def test_failed_send_drops_only_dead_socket_among_many_users() -> None:
 
 @pytest.mark.asyncio
 async def test_unsubscribe_user_from_room_removes_all_user_sockets_only() -> None:
-    mgr = ConnectionManager()
+    mgr = _mgr()
     room_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
     user_socket_a = _fake_ws()
     user_socket_b = _fake_ws()
@@ -163,7 +169,7 @@ async def test_unsubscribe_user_from_room_removes_all_user_sockets_only() -> Non
 
 @pytest.mark.asyncio
 async def test_set_and_lookup_room_memberships() -> None:
-    mgr = ConnectionManager()
+    mgr = _mgr()
     room_a = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
     room_b = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
     ws = _fake_ws()
@@ -176,7 +182,7 @@ async def test_set_and_lookup_room_memberships() -> None:
 
 @pytest.mark.asyncio
 async def test_grant_room_membership_for_connected_user() -> None:
-    mgr = ConnectionManager()
+    mgr = _mgr()
     room_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
     ws = _fake_ws()
     await mgr.connect(ws, "user-1")
@@ -187,17 +193,20 @@ async def test_grant_room_membership_for_connected_user() -> None:
 
 
 @pytest.mark.asyncio
-async def test_grant_room_membership_skipped_when_user_offline() -> None:
-    mgr = ConnectionManager()
+async def test_grant_room_membership_writes_redis_when_offline() -> None:
+    mgr = _mgr()
     room_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 
     await mgr.grant_room_membership("user-1", room_id)
-    assert mgr.user_is_room_member("user-1", room_id) is False
+    # L1 stays cold while offline, but Redis L2 records the grant for reconnect.
+    assert "user-1" not in mgr._user_room_memberships
+    assert mgr.membership_cache.contains("user-1", room_id) is True
+    assert mgr.user_is_room_member("user-1", room_id) is True
 
 
 @pytest.mark.asyncio
 async def test_unsubscribe_user_from_room_revokes_membership_cache() -> None:
-    mgr = ConnectionManager()
+    mgr = _mgr()
     room_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
     ws = _fake_ws()
     await mgr.connect(ws, "user-1")
@@ -211,20 +220,23 @@ async def test_unsubscribe_user_from_room_revokes_membership_cache() -> None:
 
 
 @pytest.mark.asyncio
-async def test_disconnect_clears_memberships_when_last_socket_closes() -> None:
-    mgr = ConnectionManager()
+async def test_disconnect_clears_l1_but_redis_survives_for_reconnect() -> None:
+    mgr = _mgr()
     room_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
     ws = _fake_ws()
     await mgr.connect(ws, "user-1")
     await mgr.set_user_room_memberships("user-1", {room_id})
 
     await mgr.disconnect(ws, "user-1")
-    assert mgr.user_is_room_member("user-1", room_id) is False
+    assert "user-1" not in mgr._user_room_memberships
+    # Redis L2 retained so the next connect can skip the DB.
+    assert mgr.membership_cache.contains("user-1", room_id) is True
+    assert mgr.user_is_room_member("user-1", room_id) is True
 
 
 @pytest.mark.asyncio
 async def test_memberships_retained_while_another_socket_remains() -> None:
-    mgr = ConnectionManager()
+    mgr = _mgr()
     room_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
     ws_a = _fake_ws()
     ws_b = _fake_ws()
@@ -236,4 +248,6 @@ async def test_memberships_retained_while_another_socket_remains() -> None:
     assert mgr.user_is_room_member("user-1", room_id) is True
 
     await mgr.disconnect(ws_b, "user-1")
-    assert mgr.user_is_room_member("user-1", room_id) is False
+    # L1 cleared; Redis still authorizes until leave/revoke.
+    assert "user-1" not in mgr._user_room_memberships
+    assert mgr.user_is_room_member("user-1", room_id) is True

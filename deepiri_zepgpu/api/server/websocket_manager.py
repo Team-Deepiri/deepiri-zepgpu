@@ -9,6 +9,8 @@ from typing import Any
 
 from fastapi import WebSocket
 
+from deepiri_zepgpu.api.server.room_membership_cache import RoomMembershipCache
+
 logger = logging.getLogger(__name__)
 
 
@@ -17,15 +19,23 @@ class ConnectionManager:
 
     User-scoped connections power ``/ws/tasks|gpus|metrics``.
     Room channels power ``/ws/rooms`` subscribers via ``subscribe_room``.
+
+    Room membership uses a process-local L1 map plus Redis L2 so reconnects and
+    multi-worker join/leave stay correct without a DB hit on every connect.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, membership_cache: RoomMembershipCache | None = None) -> None:
         self._connections: dict[str, list[WebSocket]] = defaultdict(list)
         self._socket_to_user_id: dict[WebSocket, str] = {}
         self._room_subscriptions: dict[str, set[WebSocket]] = defaultdict(set)
         self._socket_rooms: dict[WebSocket, set[str]] = defaultdict(set)
         self._user_room_memberships: dict[str, set[str]] = {}
+        self._membership_cache = membership_cache or RoomMembershipCache()
         self._lock = asyncio.Lock()
+
+    @property
+    def membership_cache(self) -> RoomMembershipCache:
+        return self._membership_cache
 
     async def connect(self, websocket: WebSocket, user_id: str) -> None:
         """Connect a new WebSocket client."""
@@ -101,14 +111,17 @@ class ConnectionManager:
             memberships = self._user_room_memberships.get(user_id)
             if memberships is not None:
                 memberships.discard(room_id)
+        self._membership_cache.remove(user_id, room_id)
 
     async def set_user_room_memberships(self, user_id: str, room_ids: set[str]) -> None:
-        """Replace the cached room memberships for a user."""
+        """Replace L1 + Redis memberships for a user (after connect hydrate)."""
         async with self._lock:
             self._user_room_memberships[user_id] = set(room_ids)
+        self._membership_cache.replace(user_id, set(room_ids))
 
     async def grant_room_membership(self, user_id: str, room_id: str) -> None:
-        """Add a room to the user's membership cache if they are connected."""
+        """Grant membership in Redis always; warm L1 when the user is present."""
+        self._membership_cache.add(user_id, room_id)
         async with self._lock:
             if user_id not in self._connections and user_id not in self._user_room_memberships:
                 return
@@ -116,11 +129,13 @@ class ConnectionManager:
             memberships.add(room_id)
 
     def user_is_room_member(self, user_id: str, room_id: str) -> bool:
-        """Return whether the cached membership set includes the room."""
+        """L1 first, then Redis (cross-worker grants / reconnect without DB)."""
         memberships = self._user_room_memberships.get(user_id)
-        if memberships is None:
-            return False
-        return room_id in memberships
+        if memberships is not None and room_id in memberships:
+            return True
+        if self._membership_cache.contains(user_id, room_id):
+            return True
+        return False
 
     async def _drop_dead_socket(self, websocket: WebSocket) -> None:
         """Remove a failed socket from user and room indexes."""
