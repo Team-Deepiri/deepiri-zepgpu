@@ -305,8 +305,62 @@ async def _resolve_user_room_ids(user_id: str) -> set[str]:
     return await _load_user_room_ids(user_id)
 
 
+async def _handle_room_client_message(
+    websocket: WebSocket,
+    user_id: str,
+    data: object,
+) -> None:
+    """Dispatch one client JSON message for ``/ws/rooms``."""
+    if not isinstance(data, dict):
+        await websocket.send_json(
+            {"type": "room_error", "detail": "Message must be a JSON object"}
+        )
+        return
+
+    msg_type = data.get("type")
+
+    if msg_type == "ping":
+        await websocket.send_json({"type": "pong"})
+        return
+
+    if msg_type == "subscribe_room":
+        room_id = data.get("room_id")
+        if not room_id or not isinstance(room_id, str):
+            await websocket.send_json(
+                {"type": "room_error", "detail": "room_id is required"}
+            )
+            return
+        if not manager.user_is_room_member(user_id, room_id):
+            await websocket.send_json(
+                {
+                    "type": "room_error",
+                    "room_id": room_id,
+                    "detail": "Not a member of this room",
+                }
+            )
+            return
+        await manager.subscribe_room(websocket, room_id)
+        await websocket.send_json({"type": "subscribed", "room_id": room_id})
+        return
+
+    if msg_type == "unsubscribe_room":
+        room_id = data.get("room_id")
+        if not room_id or not isinstance(room_id, str):
+            await websocket.send_json(
+                {"type": "room_error", "detail": "room_id is required"}
+            )
+            return
+        await manager.unsubscribe_room(websocket, room_id)
+        await websocket.send_json({"type": "unsubscribed", "room_id": room_id})
+        return
+
+    await websocket.send_json(
+        {"type": "room_error", "detail": f"Unknown message type: {msg_type}"}
+    )
+
+
 @router.websocket("/ws/rooms")
-async def room_updates_websocket(  # noqa: C901
+async def room_updates_websocket(
     websocket: WebSocket,
     token: str | None = Query(None),
 ) -> None:
@@ -336,52 +390,7 @@ async def room_updates_websocket(  # noqa: C901
 
         while True:
             data = await websocket.receive_json()
-            if not isinstance(data, dict):
-                await websocket.send_json(
-                    {"type": "room_error", "detail": "Message must be a JSON object"}
-                )
-                continue
-
-            msg_type = data.get("type")
-
-            if msg_type == "ping":
-                await websocket.send_json({"type": "pong"})
-                continue
-
-            if msg_type == "subscribe_room":
-                room_id = data.get("room_id")
-                if not room_id or not isinstance(room_id, str):
-                    await websocket.send_json(
-                        {"type": "room_error", "detail": "room_id is required"}
-                    )
-                    continue
-                if not manager.user_is_room_member(user_id, room_id):
-                    await websocket.send_json(
-                        {
-                            "type": "room_error",
-                            "room_id": room_id,
-                            "detail": "Not a member of this room",
-                        }
-                    )
-                    continue
-                await manager.subscribe_room(websocket, room_id)
-                await websocket.send_json({"type": "subscribed", "room_id": room_id})
-                continue
-
-            if msg_type == "unsubscribe_room":
-                room_id = data.get("room_id")
-                if not room_id or not isinstance(room_id, str):
-                    await websocket.send_json(
-                        {"type": "room_error", "detail": "room_id is required"}
-                    )
-                    continue
-                await manager.unsubscribe_room(websocket, room_id)
-                await websocket.send_json({"type": "unsubscribed", "room_id": room_id})
-                continue
-
-            await websocket.send_json(
-                {"type": "room_error", "detail": f"Unknown message type: {msg_type}"}
-            )
+            await _handle_room_client_message(websocket, user_id, data)
 
     except WebSocketDisconnect:
         pass
