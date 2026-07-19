@@ -312,9 +312,7 @@ async def _handle_room_client_message(
 ) -> None:
     """Dispatch one client JSON message for ``/ws/rooms``."""
     if not isinstance(data, dict):
-        await websocket.send_json(
-            {"type": "room_error", "detail": "Message must be a JSON object"}
-        )
+        await websocket.send_json({"type": "room_error", "detail": "Message must be a JSON object"})
         return
 
     msg_type = data.get("type")
@@ -326,9 +324,7 @@ async def _handle_room_client_message(
     if msg_type == "subscribe_room":
         room_id = data.get("room_id")
         if not room_id or not isinstance(room_id, str):
-            await websocket.send_json(
-                {"type": "room_error", "detail": "room_id is required"}
-            )
+            await websocket.send_json({"type": "room_error", "detail": "room_id is required"})
             return
         if not manager.user_is_room_member(user_id, room_id):
             await websocket.send_json(
@@ -346,17 +342,13 @@ async def _handle_room_client_message(
     if msg_type == "unsubscribe_room":
         room_id = data.get("room_id")
         if not room_id or not isinstance(room_id, str):
-            await websocket.send_json(
-                {"type": "room_error", "detail": "room_id is required"}
-            )
+            await websocket.send_json({"type": "room_error", "detail": "room_id is required"})
             return
         await manager.unsubscribe_room(websocket, room_id)
         await websocket.send_json({"type": "unsubscribed", "room_id": room_id})
         return
 
-    await websocket.send_json(
-        {"type": "room_error", "detail": f"Unknown message type: {msg_type}"}
-    )
+    await websocket.send_json({"type": "room_error", "detail": f"Unknown message type: {msg_type}"})
 
 
 @router.websocket("/ws/rooms")
