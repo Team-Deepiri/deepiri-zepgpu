@@ -152,7 +152,7 @@ class FakeRedis:
     def sismember(self, key: str, value: str) -> bool:
         return str(value) in self._sets.get(key, set())
 
-    def pipeline(self) -> "FakeRedisPipeline":
+    def pipeline(self) -> FakeRedisPipeline:
         return FakeRedisPipeline(self)
 
 
@@ -161,19 +161,19 @@ class FakeRedisPipeline:
         self._client = client
         self._ops: list[tuple] = []
 
-    def delete(self, *keys: str) -> "FakeRedisPipeline":
+    def delete(self, *keys: str) -> FakeRedisPipeline:
         self._ops.append(("delete", keys))
         return self
 
-    def sadd(self, key: str, *values: str) -> "FakeRedisPipeline":
+    def sadd(self, key: str, *values: str) -> FakeRedisPipeline:
         self._ops.append(("sadd", key, values))
         return self
 
-    def srem(self, key: str, *values: str) -> "FakeRedisPipeline":
+    def srem(self, key: str, *values: str) -> FakeRedisPipeline:
         self._ops.append(("srem", key, values))
         return self
 
-    def expire(self, key: str, ttl: int) -> "FakeRedisPipeline":
+    def expire(self, key: str, ttl: int) -> FakeRedisPipeline:
         self._ops.append(("expire", key, ttl))
         return self
 
