@@ -21,6 +21,7 @@ from deepiri_zepgpu.node_agent.fake_gpu_metrics import (
     FakeGpuConfig,
     build_fake_gpu_payload,
 )
+from scripts.utils import auth_headers
 
 PEER_TOKEN_KEYS = {
     "auth_token",
@@ -29,6 +30,14 @@ PEER_TOKEN_KEYS = {
     "node_token",
     "agent_token",
 }
+
+TOKEN_CONTAINER_KEYS = (
+    "config",
+    "peer",
+    "node",
+    "credentials",
+    "auth",
+)
 
 ROOM_NODE_LIST_PATHS = (
     "/api/v1/rooms/{room_id}/nodes",
@@ -95,10 +104,6 @@ def parse_args() -> argparse.Namespace:
     )
 
     return parser.parse_args()
-
-
-def auth_headers(token: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {token}"}
 
 
 def write_state_file(path: str, config: SimulatedNodeConfig) -> None:
@@ -239,20 +244,44 @@ async def resolve_peer(
     )
 
 
+def token_from_mapping(payload: dict[str, Any]) -> str | None:
+    """Extract a peer/node token from known response shapes first."""
+    for key in PEER_TOKEN_KEYS:
+        value = payload.get(key)
+        if isinstance(value, str) and value:
+            return value
+
+    for container_key in TOKEN_CONTAINER_KEYS:
+        nested = payload.get(container_key)
+        if not isinstance(nested, dict):
+            continue
+
+        for key in PEER_TOKEN_KEYS:
+            value = nested.get(key)
+            if isinstance(value, str) and value:
+                return value
+
+    return None
+
+
 def find_token_in_payload(
     payload: Any,
     *,
     max_depth: int = 8,
     current_depth: int = 0,
 ) -> str | None:
-    """Search a bounded response payload for a peer/node auth token."""
+    """Search a bounded response payload for a peer/node auth token.
+
+    Known response shapes are checked first so the recursive fallback stays
+    compatibility-focused rather than being the primary extraction path.
+    """
     if current_depth > max_depth:
         return None
 
     if isinstance(payload, dict):
-        for key, value in payload.items():
-            if key in PEER_TOKEN_KEYS and isinstance(value, str) and value:
-                return value
+        token = token_from_mapping(payload)
+        if token:
+            return token
 
         for value in payload.values():
             found = find_token_in_payload(

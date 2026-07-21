@@ -20,6 +20,7 @@ from typing import Any
 import httpx
 
 from scripts.run_simulated_room_node import bootstrap, complete_one_pending_noop, run
+from scripts.utils import auth_headers
 
 
 def parse_args() -> argparse.Namespace:
@@ -37,10 +38,6 @@ def parse_args() -> argparse.Namespace:
         help="HTTP request timeout in seconds.",
     )
     return parser.parse_args()
-
-
-def auth_headers(token: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {token}"}
 
 
 async def require_health(client: httpx.AsyncClient) -> None:
