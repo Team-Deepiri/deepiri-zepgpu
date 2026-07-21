@@ -5,6 +5,8 @@ register/login, create a room, register a simulated node, and send fake GPU
 heartbeats without requiring a real GPU or cloud deployment.
 """
 
+from __future__ import annotations
+
 import argparse
 import asyncio
 import json
@@ -18,6 +20,25 @@ import httpx
 from deepiri_zepgpu.node_agent.fake_gpu_metrics import (
     FakeGpuConfig,
     build_fake_gpu_payload,
+)
+
+PEER_TOKEN_KEYS = {
+    "auth_token",
+    "peer_auth_token",
+    "node_auth_token",
+    "node_token",
+    "agent_token",
+}
+
+ROOM_NODE_LIST_PATHS = (
+    "/api/v1/rooms/{room_id}/nodes",
+    "/api/v1/rooms/{room_id}/peers",
+    "/api/v1/vpn/networks/{room_id}/peers",
+)
+
+PEER_TOKEN_CONFIG_PATHS = (
+    "/api/v1/rooms/{room_id}/config",
+    "/api/v1/vpn/networks/{room_id}/config",
 )
 
 
@@ -56,7 +77,6 @@ def parse_args() -> argparse.Namespace:
         default=".phase8_sim_state.json",
         help="Local dev state file for generated token, room id, and peer id.",
     )
-
     parser.add_argument(
         "--peer-token",
         default=None,
@@ -67,7 +87,6 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Poll and complete one pending no-op node task.",
     )
-
     parser.add_argument(
         "--request-timeout",
         type=float,
@@ -178,12 +197,7 @@ async def resolve_peer(
     because the backend checks that the peer exists in the room.
     """
     headers = auth_headers(token)
-
-    list_paths = [
-        f"/api/v1/rooms/{room_id}/nodes",
-        f"/api/v1/rooms/{room_id}/peers",
-        f"/api/v1/vpn/networks/{room_id}/peers",
-    ]
+    list_paths = [path.format(room_id=room_id) for path in ROOM_NODE_LIST_PATHS]
 
     last_error = ""
     for path in list_paths:
@@ -219,6 +233,7 @@ async def resolve_peer(
 
     raise RuntimeError(
         "Could not resolve a real peer for the room. "
+        f"node_name={node_name}. "
         f"Last error: {last_error}. "
         "Next step is to use the room invite/join API to create a simulated peer."
     )
@@ -234,17 +249,9 @@ def find_token_in_payload(
     if current_depth > max_depth:
         return None
 
-    token_keys = {
-        "auth_token",
-        "peer_auth_token",
-        "node_auth_token",
-        "node_token",
-        "agent_token",
-    }
-
     if isinstance(payload, dict):
         for key, value in payload.items():
-            if key in token_keys and isinstance(value, str) and value:
+            if key in PEER_TOKEN_KEYS and isinstance(value, str) and value:
                 return value
 
         for value in payload.values():
@@ -276,11 +283,7 @@ async def resolve_peer_token(
 ) -> str | None:
     """Try to fetch the peer/node token from local room config endpoints."""
     headers = auth_headers(token)
-
-    config_paths = [
-        f"/api/v1/rooms/{room_id}/config",
-        f"/api/v1/vpn/networks/{room_id}/config",
-    ]
+    config_paths = [path.format(room_id=room_id) for path in PEER_TOKEN_CONFIG_PATHS]
 
     last_error = ""
     for path in config_paths:
@@ -296,7 +299,7 @@ async def resolve_peer_token(
             print(f"[peer] resolved peer auth token from {path}")
             return peer_token
 
-        print(f"[peer] config endpoint had no peer token: {path}")
+        print(f"[peer] config endpoint did not expose peer token: {path}")
 
     print(f"[peer] could not resolve peer token. Last error: {last_error}")
     return None
@@ -374,7 +377,11 @@ async def send_heartbeat(client: httpx.AsyncClient, config: SimulatedNodeConfig)
     )
 
     if response.status_code == 404:
-        response = await client.post("/api/v1/vpn/peers/heartbeat", json=payload)
+        response = await client.post(
+            "/api/v1/vpn/peers/heartbeat",
+            headers=auth_headers(config.token),
+            json=payload,
+        )
 
     if response.status_code >= 400:
         print(f"[heartbeat] failed {response.status_code}: {response.text}")

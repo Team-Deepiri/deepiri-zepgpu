@@ -30,6 +30,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--room-name", default="Phase 8 Smoke Room")
     parser.add_argument("--node-name", default="phase8-smoke-node")
     parser.add_argument("--gpu-count", type=int, default=1)
+    parser.add_argument(
+        "--request-timeout",
+        type=float,
+        default=20.0,
+        help="HTTP request timeout in seconds.",
+    )
     return parser.parse_args()
 
 
@@ -150,12 +156,6 @@ async def require_task_completed(
 
 
 async def main_async(args: argparse.Namespace) -> int:
-    async with httpx.AsyncClient(
-        base_url=args.base_url.rstrip("/"),
-        timeout=20.0,
-    ) as client:
-        await require_health(client)
-
     config_args = argparse.Namespace(
         base_url=args.base_url,
         email=args.email,
@@ -171,25 +171,23 @@ async def main_async(args: argparse.Namespace) -> int:
         once=True,
         complete_pending=False,
         state_file=".phase8_sim_state.json",
-        request_timeout=20.0,
+        request_timeout=args.request_timeout,
     )
 
-    config = await bootstrap(config_args)
-    await run(config, once=True, complete_pending=False)
-
     async with httpx.AsyncClient(
-        base_url=config.base_url,
-        timeout=20.0,
+        base_url=args.base_url.rstrip("/"),
+        timeout=args.request_timeout,
     ) as client:
+        await require_health(client)
+
+        config = await bootstrap(config_args)
+        await run(config, once=True, complete_pending=False)
+
         await require_gpu_pool(client, config.token, config.room_id)
         await require_node_online(client, config.token, config.room_id)
 
         task = await submit_room_auto_task(client, config.token, config.room_id)
 
-    async with httpx.AsyncClient(
-        base_url=config.base_url,
-        timeout=20.0,
-    ) as client:
         completed = await complete_one_pending_noop(client, config)
         if not completed:
             raise RuntimeError("Simulated node did not complete a pending task")
