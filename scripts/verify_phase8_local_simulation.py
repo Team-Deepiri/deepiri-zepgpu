@@ -171,6 +171,7 @@ async def main_async(args: argparse.Namespace) -> int:
         once=True,
         complete_pending=False,
         state_file=".phase8_sim_state.json",
+        request_timeout=20.0,
     )
 
     config = await bootstrap(config_args)

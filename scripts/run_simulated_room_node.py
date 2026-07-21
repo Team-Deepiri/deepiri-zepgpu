@@ -31,6 +31,7 @@ class SimulatedNodeConfig:
     gpu_count: int
     heartbeat_interval: float
     peer_token: str | None = None
+    request_timeout: float = 20.0
 
 
 def parse_args() -> argparse.Namespace:
@@ -65,6 +66,13 @@ def parse_args() -> argparse.Namespace:
         "--complete-pending",
         action="store_true",
         help="Poll and complete one pending no-op node task.",
+    )
+
+    parser.add_argument(
+        "--request-timeout",
+        type=float,
+        default=20.0,
+        help="HTTP request timeout in seconds.",
     )
 
     return parser.parse_args()
@@ -216,8 +224,16 @@ async def resolve_peer(
     )
 
 
-def find_token_in_payload(payload: Any) -> str | None:
-    """Recursively search a response payload for a peer/node auth token."""
+def find_token_in_payload(
+    payload: Any,
+    *,
+    max_depth: int = 8,
+    current_depth: int = 0,
+) -> str | None:
+    """Search a bounded response payload for a peer/node auth token."""
+    if current_depth > max_depth:
+        return None
+
     token_keys = {
         "auth_token",
         "peer_auth_token",
@@ -232,13 +248,21 @@ def find_token_in_payload(payload: Any) -> str | None:
                 return value
 
         for value in payload.values():
-            found = find_token_in_payload(value)
+            found = find_token_in_payload(
+                value,
+                max_depth=max_depth,
+                current_depth=current_depth + 1,
+            )
             if found:
                 return found
 
     if isinstance(payload, list):
         for item in payload:
-            found = find_token_in_payload(item)
+            found = find_token_in_payload(
+                item,
+                max_depth=max_depth,
+                current_depth=current_depth + 1,
+            )
             if found:
                 return found
 
@@ -281,7 +305,10 @@ async def resolve_peer_token(
 async def bootstrap(args: argparse.Namespace) -> SimulatedNodeConfig:
     base_url = args.base_url.rstrip("/")
 
-    async with httpx.AsyncClient(base_url=base_url, timeout=20.0) as client:
+    async with httpx.AsyncClient(
+        base_url=base_url,
+        timeout=args.request_timeout,
+    ) as client:
         token = args.token
         if not token:
             await register_user(client, args.email, args.password)
@@ -308,6 +335,7 @@ async def bootstrap(args: argparse.Namespace) -> SimulatedNodeConfig:
         gpu_count=args.gpu_count,
         heartbeat_interval=args.heartbeat_interval,
         peer_token=peer_token,
+        request_timeout=args.request_timeout,
     )
 
 
@@ -339,7 +367,11 @@ async def send_heartbeat(client: httpx.AsyncClient, config: SimulatedNodeConfig)
 
     room_heartbeat_path = f"/api/v1/rooms/{config.room_id}/nodes/{config.peer_id}/heartbeat"
 
-    response = await client.post(room_heartbeat_path, json=payload)
+    response = await client.post(
+        room_heartbeat_path,
+        headers=auth_headers(config.token),
+        json=payload,
+    )
 
     if response.status_code == 404:
         response = await client.post("/api/v1/vpn/peers/heartbeat", json=payload)
@@ -352,13 +384,13 @@ async def send_heartbeat(client: httpx.AsyncClient, config: SimulatedNodeConfig)
 
 
 def node_task_headers(config: SimulatedNodeConfig) -> dict[str, str]:
-    """Headers for node-task lifecycle endpoints.
+    if not config.peer_token:
+        raise RuntimeError(
+            "peer_token is required for node-task endpoints. "
+            "Run bootstrap so it can resolve one, or pass --peer-token explicitly."
+        )
 
-    Node-task endpoints require the peer/node token, not the human user JWT.
-    If peer_token is not provided yet, this falls back to the user token so the
-    error message clearly shows whether peer-token wiring is still needed.
-    """
-    return auth_headers(config.peer_token or config.token)
+    return auth_headers(config.peer_token)
 
 
 async def poll_pending_node_tasks(
@@ -461,8 +493,7 @@ async def run(
 ) -> None:
     async with httpx.AsyncClient(
         base_url=config.base_url,
-        headers=auth_headers(config.token),
-        timeout=15.0,
+        timeout=config.request_timeout,
     ) as client:
         print("[phase8] simulated node started")
         print(f"[phase8] base_url={config.base_url}")
