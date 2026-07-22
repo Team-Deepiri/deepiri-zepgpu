@@ -57,10 +57,13 @@ class NodeTaskAssignment(UUIDMixin, TimestampMixin, Base):
         index=True,
     )
     status: Mapped[NodeAssignmentStatus] = mapped_column(
-        Enum(NodeAssignmentStatus),
-        default=NodeAssignmentStatus.ASSIGNED,
+        Enum(
+            NodeAssignmentStatus,
+            name="nodeassignmentstatus",
+            values_callable=lambda enum_cls: [item.value for item in enum_cls],
+        ),
         nullable=False,
-        index=True,
+        default=NodeAssignmentStatus.ASSIGNED,
     )
     assigned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

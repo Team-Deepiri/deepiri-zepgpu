@@ -19,8 +19,9 @@ def test_ws_rooms_route_registered() -> None:
 
 
 def test_ws_rooms_rejects_missing_token() -> None:
-    with pytest.raises(WebSocketDisconnect) as exc_info, client.websocket_connect(
-        "/api/v1/ws/rooms"
+    with (
+        pytest.raises(WebSocketDisconnect) as exc_info,
+        client.websocket_connect("/api/v1/ws/rooms"),
     ):
         pass
     assert exc_info.value.code == 4001
