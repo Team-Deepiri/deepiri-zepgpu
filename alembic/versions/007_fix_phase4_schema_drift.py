@@ -7,7 +7,6 @@ Create Date: 2026-07-17
 
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 revision = "007"
 down_revision = "006"
@@ -53,26 +52,8 @@ def upgrade() -> None:
         ),
     )
 
-    # tasks.priority is used as a PostgreSQL enum by the ORM.
-    taskpriority = postgresql.ENUM(
-        "LOW",
-        "NORMAL",
-        "HIGH",
-        "CRITICAL",
-        name="taskpriority",
-    )
-    taskpriority.create(op.get_bind(), checkfirst=True)
-
-    op.execute("ALTER TABLE tasks ALTER COLUMN priority DROP DEFAULT")
-    op.alter_column(
-        "tasks",
-        "priority",
-        existing_type=sa.Integer(),
-        type_=taskpriority,
-        postgresql_using="'NORMAL'::taskpriority",
-        nullable=False,
-    )
-    op.execute("ALTER TABLE tasks ALTER COLUMN priority SET DEFAULT 'NORMAL'::taskpriority")
+    # Keep tasks.priority as INTEGER — ORM/API still use TaskPriority IntEnum values.
+    # A native Postgres enum here breaks Integer-backed inserts.
 
     # Node assignment lifecycle uses ASSIGNED during Phase 4 room dispatch.
     op.execute("ALTER TYPE nodeassignmentstatus ADD VALUE IF NOT EXISTS 'ASSIGNED'")
@@ -81,24 +62,6 @@ def upgrade() -> None:
 def downgrade() -> None:
     # PostgreSQL enum values cannot be safely removed without recreating the enum.
     # Leave nodeassignmentstatus.ASSIGNED in place on downgrade.
-
-    op.execute("ALTER TABLE tasks ALTER COLUMN priority DROP DEFAULT")
-    op.alter_column(
-        "tasks",
-        "priority",
-        existing_type=postgresql.ENUM(
-            "LOW",
-            "NORMAL",
-            "HIGH",
-            "CRITICAL",
-            name="taskpriority",
-            create_type=False,
-        ),
-        type_=sa.Integer(),
-        postgresql_using="1",
-        nullable=False,
-    )
-    op.execute("ALTER TABLE tasks ALTER COLUMN priority SET DEFAULT 1")
 
     op.drop_column("user_quotas", "storage_used_gb")
     op.drop_column("user_quotas", "max_storage_gb")

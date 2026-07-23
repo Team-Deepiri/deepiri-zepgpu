@@ -10,7 +10,6 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     DateTime,
-    Enum,
     ForeignKey,
     Index,
     Integer,
@@ -21,6 +20,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from deepiri_zepgpu.database.models.base import Base, TimestampMixin, UUIDMixin
+from deepiri_zepgpu.database.models.types import str_enum
 
 if TYPE_CHECKING:
     from deepiri_zepgpu.database.models.user import User
@@ -44,7 +44,7 @@ class Namespace(UUIDMixin, TimestampMixin, Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     status: Mapped[NamespaceStatus] = mapped_column(
-        Enum(NamespaceStatus),
+        str_enum(NamespaceStatus),
         default=NamespaceStatus.ACTIVE,
         nullable=False,
     )
@@ -109,7 +109,7 @@ class NamespaceMember(UUIDMixin, Base):
     )
 
     role: Mapped[TeamRole] = mapped_column(
-        Enum(TeamRole),
+        str_enum(TeamRole),
         default=TeamRole.MEMBER,
         nullable=False,
     )
@@ -190,7 +190,7 @@ class TeamMember(UUIDMixin, Base):
     )
 
     role: Mapped[TeamRole] = mapped_column(
-        Enum(TeamRole),
+        str_enum(TeamRole),
         default=TeamRole.MEMBER,
         nullable=False,
     )

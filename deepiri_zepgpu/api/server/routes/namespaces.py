@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import uuid
 from datetime import UTC, datetime
 from typing import Any
 
@@ -215,7 +214,6 @@ async def create_namespace(
         raise HTTPException(status_code=400, detail="Namespace name already exists")
 
     namespace = Namespace(
-        id=str(uuid.uuid4()),
         name=request.name,
         display_name=request.display_name,
         description=request.description,
@@ -231,7 +229,6 @@ async def create_namespace(
 
     if current_user:
         member = NamespaceMember(
-            id=str(uuid.uuid4()),
             namespace_id=namespace.id,
             user_id=current_user.id,
             role="owner",
@@ -241,12 +238,12 @@ async def create_namespace(
         await db.flush()
 
     return NamespaceResponse(
-        id=namespace.id,
+        id=str(namespace.id),
         name=namespace.name,
         display_name=namespace.display_name,
         description=namespace.description,
         status=namespace.status.value,
-        owner_id=namespace.owner_id,
+        owner_id=str(namespace.owner_id) if namespace.owner_id else None,
         is_default=namespace.is_default,
         created_at=namespace.created_at,
         updated_at=namespace.updated_at,
@@ -269,12 +266,12 @@ async def list_namespaces(
     return NamespaceListResponse(
         namespaces=[
             NamespaceResponse(
-                id=n.id,
+                id=str(n.id),
                 name=n.name,
                 display_name=n.display_name,
                 description=n.description,
                 status=n.status.value,
-                owner_id=n.owner_id,
+                owner_id=str(n.owner_id) if n.owner_id else None,
                 is_default=n.is_default,
                 created_at=n.created_at,
                 updated_at=n.updated_at,
@@ -304,12 +301,12 @@ async def get_namespace(
             raise HTTPException(status_code=403, detail="Access denied")
 
     return NamespaceResponse(
-        id=namespace.id,
+        id=str(namespace.id),
         name=namespace.name,
         display_name=namespace.display_name,
         description=namespace.description,
         status=namespace.status.value,
-        owner_id=namespace.owner_id,
+        owner_id=str(namespace.owner_id) if namespace.owner_id else None,
         is_default=namespace.is_default,
         created_at=namespace.created_at,
         updated_at=namespace.updated_at,
@@ -337,12 +334,12 @@ async def update_namespace(
     assert namespace is not None
 
     return NamespaceResponse(
-        id=namespace.id,
+        id=str(namespace.id),
         name=namespace.name,
         display_name=namespace.display_name,
         description=namespace.description,
         status=namespace.status.value,
-        owner_id=namespace.owner_id,
+        owner_id=str(namespace.owner_id) if namespace.owner_id else None,
         is_default=namespace.is_default,
         created_at=namespace.created_at,
         updated_at=namespace.updated_at,
@@ -398,7 +395,6 @@ async def add_namespace_member(
         raise HTTPException(status_code=400, detail="User is already a member")
 
     member = NamespaceMember(
-        id=str(uuid.uuid4()),
         namespace_id=namespace_id,
         user_id=user_id,
         role=TeamRole(role),
@@ -408,9 +404,9 @@ async def add_namespace_member(
     await db.flush()
 
     return NamespaceMemberResponse(
-        id=member.id,
-        namespace_id=member.namespace_id,
-        user_id=member.user_id,
+        id=str(member.id),
+        namespace_id=str(member.namespace_id),
+        user_id=str(member.user_id) if member.user_id else None,
         role=member.role.value,
         is_active=member.is_active,
         joined_at=member.joined_at,
@@ -432,9 +428,9 @@ async def list_namespace_members(
 
     return [
         NamespaceMemberResponse(
-            id=m.id,
-            namespace_id=m.namespace_id,
-            user_id=m.user_id,
+            id=str(m.id),
+            namespace_id=str(m.namespace_id),
+            user_id=str(m.user_id) if m.user_id else None,
             role=m.role.value,
             is_active=m.is_active,
             joined_at=m.joined_at,
@@ -490,7 +486,6 @@ async def create_team(
         raise HTTPException(status_code=400, detail="Team name already exists in namespace")
 
     team = Team(
-        id=str(uuid.uuid4()),
         namespace_id=namespace_id,
         name=request.name,
         description=request.description,
@@ -500,11 +495,11 @@ async def create_team(
     await db.flush()
 
     return TeamResponse(
-        id=team.id,
-        namespace_id=team.namespace_id,
+        id=str(team.id),
+        namespace_id=str(team.namespace_id),
         name=team.name,
         description=team.description,
-        team_lead_id=team.team_lead_id,
+        team_lead_id=str(team.team_lead_id) if team.team_lead_id else None,
         is_active=team.is_active,
         created_at=team.created_at,
     )
@@ -526,11 +521,11 @@ async def list_teams(
     return TeamListResponse(
         teams=[
             TeamResponse(
-                id=t.id,
-                namespace_id=t.namespace_id,
+                id=str(t.id),
+                namespace_id=str(t.namespace_id),
                 name=t.name,
                 description=t.description,
-                team_lead_id=t.team_lead_id,
+                team_lead_id=str(t.team_lead_id) if t.team_lead_id else None,
                 is_active=t.is_active,
                 created_at=t.created_at,
             )
@@ -554,7 +549,7 @@ async def get_or_create_quota(
     quota = await quota_repo.get_or_create(namespace_id)
 
     return NamespaceQuotaResponse(
-        namespace_id=quota.namespace_id,
+        namespace_id=str(quota.namespace_id),
         max_gpus=quota.max_gpus,
         max_gpus_per_user=quota.max_gpus_per_user,
         max_storage_gb=quota.max_storage_gb,
@@ -587,7 +582,7 @@ async def update_quota(
     assert quota is not None
 
     return NamespaceQuotaResponse(
-        namespace_id=quota.namespace_id,
+        namespace_id=str(quota.namespace_id),
         max_gpus=quota.max_gpus,
         max_gpus_per_user=quota.max_gpus_per_user,
         max_storage_gb=quota.max_storage_gb,
@@ -614,7 +609,7 @@ async def get_usage(
     usage = await usage_repo.get_or_create(namespace_id)
 
     return NamespaceUsageResponse(
-        namespace_id=usage.namespace_id,
+        namespace_id=str(usage.namespace_id),
         current_gpus=usage.current_gpus,
         current_storage_gb=usage.current_storage_gb,
         total_tasks=usage.total_tasks,
@@ -640,12 +635,12 @@ async def get_my_namespaces(
 
     return [
         NamespaceResponse(
-            id=n.id,
+            id=str(n.id),
             name=n.name,
             display_name=n.display_name,
             description=n.description,
             status=n.status.value,
-            owner_id=n.owner_id,
+            owner_id=str(n.owner_id) if n.owner_id else None,
             is_default=n.is_default,
             created_at=n.created_at,
             updated_at=n.updated_at,

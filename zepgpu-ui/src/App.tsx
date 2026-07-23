@@ -19,6 +19,7 @@ import Users from '@/pages/Users'
 import Control from '@/pages/Control'
 import Alerts from '@/pages/Alerts'
 import Vpn from '@/pages/Vpn'
+import Ledger from '@/pages/Ledger'
 import Rooms from '@/pages/Rooms'
 import RoomDetail from '@/pages/RoomDetail'
 
@@ -68,6 +69,7 @@ function App() {
                 <Route path="/rooms" element={<Rooms />} />
                 <Route path="/rooms/:roomId" element={<RoomDetail />} />
                 <Route path="/vpn" element={<Vpn />} />
+                <Route path="/ledger" element={<Ledger />} />
                 <Route path="/users" element={<Users />} />
                 </Routes>
               </RouteErrorBoundary>

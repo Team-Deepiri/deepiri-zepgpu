@@ -18,7 +18,7 @@ class UserQuota(Base):
     __tablename__ = "user_quotas"
 
     user_id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False),
+        UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
         primary_key=True,
     )

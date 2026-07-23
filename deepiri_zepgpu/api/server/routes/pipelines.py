@@ -122,8 +122,6 @@ async def create_pipeline(
 ) -> PipelineResponse:
     """Create a new pipeline."""
 
-    import uuid
-
     stages_data = [
         {
             "name": stage.name,
@@ -138,7 +136,6 @@ async def create_pipeline(
     ]
 
     pipeline = Pipeline(
-        id=str(uuid.uuid4()),
         user_id=current_user.id if current_user else None,
         name=request.name,
         description=request.description,

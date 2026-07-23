@@ -4,7 +4,7 @@ import { useAuthStore } from '@/stores/authStore'
 import {
   LayoutDashboard, ListTodo, GitBranch, Cpu, LogOut, Menu, X,
   BarChart3, Calendar,   Globe, Users, Shield, Zap, Bell,
-  Activity, Network, Home,
+  Activity, Network, Link2, Home,
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -25,6 +25,7 @@ const navItems = [
   { href: '/cloud', label: 'Cloud', icon: Globe, color: 'text-sky-400' },
   { href: '/rooms', label: 'GPU Rooms', icon: Home, color: 'text-amber-400', matchPrefix: true },
   { href: '/vpn', label: 'VPN Pool', icon: Network, color: 'text-emerald-400' },
+  { href: '/ledger', label: 'Ledger', icon: Link2, color: 'text-lime-400' },
   { href: '/users', label: 'Users', icon: Users, color: 'text-violet-400' },
 ]
 

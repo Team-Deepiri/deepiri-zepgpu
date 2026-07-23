@@ -1,7 +1,9 @@
 """SQLAlchemy base model."""
 
+from __future__ import annotations
+
+import uuid
 from datetime import datetime
-from uuid import uuid4
 
 from sqlalchemy import DateTime, func
 from sqlalchemy.dialects.postgresql import UUID
@@ -31,10 +33,10 @@ class TimestampMixin:
 
 
 class UUIDMixin:
-    """Mixin for adding UUID primary key."""
+    """Mixin for adding UUID primary key (Postgres UUID, Python uuid.UUID)."""
 
-    id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False),
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
         primary_key=True,
-        default=lambda: str(uuid4()),
+        default=uuid.uuid4,
     )

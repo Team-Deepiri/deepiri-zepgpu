@@ -404,6 +404,78 @@ if HAS_CLICK:
         except KeyboardInterrupt:
             click.echo("\nStopped.")
 
+    @cli.group()
+    def ledger() -> None:
+        """Permissioned compute ledger (status, verify, sync)."""
+        pass
+
+    @ledger.command("status")
+    @click.option("--network-id", default=None, help="VPN network UUID for scoped chain")
+    def ledger_status_cmd(network_id: str | None) -> None:
+        """Show ledger tip / quorum status."""
+        from deepiri_zepgpu.compute_ledger.cli_ops import dump_json, ledger_status
+
+        dump_json(asyncio.run(ledger_status(network_id)))
+
+    @ledger.command("verify")
+    @click.option("--network-id", default=None, help="VPN network UUID for scoped chain")
+    def ledger_verify_cmd(network_id: str | None) -> None:
+        """Verify hash linkage, PoA signatures, and credit replay."""
+        from deepiri_zepgpu.compute_ledger.cli_ops import dump_json, ledger_verify
+
+        result = asyncio.run(ledger_verify(network_id))
+        dump_json(result)
+        raise SystemExit(0 if result.get("valid") else 1)
+
+    @ledger.command("sync-headers")
+    @click.option("--network-id", default=None, help="VPN network UUID for scoped chain")
+    @click.option("--from-height", default=0, type=int, help="Start height")
+    @click.option("--limit", default=100, type=int, help="Max headers")
+    def ledger_sync_headers_cmd(network_id: str | None, from_height: int, limit: int) -> None:
+        """Export compact headers for light-client sync."""
+        from deepiri_zepgpu.compute_ledger.cli_ops import dump_json, ledger_sync_headers
+
+        dump_json(asyncio.run(ledger_sync_headers(network_id, from_height, limit)))
+
+    @ledger.command("revolution-audit")
+    @click.option("--offline", is_flag=True, help="Skip DB scenarios (golden + crypto only)")
+    @click.option("--json-out", type=click.Path(), default=None, help="Write JSON report path")
+    @click.option("--md-out", type=click.Path(), default=None, help="Write Markdown report path")
+    def ledger_revolution_audit_cmd(
+        offline: bool, json_out: str | None, md_out: str | None
+    ) -> None:
+        """Run revolutionary verification: golden vectors, adversary suite, credit economy."""
+        from pathlib import Path
+
+        from deepiri_zepgpu.compute_ledger.revolution import run_revolution_audit
+        from deepiri_zepgpu.compute_ledger.revolution.audit import RevolutionAuditResult
+        from deepiri_zepgpu.compute_ledger.revolution.report import (
+            render_console_summary,
+            write_audit_json,
+            write_audit_markdown,
+        )
+        from deepiri_zepgpu.database.session import get_db_context
+
+        async def _run() -> RevolutionAuditResult:
+            if offline:
+                return await run_revolution_audit(None, include_db=False)
+            async with get_db_context() as db:
+                return await run_revolution_audit(db, include_db=True)
+
+        typed = asyncio.run(_run())
+        if json_out:
+            write_audit_json(typed, Path(json_out))
+            click.echo(f"Wrote {json_out}")
+        if md_out:
+            write_audit_markdown(typed, Path(md_out))
+            click.echo(f"Wrote {md_out}")
+        click.echo(render_console_summary(typed))
+        if not json_out and not md_out:
+            from deepiri_zepgpu.compute_ledger.cli_ops import dump_json
+
+            dump_json(typed.to_dict())
+        raise SystemExit(0 if typed.passed else 1)
+
     from pathlib import Path
 
 
