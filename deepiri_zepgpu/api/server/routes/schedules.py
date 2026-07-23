@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -288,7 +287,6 @@ async def create_schedule(
     )
 
     schedule = ScheduledTask(
-        id=str(uuid.uuid4()),
         user_id=current_user.id if current_user else None,
         name=request.name,
         description=request.description,
@@ -320,7 +318,7 @@ async def create_schedule(
     background_tasks.add_task(_sync_schedule_to_beat, schedule.id)
 
     return ScheduleResponse(
-        id=schedule.id,
+        id=str(schedule.id),
         name=schedule.name,
         description=schedule.description,
         schedule_type=schedule.schedule_type.value,
@@ -339,7 +337,7 @@ async def create_schedule(
         gpu_memory_mb=schedule.gpu_memory_mb,
         timeout_seconds=schedule.timeout_seconds,
         created_at=schedule.created_at,
-        user_id=schedule.user_id,
+        user_id=str(schedule.user_id) if schedule.user_id else None,
     )
 
 
@@ -364,7 +362,7 @@ async def list_schedules(
     return ScheduleListResponse(
         schedules=[
             ScheduleResponse(
-                id=s.id,
+                id=str(s.id),
                 name=s.name,
                 description=s.description,
                 schedule_type=s.schedule_type.value,
@@ -383,7 +381,7 @@ async def list_schedules(
                 gpu_memory_mb=s.gpu_memory_mb,
                 timeout_seconds=s.timeout_seconds,
                 created_at=s.created_at,
-                user_id=s.user_id,
+                user_id=str(s.user_id) if s.user_id else None,
             )
             for s in schedules
         ],
@@ -410,7 +408,7 @@ async def get_schedule(
         raise HTTPException(status_code=403, detail="Access denied")
 
     return ScheduleResponse(
-        id=schedule.id,
+        id=str(schedule.id),
         name=schedule.name,
         description=schedule.description,
         schedule_type=schedule.schedule_type.value,
@@ -429,7 +427,7 @@ async def get_schedule(
         gpu_memory_mb=schedule.gpu_memory_mb,
         timeout_seconds=schedule.timeout_seconds,
         created_at=schedule.created_at,
-        user_id=schedule.user_id,
+        user_id=str(schedule.user_id) if schedule.user_id else None,
     )
 
 
@@ -477,7 +475,7 @@ async def update_schedule(
     background_tasks.add_task(_sync_schedule_to_beat, schedule.id)
 
     return ScheduleResponse(
-        id=schedule.id,
+        id=str(schedule.id),
         name=schedule.name,
         description=schedule.description,
         schedule_type=schedule.schedule_type.value,
@@ -496,7 +494,7 @@ async def update_schedule(
         gpu_memory_mb=schedule.gpu_memory_mb,
         timeout_seconds=schedule.timeout_seconds,
         created_at=schedule.created_at,
-        user_id=schedule.user_id,
+        user_id=str(schedule.user_id) if schedule.user_id else None,
     )
 
 
@@ -544,7 +542,7 @@ async def enable_schedule(
     assert schedule is not None
 
     return ScheduleResponse(
-        id=schedule.id,
+        id=str(schedule.id),
         name=schedule.name,
         description=schedule.description,
         schedule_type=schedule.schedule_type.value,
@@ -563,7 +561,7 @@ async def enable_schedule(
         gpu_memory_mb=schedule.gpu_memory_mb,
         timeout_seconds=schedule.timeout_seconds,
         created_at=schedule.created_at,
-        user_id=schedule.user_id,
+        user_id=str(schedule.user_id) if schedule.user_id else None,
     )
 
 
@@ -591,7 +589,7 @@ async def disable_schedule(
     assert schedule is not None
 
     return ScheduleResponse(
-        id=schedule.id,
+        id=str(schedule.id),
         name=schedule.name,
         description=schedule.description,
         schedule_type=schedule.schedule_type.value,
@@ -610,7 +608,7 @@ async def disable_schedule(
         gpu_memory_mb=schedule.gpu_memory_mb,
         timeout_seconds=schedule.timeout_seconds,
         created_at=schedule.created_at,
-        user_id=schedule.user_id,
+        user_id=str(schedule.user_id) if schedule.user_id else None,
     )
 
 
@@ -634,7 +632,7 @@ async def trigger_schedule(
     execute_scheduled_task.delay(schedule_id)
 
     return ScheduleResponse(
-        id=schedule.id,
+        id=str(schedule.id),
         name=schedule.name,
         description=schedule.description,
         schedule_type=schedule.schedule_type.value,
@@ -653,7 +651,7 @@ async def trigger_schedule(
         gpu_memory_mb=schedule.gpu_memory_mb,
         timeout_seconds=schedule.timeout_seconds,
         created_at=schedule.created_at,
-        user_id=schedule.user_id,
+        user_id=str(schedule.user_id) if schedule.user_id else None,
     )
 
 
@@ -683,8 +681,8 @@ async def list_schedule_runs(
     return ScheduleRunListResponse(
         runs=[
             ScheduleRunResponse(
-                id=r.id,
-                schedule_id=r.schedule_id,
+                id=str(r.id),
+                schedule_id=str(r.schedule_id),
                 task_id=r.task_id,
                 status=r.status.value,
                 scheduled_at=r.scheduled_at,
@@ -717,7 +715,6 @@ async def create_delayed_task(
         raise HTTPException(status_code=400, detail="execute_at must be in the future")
 
     task = Task(
-        id=str(uuid.uuid4()),
         user_id=current_user.id if current_user else None,
         name=request.name,
         func_name=request.func_name,
@@ -747,7 +744,7 @@ async def create_delayed_task(
     execute_delayed_task.apply_async(args=[task.id], countdown=delay_seconds)
 
     return DelayedTaskResponse(
-        task_id=task.id,
+        task_id=str(task.id),
         execute_at=request.execute_at,
         status="scheduled",
     )

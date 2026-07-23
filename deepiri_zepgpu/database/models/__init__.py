@@ -9,6 +9,14 @@ from deepiri_zepgpu.database.models.gang_scheduling import (
     PreemptionRecord,
 )
 from deepiri_zepgpu.database.models.gpu_device import GPUDevice, GPUState, GPUType
+from deepiri_zepgpu.database.models.ledger import (
+    LedgerBalance,
+    LedgerBlock,
+    LedgerBridgeReceipt,
+    LedgerTransaction,
+    LedgerTxType,
+    LedgerValidator,
+)
 from deepiri_zepgpu.database.models.namespace import (
     Namespace,
     NamespaceMember,
@@ -83,6 +91,12 @@ __all__ = [
     "GpuShareQuota",
     "PeerOnlineStatus",
     "GpuShareState",
+    "LedgerValidator",
+    "LedgerBlock",
+    "LedgerTransaction",
+    "LedgerBalance",
+    "LedgerTxType",
+    "LedgerBridgeReceipt",
     "NodeTaskAssignment",
     "NodeTaskEvent",
     "NodeAssignmentStatus",

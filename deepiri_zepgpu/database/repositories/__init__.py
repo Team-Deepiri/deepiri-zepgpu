@@ -7,6 +7,7 @@ from deepiri_zepgpu.database.repositories.gang_repository import (
     PreemptionRepository,
 )
 from deepiri_zepgpu.database.repositories.gpu_repository import GPURepository
+from deepiri_zepgpu.database.repositories.ledger_repository import LedgerRepository
 from deepiri_zepgpu.database.repositories.namespace_repository import (
     NamespaceMemberRepository,
     NamespaceQuotaRepository,
@@ -41,5 +42,6 @@ __all__ = [
     "TeamMemberRepository",
     "NamespaceQuotaRepository",
     "NamespaceUsageRepository",
+    "LedgerRepository",
     "NodeTaskRepository",
 ]

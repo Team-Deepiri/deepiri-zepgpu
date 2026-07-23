@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import uuid
 from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
@@ -142,7 +141,7 @@ def _task_to_response(task: Any, assignment: TaskAssignmentResponse | None = Non
         id=str(task.id),
         name=task.name,
         status=task.status.value,
-        priority=task.priority.value,
+        priority=task.priority.value if hasattr(task.priority, "value") else task.priority,
         gpu_memory_mb=task.gpu_memory_mb,
         timeout_seconds=task.timeout_seconds,
         gpu_type=task.gpu_type,
@@ -251,7 +250,6 @@ async def create_task(
         )
 
     task = Task(
-        id=str(uuid.uuid4()),
         user_id=current_user.id,
         name=request.name,
         func_name=request.func_name,
@@ -359,7 +357,7 @@ async def list_tasks(
                 id=str(t.id),
                 name=t.name,
                 status=t.status.value,
-                priority=t.priority.value,
+                priority=t.priority.value if hasattr(t.priority, "value") else t.priority,
                 gpu_memory_mb=t.gpu_memory_mb,
                 timeout_seconds=t.timeout_seconds,
                 gpu_type=t.gpu_type,
@@ -455,7 +453,7 @@ async def retry_task(
         id=str(task.id),
         name=task.name,
         status=task.status.value,
-        priority=task.priority.value,
+        priority=task.priority.value if hasattr(task.priority, "value") else task.priority,
         gpu_memory_mb=task.gpu_memory_mb,
         timeout_seconds=task.timeout_seconds,
         gpu_type=task.gpu_type,

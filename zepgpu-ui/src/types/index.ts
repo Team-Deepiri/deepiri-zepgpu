@@ -788,3 +788,86 @@ export interface RoomWebSocketMessage {
   user_id?: string
   message?: string
 }
+
+export interface LedgerTransaction {
+  id: string
+  tx_type: string
+  sender: string
+  nonce: number
+  timestamp: string
+  payload: Record<string, unknown>
+  signature: string
+  tx_hash?: string
+}
+
+export interface LedgerApproval {
+  validator: string
+  signature: string
+}
+
+export interface LedgerBlock {
+  id: string
+  height: number
+  hash: string
+  previous_hash: string
+  timestamp: string
+  transactions_root: string
+  state_root: string
+  validator: string
+  validator_signature: string
+  approvals?: LedgerApproval[]
+  finalized?: boolean
+  transactions: LedgerTransaction[]
+}
+
+export interface LedgerBalance {
+  account: string
+  credit_seconds: number
+  debit_seconds: number
+  net_seconds: number
+}
+
+export interface LedgerStatus {
+  chain_id: string
+  network_id?: string | null
+  tip_height: number
+  tip_hash: string | null
+  block_count: number
+  pending_count: number
+  unfinalized_count?: number
+  validator_public_key: string
+  quorum_threshold?: number
+  approval_count?: number
+  enabled: boolean
+}
+
+export interface LedgerVerifyResult {
+  valid: boolean
+  chain_id: string
+  network_id?: string | null
+  block_count: number
+  tip_height: number
+  tip_hash: string | null
+  state_root: string
+  quorum_threshold?: number
+  errors: string[]
+  balances: LedgerBalance[]
+}
+
+export interface LedgerSubmitResponse {
+  transaction: LedgerTransaction
+  block: LedgerBlock | null
+}
+
+export interface MerkleProofResult {
+  block_hash: string
+  block_height: number
+  transactions_root: string
+  proof: {
+    leaf: string
+    index: number
+    root: string
+    steps: { hash: string; position: string }[]
+  }
+  valid: boolean
+}

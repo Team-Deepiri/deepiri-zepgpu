@@ -7,6 +7,7 @@ import type {
   CloudProvider, CloudRegion, CloudGPUInstance, CloudLaunchRequest, CloudCostEstimate,
   AuditLog, Alert, GPUMetrics, ServiceMetrics, TaskMetrics, LeaderboardEntry, Achievement,
   DAGData, VpnNetwork, Peer, GpuPoolSummary, VpnInvite, FriendList, VpnConfigResponse,
+  LedgerStatus, LedgerBlock, LedgerBalance, LedgerVerifyResult, LedgerSubmitResponse, MerkleProofResult,
 } from '@/types'
 
 const api = axios.create({
@@ -499,6 +500,105 @@ export const vpnApi = {
   listUsers: async (): Promise<User[]> => {
     const { data } = await api.get<User[]>('/users')
     return data
+  },
+}
+
+export const ledgerApi = {
+  status: async (networkId?: string): Promise<LedgerStatus> => {
+    const { data } = await api.get<LedgerStatus>('/ledger/status', {
+      params: networkId ? { network_id: networkId } : {},
+    })
+    return data
+  },
+  verify: async (networkId?: string): Promise<LedgerVerifyResult> => {
+    const { data } = await api.get<LedgerVerifyResult>('/ledger/verify', {
+      params: networkId ? { network_id: networkId } : {},
+    })
+    return data
+  },
+  listBlocks: async (params?: { limit?: number; offset?: number; network_id?: string }): Promise<LedgerBlock[]> => {
+    const { data } = await api.get<LedgerBlock[]>('/ledger/blocks', { params })
+    return data
+  },
+  getBlockByHeight: async (height: number, networkId?: string): Promise<LedgerBlock> => {
+    const { data } = await api.get<LedgerBlock>(`/ledger/blocks/height/${height}`, {
+      params: networkId ? { network_id: networkId } : {},
+    })
+    return data
+  },
+  listBalances: async (networkId?: string): Promise<LedgerBalance[]> => {
+    const { data } = await api.get<LedgerBalance[]>('/ledger/balances', {
+      params: networkId ? { network_id: networkId } : {},
+    })
+    return data
+  },
+  attestJobCompleted: async (
+    body: {
+      task_id: string
+      provider_account: string
+      consumer_account: string
+      gpu_seconds: number
+      input_hash?: string
+      output_hash?: string
+      peer_id?: string
+    },
+    networkId?: string,
+  ): Promise<LedgerSubmitResponse> => {
+    const { data } = await api.post<LedgerSubmitResponse>('/ledger/attestations/job-completed', body, {
+      params: networkId ? { network_id: networkId } : {},
+    })
+    return data
+  },
+  rebuildBalances: async (networkId?: string): Promise<LedgerBalance[]> => {
+    const { data } = await api.post<LedgerBalance[]>('/ledger/rebuild-balances', null, {
+      params: networkId ? { network_id: networkId } : {},
+    })
+    return data
+  },
+  seal: async (networkId?: string): Promise<LedgerBlock | null> => {
+    const { data } = await api.post<LedgerBlock | null>('/ledger/seal', null, {
+      params: networkId ? { network_id: networkId } : {},
+    })
+    return data
+  },
+  getMerkleProof: async (blockHash: string, txHash: string, networkId?: string): Promise<MerkleProofResult> => {
+    const { data } = await api.get<MerkleProofResult>(
+      `/ledger/blocks/hash/${blockHash}/proof/${txHash}`,
+      { params: networkId ? { network_id: networkId } : {} },
+    )
+    return data
+  },
+  approveRelay: async (blockHash: string, networkId?: string): Promise<LedgerBlock> => {
+    const { data } = await api.post<LedgerBlock>(
+      `/ledger/blocks/hash/${blockHash}/approve-relay`,
+      null,
+      { params: networkId ? { network_id: networkId } : {} },
+    )
+    return data
+  },
+  syncHeaders: async (params?: {
+    network_id?: string
+    from_height?: number
+    limit?: number
+  }): Promise<{ chain_id: string; network_id?: string | null; from_height: number; headers: unknown[]; count: number }> => {
+    const { data } = await api.get('/ledger/sync/headers', { params })
+    return data
+  },
+  bridgeTransfer: async (body: {
+    source_network_id?: string | null
+    dest_network_id?: string | null
+    account: string
+    amount_seconds: number
+    memo?: string
+  }) => {
+    const { data } = await api.post('/ledger/bridge/transfer', body)
+    return data as {
+      receipt_id: string
+      source_chain_id: string
+      dest_chain_id: string
+      account: string
+      amount_seconds: number
+    }
   },
 }
 

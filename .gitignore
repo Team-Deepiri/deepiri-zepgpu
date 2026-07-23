@@ -88,3 +88,4 @@ playwright-report/
 
 node_modules
 .phase8_sim_state.json
+artifacts/

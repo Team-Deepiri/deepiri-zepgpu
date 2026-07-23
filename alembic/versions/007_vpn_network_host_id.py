@@ -33,16 +33,14 @@ def upgrade() -> None:
     )
     op.create_index("ix_vpn_networks_host_id", "vpn_networks", ["host_id"])
 
-    op.execute(
-        """
+    op.execute("""
         UPDATE vpn_networks AS n
         SET host_id = p.user_id
         FROM vpn_peers AS p
         WHERE p.vpn_network_id = n.id
           AND p.is_relay IS true
           AND n.host_id IS NULL
-        """
-    )
+        """)
 
 
 def downgrade() -> None:
