@@ -80,9 +80,7 @@ def upgrade() -> None:
         sa.Column("error", sa.Text(), nullable=True),
         sa.Column("retry_count", sa.Integer(), nullable=False, server_default="0"),
     )
-    op.create_index(
-        "idx_node_task_assignments_room", "node_task_assignments", ["vpn_network_id"]
-    )
+    op.create_index("idx_node_task_assignments_room", "node_task_assignments", ["vpn_network_id"])
     op.create_index("idx_node_task_assignments_task", "node_task_assignments", ["task_id"])
     op.create_index("idx_node_task_assignments_status", "node_task_assignments", ["status"])
 

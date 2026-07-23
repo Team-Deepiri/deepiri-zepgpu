@@ -1,15 +1,15 @@
 """Fix schema drift for live Phase 4 smoke tests.
 
-Revision ID: 007
-Revises: 006
+Revision ID: 012_fix_phase4_schema_drift
+Revises: 011_schema_alignment
 Create Date: 2026-07-17
 """
 
 from alembic import op
 import sqlalchemy as sa
 
-revision = "007"
-down_revision = "006"
+revision = "012_fix_phase4_schema_drift"
+down_revision = "011_schema_alignment"
 branch_labels = None
 depends_on = None
 

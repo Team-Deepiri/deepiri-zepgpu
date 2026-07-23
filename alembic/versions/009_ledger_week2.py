@@ -5,6 +5,7 @@ Revises: 008
 Create Date: 2026-07-18
 
 """
+
 from typing import Sequence, Union
 
 from alembic import op
@@ -60,7 +61,9 @@ def upgrade() -> None:
 
     # Allow same pubkey on multiple chains: drop global unique, add composite unique
     op.drop_index("ix_ledger_validators_public_key", table_name="ledger_validators")
-    op.create_index("ix_ledger_validators_public_key", "ledger_validators", ["public_key"], unique=False)
+    op.create_index(
+        "ix_ledger_validators_public_key", "ledger_validators", ["public_key"], unique=False
+    )
     op.create_unique_constraint(
         "uq_ledger_validators_chain_pubkey",
         "ledger_validators",
@@ -86,7 +89,9 @@ def downgrade() -> None:
 
     op.drop_constraint("uq_ledger_validators_chain_pubkey", "ledger_validators", type_="unique")
     op.drop_index("ix_ledger_validators_public_key", table_name="ledger_validators")
-    op.create_index("ix_ledger_validators_public_key", "ledger_validators", ["public_key"], unique=True)
+    op.create_index(
+        "ix_ledger_validators_public_key", "ledger_validators", ["public_key"], unique=True
+    )
 
     op.drop_column("ledger_validators", "vpn_network_id")
     op.drop_column("ledger_balances", "vpn_network_id")
