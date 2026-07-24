@@ -43,6 +43,10 @@ export const roomsApi = {
     return data
   },
 
+  leaveRoom: async (roomId: string): Promise<void> => {
+    await api.delete(`/rooms/${roomId}/members/me`)
+  },
+
   getRoomGpuPool: async (roomId: string): Promise<RoomGpuPoolSummary> => {
     const { data } = await api.get<RoomGpuPoolSummary>(`/rooms/${roomId}/gpu-pool`)
     return data

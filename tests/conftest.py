@@ -126,9 +126,7 @@ async def db_session(integration_engine) -> AsyncIterator[AsyncSession]:
         await session.rollback()
 
     async with integration_engine.begin() as conn:
-        await conn.execute(
-            text(
-                """
+        await conn.execute(text("""
                 TRUNCATE TABLE
                     ledger_bridge_receipts,
                     ledger_transactions,
@@ -136,9 +134,7 @@ async def db_session(integration_engine) -> AsyncIterator[AsyncSession]:
                     ledger_balances,
                     ledger_validators
                 RESTART IDENTITY CASCADE
-                """
-            )
-        )
+                """))
 
 
 @pytest_asyncio.fixture
@@ -209,6 +205,8 @@ async def api_client(integration_engine, auth_user, unique_chain_id: str):
 @pytest_asyncio.fixture
 async def regression_client(integration_engine, auth_user, unique_chain_id: str, monkeypatch):
     """ASGI client for full-system regression: auth + DB + side-effect stubs."""
+    from datetime import datetime
+
     from httpx import ASGITransport, AsyncClient
 
     from deepiri_zepgpu.api.server.dependencies import (

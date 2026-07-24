@@ -46,9 +46,7 @@ async def test_api_status_attest_verify_proof(api_client):
     from deepiri_zepgpu.compute_ledger.transaction import ComputeTransaction
 
     tx_hash = ComputeTransaction.from_dict(tx).compute_hash()
-    proof = await api_client.get(
-        f"/api/v1/ledger/blocks/hash/{block['hash']}/proof/{tx_hash}"
-    )
+    proof = await api_client.get(f"/api/v1/ledger/blocks/hash/{block['hash']}/proof/{tx_hash}")
     assert proof.status_code == 200, proof.text
     assert proof.json()["valid"] is True
 
@@ -113,12 +111,8 @@ async def test_api_bridge_transfer(api_client):
     assert body["amount_seconds"] == 2.5
     assert body["receipt_id"]
 
-    src_bal = await api_client.get(
-        f"/api/v1/ledger/balances/bridge-user?network_id={net_a}"
-    )
-    dst_bal = await api_client.get(
-        f"/api/v1/ledger/balances/bridge-user?network_id={net_b}"
-    )
+    src_bal = await api_client.get(f"/api/v1/ledger/balances/bridge-user?network_id={net_a}")
+    dst_bal = await api_client.get(f"/api/v1/ledger/balances/bridge-user?network_id={net_b}")
     assert src_bal.status_code == 200
     assert dst_bal.status_code == 200
     assert src_bal.json()["net_seconds"] == 6.5

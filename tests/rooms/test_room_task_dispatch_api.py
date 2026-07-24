@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
@@ -100,6 +101,8 @@ async def test_create_task_room_auto_assigns_without_celery(monkeypatch) -> None
 
     monkeypatch.setattr(task_routes, "select_and_assign_room_gpu", fake_dispatch)
     monkeypatch.setattr(task_routes, "TaskRepository", FakeRepo)
+    emit_event = AsyncMock()
+    monkeypatch.setattr(task_routes, "emit_room_event", emit_event)
 
     class FakeDb:
         async def flush(self) -> None:
@@ -128,3 +131,11 @@ async def test_create_task_room_auto_assigns_without_celery(monkeypatch) -> None
     assert response.status == "assigned"
     assert response.assignment is not None
     assert enqueued == []
+    emit_event.assert_awaited_once()
+    emitted_room_id, event_type, payload = emit_event.await_args.args
+    assert emitted_room_id == str(room_id)
+    assert event_type == "room_task_assigned"
+    assert payload["task_id"] == response.id
+    assert payload["assignment_id"] == assignment.assignment_id
+    assert payload["peer_id"] == assignment.peer_id
+    assert payload["gpu_share_id"] == assignment.gpu_share_id

@@ -763,6 +763,32 @@ export interface RoomConnectionConfig {
   filename: string
 }
 
+export type RoomWebSocketEventType =
+  | 'room_member_joined'
+  | 'room_member_left'
+  | 'room_node_online'
+  | 'room_node_offline'
+  | 'room_gpu_update'
+  | 'room_task_assigned'
+  | 'room_task_started'
+  | 'room_task_completed'
+  | 'room_task_failed'
+  | 'connected'
+  | 'subscribed'
+  | 'unsubscribed'
+  | 'pong'
+  | 'room_error'
+
+export interface RoomWebSocketMessage {
+  type: RoomWebSocketEventType | string
+  room_id?: string
+  timestamp?: string
+  payload?: Record<string, unknown>
+  detail?: string
+  user_id?: string
+  message?: string
+}
+
 export interface LedgerTransaction {
   id: string
   tx_type: string

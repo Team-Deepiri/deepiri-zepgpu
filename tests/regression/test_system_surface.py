@@ -29,11 +29,7 @@ def test_openapi_registers_core_surfaces():
 
     # Prefer route table over app.openapi() — some FastAPI deps (BackgroundTasks)
     # can break schema generation under pydantic v2 without affecting runtime.
-    paths = {
-        getattr(route, "path", "")
-        for route in app.routes
-        if getattr(route, "path", None)
-    }
+    paths = {getattr(route, "path", "") for route in app.routes if getattr(route, "path", None)}
     for prefix in EXPECTED_API_PREFIXES:
         assert any(p.startswith(prefix) for p in paths), f"missing routes under {prefix}"
 

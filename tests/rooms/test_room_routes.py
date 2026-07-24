@@ -15,6 +15,7 @@ def test_room_routes_are_registered() -> None:
     assert "/api/v1/rooms" in paths
     assert "/api/v1/rooms/{room_id}" in paths
     assert "/api/v1/rooms/{room_id}/members" in paths
+    assert "/api/v1/rooms/{room_id}/members/me" in paths
     assert "/api/v1/rooms/{room_id}/gpu-pool" in paths
     assert "/api/v1/rooms/{room_id}/invites" in paths
     assert "/api/v1/rooms/{room_id}/invites/{invite_id}" in paths
@@ -57,6 +58,13 @@ def test_delete_room_requires_authentication() -> None:
 
 def test_list_room_members_requires_authentication() -> None:
     response = client.get("/api/v1/rooms/test-room-id/members")
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Authentication required"
+
+
+def test_leave_room_requires_authentication() -> None:
+    response = client.delete("/api/v1/rooms/test-room-id/members/me")
 
     assert response.status_code == 401
     assert response.json()["detail"] == "Authentication required"

@@ -123,7 +123,12 @@ async def test_namespace_create_list(regression_client):
 
     listed = await regression_client.get("/api/v1/namespaces")
     assert listed.status_code == 200, listed.text
-    ids = {n["id"] for n in listed.json().get("namespaces", listed.json() if isinstance(listed.json(), list) else [])}
+    ids = {
+        n["id"]
+        for n in listed.json().get(
+            "namespaces", listed.json() if isinstance(listed.json(), list) else []
+        )
+    }
     # NamespaceListResponse uses namespaces key
     payload = listed.json()
     if "namespaces" in payload:

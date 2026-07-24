@@ -94,10 +94,11 @@ def make_share(
 
 
 class FakeRedis:
-    """Minimal in-memory Redis for lock tests."""
+    """Minimal in-memory Redis for lock + membership-cache tests."""
 
     def __init__(self) -> None:
         self._store: dict[str, tuple[str, int | None]] = {}
+        self._sets: dict[str, set[str]] = {}
 
     def set(self, key: str, value: str, nx: bool = False, ex: int | None = None) -> bool:
         if nx and key in self._store:
@@ -109,8 +110,87 @@ class FakeRedis:
         item = self._store.get(key)
         return item[0] if item else None
 
-    def delete(self, key: str) -> None:
-        self._store.pop(key, None)
+    def delete(self, *keys: str) -> int:
+        n = 0
+        for key in keys:
+            if key in self._store:
+                del self._store[key]
+                n += 1
+            if key in self._sets:
+                del self._sets[key]
+                n += 1
+        return n
+
+    def exists(self, *keys: str) -> int:
+        return sum(1 for k in keys if k in self._store or k in self._sets)
+
+    def expire(self, key: str, _ttl: int) -> bool:
+        return key in self._store or key in self._sets
+
+    def sadd(self, key: str, *values: str) -> int:
+        s = self._sets.setdefault(key, set())
+        before = len(s)
+        s.update(str(v) for v in values)
+        return len(s) - before
+
+    def srem(self, key: str, *values: str) -> int:
+        s = self._sets.get(key)
+        if not s:
+            return 0
+        n = 0
+        for v in values:
+            if str(v) in s:
+                s.discard(str(v))
+                n += 1
+        if not s:
+            del self._sets[key]
+        return n
+
+    def smembers(self, key: str) -> set[str]:
+        return set(self._sets.get(key, set()))
+
+    def sismember(self, key: str, value: str) -> bool:
+        return str(value) in self._sets.get(key, set())
+
+    def pipeline(self) -> FakeRedisPipeline:
+        return FakeRedisPipeline(self)
+
+
+class FakeRedisPipeline:
+    def __init__(self, client: FakeRedis) -> None:
+        self._client = client
+        self._ops: list[tuple] = []
+
+    def delete(self, *keys: str) -> FakeRedisPipeline:
+        self._ops.append(("delete", keys))
+        return self
+
+    def sadd(self, key: str, *values: str) -> FakeRedisPipeline:
+        self._ops.append(("sadd", key, values))
+        return self
+
+    def srem(self, key: str, *values: str) -> FakeRedisPipeline:
+        self._ops.append(("srem", key, values))
+        return self
+
+    def expire(self, key: str, ttl: int) -> FakeRedisPipeline:
+        self._ops.append(("expire", key, ttl))
+        return self
+
+    def execute(self) -> list:
+        out: list = []
+        for op in self._ops:
+            kind = op[0]
+            if kind == "delete":
+                out.append(self._client.delete(*op[1]))
+            elif kind == "sadd":
+                out.append(self._client.sadd(op[1], *op[2]))
+            elif kind == "srem":
+                out.append(self._client.srem(op[1], *op[2]))
+            elif kind == "expire":
+                out.append(self._client.expire(op[1], op[2]))
+        self._ops.clear()
+        return out
 
 
 @pytest.fixture

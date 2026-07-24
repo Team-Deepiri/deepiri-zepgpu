@@ -37,9 +37,7 @@ def upgrade() -> None:
     _add_column_if_missing(
         "pipelines", sa.Column("stage_statuses", postgresql.JSONB(), nullable=True)
     )
-    _add_column_if_missing(
-        "pipelines", sa.Column("current_stage", sa.String(255), nullable=True)
-    )
+    _add_column_if_missing("pipelines", sa.Column("current_stage", sa.String(255), nullable=True))
     _add_column_if_missing(
         "pipelines",
         sa.Column("completed_stages", sa.Integer(), nullable=False, server_default="0"),

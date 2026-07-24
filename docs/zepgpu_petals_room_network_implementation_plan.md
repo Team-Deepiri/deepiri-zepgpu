@@ -721,7 +721,7 @@ Add or alias types:
 | P1 | Room-aware scheduler | Phase 4 | Planned |
 | P1 | Remote no-op task execution | Phase 5 | Planned |
 | P2 | Room dashboard UI | Phase 6 | Planned |
-| P2 | Room WebSocket events | Phase 7 | Planned |
+| P2 | Room WebSocket events | Phase 7 | Implemented |
 | P2 | Local simulation docs/tests | Phase 8 | Planned |
 | P3 | Cloud/deployment research | Phase 9 | Research |
 | Deferred | Blockchain | Phase 10 | Not active |

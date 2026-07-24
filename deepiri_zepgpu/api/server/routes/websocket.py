@@ -12,6 +12,7 @@ from deepiri_zepgpu.api.server.websocket_manager import manager
 from deepiri_zepgpu.config import settings
 from deepiri_zepgpu.database.repositories import GPURepository, TaskRepository
 from deepiri_zepgpu.database.session import get_db_context
+from deepiri_zepgpu.vpn.repositories import VpnNetworkRepository
 
 logger = logging.getLogger(__name__)
 
@@ -281,6 +282,107 @@ async def metrics_websocket(  # noqa: C901
             pass
         finally:
             update_task.cancel()
+
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await manager.disconnect(websocket, user_id)
+
+
+async def _load_user_room_ids(user_id: str) -> set[str]:
+    """Load room IDs the user belongs to from the database."""
+    async with get_db_context() as db:
+        network_repo = VpnNetworkRepository(db)
+        networks = await network_repo.list_user_networks(user_id)
+        return {str(network.id) for network in networks}
+
+
+async def _resolve_user_room_ids(user_id: str) -> set[str]:
+    """Prefer Redis membership cache; fall back to DB (write-through via set_user_room_memberships)."""
+    cached = await asyncio.to_thread(manager.membership_cache.get_rooms, user_id)
+    if cached is not None:
+        return cached
+    return await _load_user_room_ids(user_id)
+
+
+async def _handle_room_client_message(
+    websocket: WebSocket,
+    user_id: str,
+    data: object,
+) -> None:
+    """Dispatch one client JSON message for ``/ws/rooms``."""
+    if not isinstance(data, dict):
+        await websocket.send_json({"type": "room_error", "detail": "Message must be a JSON object"})
+        return
+
+    msg_type = data.get("type")
+
+    if msg_type == "ping":
+        await websocket.send_json({"type": "pong"})
+        return
+
+    if msg_type == "subscribe_room":
+        room_id = data.get("room_id")
+        if not room_id or not isinstance(room_id, str):
+            await websocket.send_json({"type": "room_error", "detail": "room_id is required"})
+            return
+        if not manager.user_is_room_member(user_id, room_id):
+            await websocket.send_json(
+                {
+                    "type": "room_error",
+                    "room_id": room_id,
+                    "detail": "Not a member of this room",
+                }
+            )
+            return
+        await manager.subscribe_room(websocket, room_id)
+        await websocket.send_json({"type": "subscribed", "room_id": room_id})
+        return
+
+    if msg_type == "unsubscribe_room":
+        room_id = data.get("room_id")
+        if not room_id or not isinstance(room_id, str):
+            await websocket.send_json({"type": "room_error", "detail": "room_id is required"})
+            return
+        await manager.unsubscribe_room(websocket, room_id)
+        await websocket.send_json({"type": "unsubscribed", "room_id": room_id})
+        return
+
+    await websocket.send_json({"type": "room_error", "detail": f"Unknown message type: {msg_type}"})
+
+
+@router.websocket("/ws/rooms")
+async def room_updates_websocket(
+    websocket: WebSocket,
+    token: str | None = Query(None),
+) -> None:
+    """WebSocket endpoint for room-scoped live updates.
+
+    Connect with: ws://host/api/v1/ws/rooms?token=<jwt_token>
+    Then send: {"type":"subscribe_room","room_id":"..."}
+    """
+    user_id = await authenticate_websocket(token)
+
+    if not user_id:
+        await websocket.close(code=4001, reason="Authentication required")
+        return
+
+    await manager.connect(websocket, user_id)
+    room_ids = await _resolve_user_room_ids(user_id)
+    await manager.set_user_room_memberships(user_id, room_ids)
+
+    try:
+        await websocket.send_json(
+            {
+                "type": "connected",
+                "user_id": user_id,
+                "message": "Connected to room updates stream",
+            }
+        )
+
+        while True:
+            data = await websocket.receive_json()
+            await _handle_room_client_message(websocket, user_id, data)
 
     except WebSocketDisconnect:
         pass

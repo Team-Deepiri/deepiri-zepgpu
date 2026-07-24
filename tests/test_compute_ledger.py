@@ -14,6 +14,7 @@ from deepiri_zepgpu.compute_ledger.keys import (
     sign_message,
     verify_signature,
 )
+from deepiri_zepgpu.compute_ledger.light_client import verify_header_chain, verify_tx_inclusion
 from deepiri_zepgpu.compute_ledger.merkle import merkle_proof, merkle_root, verify_merkle_proof
 from deepiri_zepgpu.compute_ledger.poa import (
     LedgerValidationError,

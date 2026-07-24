@@ -1,5 +1,5 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import RoomDispatchPanel from '@/components/rooms/RoomDispatchPanel'
 import { renderWithProviders } from '@/test/test-utils'
@@ -27,6 +27,7 @@ describe('RoomDispatchPanel', () => {
   const onTaskDispatched = vi.fn()
 
   beforeEach(() => {
+    vi.clearAllMocks()
     onTaskDispatched.mockClear()
     getRoomNodesMock.mockResolvedValue([fixtureRoomNode])
     getRoomNodeGpusMock.mockResolvedValue([fixtureRoomNodeGpu])
@@ -35,6 +36,10 @@ describe('RoomDispatchPanel', () => {
       id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
       status: 'assigned',
     })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it('renders dispatch form with auto mode', async () => {
@@ -119,5 +124,28 @@ describe('RoomDispatchPanel', () => {
 
     expect(await screen.findByText(/Function is required\./i)).toBeInTheDocument()
     expect(funcInput).toHaveAttribute('aria-invalid', 'true')
+  })
+
+  it('does not periodically refetch room resources when polling is disabled', async () => {
+    vi.useFakeTimers()
+    renderWithProviders(
+      <RoomDispatchPanel
+        roomId={fixtureRoom.id}
+        onTaskDispatched={onTaskDispatched}
+        enablePolling={false}
+      />,
+    )
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    expect(getRoomNodesMock).toHaveBeenCalledTimes(1)
+    expect(getRoomGpusMock).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30000)
+    })
+    expect(getRoomNodesMock).toHaveBeenCalledTimes(1)
+    expect(getRoomGpusMock).toHaveBeenCalledTimes(1)
   })
 })

@@ -84,9 +84,7 @@ async def test_quorum_unfinalized_then_approve(db_session, unique_chain_id):
     await service.ensure_initialized()
 
     priv2, pub2 = generate_keypair()
-    await service.repo.upsert_validator(
-        chain_id=unique_chain_id, public_key=pub2, label="second"
-    )
+    await service.repo.upsert_validator(chain_id=unique_chain_id, public_key=pub2, label="second")
     await db_session.commit()
 
     settings.ledger.quorum_threshold = 2
@@ -170,7 +168,7 @@ async def test_bridge_transfer_between_chains(db_session, unique_chain_id):
     assert a_bal["bridger"]["net_seconds"] == 5.0  # 8 - 3
     assert b_bal["bridger"]["credit_seconds"] == 3.0
 
-    with pytest.raises(Exception):
+    with pytest.raises(ValueError):
         await bridge.transfer(
             source_network_id=net_a,
             dest_network_id=net_b,
