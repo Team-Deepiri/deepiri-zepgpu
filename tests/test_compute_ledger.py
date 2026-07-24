@@ -25,6 +25,7 @@ from deepiri_zepgpu.compute_ledger.poa import (
 )
 from deepiri_zepgpu.compute_ledger.replay import CreditState, apply_transaction, replay_transactions
 from deepiri_zepgpu.compute_ledger.transaction import ComputeTransaction, TxType
+from deepiri_zepgpu.compute_ledger.light_client import verify_header_chain, verify_tx_inclusion
 
 
 class TestHashing:
