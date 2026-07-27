@@ -88,14 +88,17 @@ def _run_alembic_upgrade(url: str) -> None:
     env["DATABASE__URL"] = url
     env["PYTHONPATH"] = os.getcwd() + os.pathsep + env.get("PYTHONPATH", "")
     # Clear cached settings in child via fresh process
-    subprocess.run(
+    result = subprocess.run(
         ["poetry", "run", "alembic", "upgrade", "head"],
-        check=True,
         cwd=os.getcwd(),
         env=env,
         capture_output=True,
         text=True,
     )
+    if result.returncode != 0:
+        print(f"ALEMBIC STDOUT: {result.stdout}")
+        print(f"ALEMBIC STDERR: {result.stderr}")
+        result.check_returncode()
 
 
 @pytest.fixture(scope="session")
