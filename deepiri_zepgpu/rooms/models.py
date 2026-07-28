@@ -96,7 +96,14 @@ class RoomConnectionConfigResponse(BaseModel):
     peer_id: UUID
     config: str
     filename: str
-    auth_token: str | None = None
+    auth_token: str | None = Field(
+        default=None,
+        description=(
+            "Room-scoped provider authentication token used for node-task API "
+            "requests. Treat this value as a secret and do not log or expose it "
+            "to other room members."
+        ),
+    )
 
 
 class RoomNodeGpuResponse(BaseModel):
