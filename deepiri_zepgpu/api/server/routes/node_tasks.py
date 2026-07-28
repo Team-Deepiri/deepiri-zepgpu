@@ -19,7 +19,11 @@ from deepiri_zepgpu.database.models import User
 from deepiri_zepgpu.database.models.node_task_assignment import NodeTaskAssignment
 from deepiri_zepgpu.database.models.task import Task
 from deepiri_zepgpu.database.models.vpn_models import Peer
-from deepiri_zepgpu.database.repositories.node_task_repository import NodeTaskRepository
+from deepiri_zepgpu.database.repositories.node_task_repository import (
+    NodeTaskRepository,
+    NodeTaskTransitionError,
+)
+from deepiri_zepgpu.vpn.remote_gpu_lock import RemoteGpuLock
 from deepiri_zepgpu.vpn.repositories import PeerRepository, VpnNetworkRepository
 
 logger = logging.getLogger(__name__)
@@ -197,6 +201,16 @@ async def _emit_room_task_event(
     )
 
 
+def _release_assignment_lock(assignment: NodeTaskAssignment) -> None:
+    """Best-effort release of the Redis lock after a terminal DB commit."""
+    if not assignment.gpu_share_id:
+        return
+    try:
+        RemoteGpuLock().release(str(assignment.gpu_share_id), str(assignment.task_id))
+    except Exception:
+        logger.exception("Failed to release GPU lock for assignment %s", assignment.id)
+
+
 @router.get(
     "/rooms/{room_id}/nodes/{peer_id}/tasks/pending",
     response_model=list[NodeTaskResponse],
@@ -264,7 +278,10 @@ async def accept_node_task(
     peer: Peer = Depends(get_verified_peer),
 ) -> NodeTaskResponse:
     repo = NodeTaskRepository(db)
-    assignment = await repo.mark_accepted(assignment_id=assignment_id, peer_id=str(peer.id))
+    try:
+        assignment = await repo.mark_accepted(assignment_id=assignment_id, peer_id=str(peer.id))
+    except NodeTaskTransitionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if assignment is None:
         raise HTTPException(status_code=404, detail="Assignment not found")
     await db.commit()
@@ -284,7 +301,10 @@ async def start_node_task(
     peer: Peer = Depends(get_verified_peer),
 ) -> NodeTaskResponse:
     repo = NodeTaskRepository(db)
-    assignment = await repo.mark_running(assignment_id=assignment_id, peer_id=str(peer.id))
+    try:
+        assignment = await repo.mark_running(assignment_id=assignment_id, peer_id=str(peer.id))
+    except NodeTaskTransitionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if assignment is None:
         raise HTTPException(status_code=404, detail="Assignment not found")
     await db.commit()
@@ -305,11 +325,14 @@ async def complete_node_task(
     peer: Peer = Depends(get_verified_peer),
 ) -> NodeTaskResponse:
     repo = NodeTaskRepository(db)
-    assignment = await repo.mark_completed(
-        assignment_id=assignment_id,
-        peer_id=str(peer.id),
-        result_metadata=request.result_metadata,
-    )
+    try:
+        assignment = await repo.mark_completed(
+            assignment_id=assignment_id,
+            peer_id=str(peer.id),
+            result_metadata=request.result_metadata,
+        )
+    except NodeTaskTransitionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if assignment is None:
         raise HTTPException(status_code=404, detail="Assignment not found")
 
@@ -317,6 +340,7 @@ async def complete_node_task(
 
     await db.commit()
     await db.refresh(assignment)
+    _release_assignment_lock(assignment)
 
     await _notify_if_task_exists(task=task, assignment=assignment)
     await _emit_room_task_event(
@@ -335,11 +359,14 @@ async def fail_node_task(
     peer: Peer = Depends(get_verified_peer),
 ) -> NodeTaskResponse:
     repo = NodeTaskRepository(db)
-    assignment = await repo.mark_failed(
-        assignment_id=assignment_id,
-        peer_id=str(peer.id),
-        error=request.error,
-    )
+    try:
+        assignment = await repo.mark_failed(
+            assignment_id=assignment_id,
+            peer_id=str(peer.id),
+            error=request.error,
+        )
+    except NodeTaskTransitionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if assignment is None:
         raise HTTPException(status_code=404, detail="Assignment not found")
 
@@ -347,6 +374,7 @@ async def fail_node_task(
 
     await db.commit()
     await db.refresh(assignment)
+    _release_assignment_lock(assignment)
 
     await _notify_if_task_exists(task=task, assignment=assignment)
     await _emit_room_task_event(

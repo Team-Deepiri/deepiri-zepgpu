@@ -22,6 +22,10 @@ from deepiri_zepgpu.database.models.vpn_models import GpuShare, GpuShareState
 logger = logging.getLogger(__name__)
 
 
+class NodeTaskTransitionError(ValueError):
+    """Raised when a lifecycle request conflicts with terminal state."""
+
+
 class NodeTaskRepository:
     """Persistence layer for room node task assignments."""
 
@@ -191,6 +195,15 @@ class NodeTaskRepository:
         if assignment is None:
             return None
 
+        if assignment.status in {
+            NodeAssignmentStatus.ACCEPTED,
+            NodeAssignmentStatus.RUNNING,
+            NodeAssignmentStatus.COMPLETED,
+        }:
+            return assignment
+        if assignment.status in {NodeAssignmentStatus.FAILED, NodeAssignmentStatus.CANCELLED}:
+            raise NodeTaskTransitionError(f"Cannot accept a {assignment.status.value} assignment")
+
         assignment.status = NodeAssignmentStatus.ACCEPTED
         assignment.accepted_at = datetime.now(UTC)
 
@@ -215,6 +228,11 @@ class NodeTaskRepository:
         )
         if assignment is None:
             return None
+
+        if assignment.status in {NodeAssignmentStatus.RUNNING, NodeAssignmentStatus.COMPLETED}:
+            return assignment
+        if assignment.status in {NodeAssignmentStatus.FAILED, NodeAssignmentStatus.CANCELLED}:
+            raise NodeTaskTransitionError(f"Cannot start a {assignment.status.value} assignment")
 
         now = datetime.now(UTC)
         assignment.status = NodeAssignmentStatus.RUNNING
@@ -265,6 +283,11 @@ class NodeTaskRepository:
         )
         if assignment is None:
             return None
+
+        if assignment.status == NodeAssignmentStatus.COMPLETED:
+            return assignment
+        if assignment.status in {NodeAssignmentStatus.FAILED, NodeAssignmentStatus.CANCELLED}:
+            raise NodeTaskTransitionError(f"Cannot complete a {assignment.status.value} assignment")
 
         now = datetime.now(UTC)
         assignment.status = NodeAssignmentStatus.COMPLETED
@@ -319,6 +342,11 @@ class NodeTaskRepository:
         )
         if assignment is None:
             return None
+
+        if assignment.status == NodeAssignmentStatus.FAILED:
+            return assignment
+        if assignment.status in {NodeAssignmentStatus.COMPLETED, NodeAssignmentStatus.CANCELLED}:
+            raise NodeTaskTransitionError(f"Cannot fail a {assignment.status.value} assignment")
 
         now = datetime.now(UTC)
         assignment.status = NodeAssignmentStatus.FAILED

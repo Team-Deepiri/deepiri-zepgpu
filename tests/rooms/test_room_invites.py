@@ -314,6 +314,9 @@ class FakeConfigPeerRepository:
     async def get_private_key(self, _peer: object) -> str | None:
         return self.private_key
 
+    async def get_or_create_auth_token(self, _peer: object) -> str:
+        return "peer-auth-token"
+
 
 def test_get_room_config_returns_current_user_config(
     monkeypatch: pytest.MonkeyPatch,
@@ -355,6 +358,7 @@ def test_get_room_config_returns_current_user_config(
     assert response.peer_id == peer.id
     assert response.config == "generated-config"
     assert response.filename == f"room-{room_id}-peer-{peer.id}.conf"
+    assert response.auth_token == "peer-auth-token"
 
 
 def test_get_room_config_fails_when_user_has_no_peer(

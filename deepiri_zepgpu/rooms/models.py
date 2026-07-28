@@ -96,6 +96,7 @@ class RoomConnectionConfigResponse(BaseModel):
     peer_id: UUID
     config: str
     filename: str
+    auth_token: str | None = None
 
 
 class RoomNodeGpuResponse(BaseModel):
