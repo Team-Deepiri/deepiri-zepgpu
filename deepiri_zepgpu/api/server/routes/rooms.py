@@ -605,11 +605,13 @@ async def get_room_config(
         relay_endpoint=f"{room.relay_endpoint}:{room.listen_port}",
     )
 
-    return peer_config_to_room_config_response(
+    response = peer_config_to_room_config_response(
         room_id=UUID(str(room_id)),
         peer_id=UUID(str(peer.id)),
         config_text=config_text,
     )
+    response.auth_token = await peer_repo.get_or_create_auth_token(peer)
+    return response
 
 
 async def _attach_room_gpu_shares(
