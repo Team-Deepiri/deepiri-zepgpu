@@ -28,6 +28,14 @@ def test_room_routes_are_registered() -> None:
     assert "/api/v1/rooms/{room_id}/gpus" in paths
 
 
+def test_legacy_vpn_routes_remain_registered() -> None:
+    paths = {route.path for route in app.routes}
+
+    assert "/api/v1/vpn/networks" in paths
+    assert "/api/v1/vpn/networks/{network_id}" in paths
+    assert "/api/v1/vpn/networks/{network_id}/invite" in paths
+
+
 def test_list_rooms_requires_authentication() -> None:
     response = client.get("/api/v1/rooms")
 

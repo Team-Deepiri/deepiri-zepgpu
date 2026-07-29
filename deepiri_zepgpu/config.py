@@ -46,6 +46,8 @@ class S3Settings(BaseSettings):
 class APISettings(BaseSettings):
     """API server configuration."""
 
+    model_config = SettingsConfigDict(env_prefix="ZEPGPU_API_", extra="ignore")
+
     host: str = Field(default="0.0.0.0")
     port: int = Field(default=8000)
     workers: int = Field(default=4)
@@ -54,6 +56,11 @@ class APISettings(BaseSettings):
     title: str = Field(default="DeepIRI ZepGPU API")
     description: str = Field(default="Serverless GPU Framework")
     version: str = Field(default="0.1.0")
+    coordinator_public_url: str = Field(default="http://localhost:8000")
+    cors_origins: str = Field(default="http://localhost:3000,http://localhost:5173")
+
+    def parsed_cors_origins(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
 
 class GPUSettings(BaseSettings):

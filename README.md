@@ -131,6 +131,26 @@ curl -s http://localhost:8000/api/v1/tasks/TASK_ID/result \
 For the complete, verified HTTP API walkthrough (auth, tasks, pipelines, callbacks, and
 WebSockets), see the **[API reference](docs/api_reference.md#http--rest-api)**.
 
+### Room-network quick start
+
+With the API, Postgres, and Redis running, use the repeatable Phase 10 gate to create a room,
+invite and join a simulated provider, publish fake GPU metrics, dispatch a room no-op through
+the node-agent lifecycle, and verify its result:
+
+```bash
+poetry install
+poetry run python scripts/verify_room_network_local_simulation.py
+```
+
+No GPU is required. The simulated provider uses generated metrics and executes only the safe no-op
+runner; room membership, access control, scheduling, heartbeat expiry, task lifecycle, polling, and
+WebSocket events use the real coordinator path. See
+[room network local testing](docs/room_network_local_testing.md) for a persistent provider command,
+failure modes, and simulation boundaries.
+
+For a CPU-only public coordinator with Postgres, Redis, Celery, optional UI, and Caddy TLS, see the
+[cloud coordinator runbook](docs/deploy/cloud_coordinator.md) and `docker/docker-compose.prod.yml`.
+
 ### Web UI
 
 Open http://localhost:3000 to create and manage tasks, view pipelines, and monitor GPU utilization.

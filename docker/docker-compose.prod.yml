@@ -1,0 +1,134 @@
+x-coordinator-environment: &coordinator-environment
+  DATABASE__URL: postgresql+asyncpg://${POSTGRES_USER:-zepgpu}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-zepgpu}
+  DATABASE__SYNC_URL: postgresql://${POSTGRES_USER:-zepgpu}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-zepgpu}
+  REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+  CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/1}
+  CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/2}
+  CELERY_BEAT_SCHEDULE_DB: ${CELERY_BEAT_SCHEDULE_DB:-redis://redis:6379/3}
+  AUTH__SECRET_KEY: ${ZEPGPU_SECRET_KEY:?Set ZEPGPU_SECRET_KEY in docker/.env.prod}
+  API__COORDINATOR_PUBLIC_URL: ${COORDINATOR_PUBLIC_URL:-http://localhost:8000}
+  API__CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+  ENVIRONMENT: production
+  GPU__ENABLE_NVML: "false"
+  VPN__RELAY_HOST: ${VPN_RELAY_HOST:-localhost}
+  VPN__RELAY_PUBLIC_PORT: ${VPN_RELAY_PUBLIC_PORT:-51820}
+
+x-coordinator-service: &coordinator-service
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile.coordinator
+  image: zepgpu-coordinator:${ZEPGPU_VERSION:-latest}
+  environment: *coordinator-environment
+  restart: unless-stopped
+
+services:
+  api:
+    <<: *coordinator-service
+    command: uvicorn deepiri_zepgpu.api.server.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "${API_BIND_ADDRESS:-127.0.0.1}:${API_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/v1/health/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  celery-worker:
+    <<: *coordinator-service
+    command: celery -A deepiri_zepgpu.queue.celery_app worker --loglevel=info --queues=celery,schedules
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A deepiri_zepgpu.queue.celery_app inspect ping -d celery@$$HOSTNAME --timeout=5 | grep -q pong"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  celery-beat:
+    <<: *coordinator-service
+    command: celery -A deepiri_zepgpu.queue.celery_app beat --loglevel=info --schedule=/tmp/celerybeat-schedule
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/celerybeat-schedule"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+        POSTGRES_USER: ${POSTGRES_USER:-zepgpu}
+        POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+        POSTGRES_DB: ${POSTGRES_DB:-zepgpu}
+    volumes:
+      - coordinator-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-zepgpu} -d ${POSTGRES_DB:-zepgpu}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --appendfsync everysec
+    volumes:
+      - coordinator-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  ui:
+    profiles: ["ui"]
+    build:
+      context: ../zepgpu-ui
+      dockerfile: Dockerfile
+    image: zepgpu-ui:${ZEPGPU_VERSION:-latest}
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  caddy:
+    profiles: ["ui"]
+    image: caddy:2-alpine
+    environment:
+      COORDINATOR_DOMAIN: ${COORDINATOR_DOMAIN:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - coordinator-caddy-data:/data
+      - coordinator-caddy-config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+      ui:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  coordinator-postgres:
+  coordinator-redis:
+  coordinator-caddy-data:
+  coordinator-caddy-config:

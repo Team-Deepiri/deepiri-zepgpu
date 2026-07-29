@@ -89,7 +89,7 @@ def write_audit_markdown(result: RevolutionAuditResult, path: Path) -> Path:
             "",
         ]
     )
-    path.write_text("\n".join(lines))
+    path.write_text("\n".join(lines), encoding="utf-8")
     return path
 
 
