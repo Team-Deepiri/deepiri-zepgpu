@@ -32,6 +32,9 @@ def pytest_configure(config: pytest.Config) -> None:
 
 TRUNCATE_SQL = """
 TRUNCATE TABLE
+    training_worker_events,
+    training_workers,
+    training_runs,
     ledger_bridge_receipts,
     ledger_transactions,
     ledger_blocks,
@@ -221,7 +224,6 @@ async def regression_client(integration_engine, auth_user, unique_chain_id: str,
     from deepiri_zepgpu.config import get_settings, settings
     from deepiri_zepgpu.database.models.user import User
     from deepiri_zepgpu.database.models.user_quota import UserQuota
-    from datetime import datetime
 
     get_settings.cache_clear()
     settings.ledger.enabled = True

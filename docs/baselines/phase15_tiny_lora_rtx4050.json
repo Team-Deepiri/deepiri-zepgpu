@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "run_id": "2d6244a8-ddf3-450f-a8f0-c6482c0edd26",
+  "started_at": "2026-07-31T03:16:31.944704Z",
+  "completed_at": "2026-07-31T03:16:39.166751Z",
+  "model": "hf-internal-testing/tiny-random-gpt2",
+  "dataset": "zepgpu-inline-v1",
+  "adapter_mode": "lora",
+  "precision": "fp16",
+  "batch_size": 1,
+  "sequence_length": 64,
+  "gradient_accumulation_steps": 2,
+  "software_versions": {
+    "python": "3.13.3",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "torch": "2.7.1+cu128",
+    "transformers": "5.14.1",
+    "peft": "0.20.0"
+  },
+  "hardware": {
+    "device": "NVIDIA GeForce RTX 4050 Laptop GPU",
+    "cuda": "12.8",
+    "compute_capability": "8.9"
+  },
+  "steps": [
+    {
+      "step": 1,
+      "tokens": 64,
+      "samples": 2,
+      "step_seconds": 1.5965132999699563,
+      "compute_seconds": 1.5965132999699563,
+      "sync_seconds": 0.0,
+      "bytes_sent": 0,
+      "bytes_received": 0,
+      "loss": 6.889476776123047,
+      "gpu_utilization_percent": 1.0
+    },
+    {
+      "step": 2,
+      "tokens": 61,
+      "samples": 2,
+      "step_seconds": 0.345534999971278,
+      "compute_seconds": 0.345534999971278,
+      "sync_seconds": 0.0,
+      "bytes_sent": 0,
+      "bytes_received": 0,
+      "loss": 6.8927130699157715,
+      "gpu_utilization_percent": 2.0
+    }
+  ],
+  "peak_allocated_vram_bytes": 18988032,
+  "peak_reserved_vram_bytes": 23068672,
+  "artifact_ref": "artifacts\\training\\tiny-lora-smoke\\adapter-final",
+  "total_tokens": 125,
+  "total_samples": 4,
+  "total_step_seconds": 1.9420482999412343,
+  "useful_compute_seconds": 1.9420482999412343,
+  "sync_seconds": 0.0,
+  "bytes_sent": 0,
+  "bytes_received": 0,
+  "tokens_per_second": 64.36503149987693,
+  "samples_per_second": 2.059681007996062,
+  "communication_compute_ratio": 0.0,
+  "mean_gpu_utilization_percent": 1.5
+}

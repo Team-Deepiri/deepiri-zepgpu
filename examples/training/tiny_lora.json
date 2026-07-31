@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "run_name": "tiny-lora-smoke",
+  "model_name": "hf-internal-testing/tiny-random-gpt2",
+  "adapter_mode": "lora",
+  "precision": "fp16",
+  "sequence_length": 64,
+  "batch_size": 1,
+  "gradient_accumulation_steps": 2,
+  "max_steps": 2,
+  "checkpoint_every_steps": 1,
+  "gradient_checkpointing": true,
+  "seed": 42,
+  "output_dir": "artifacts/training/tiny-lora-smoke",
+  "smoke_run": true
+}
