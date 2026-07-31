@@ -60,6 +60,7 @@ class TrainingRunConfig(BaseModel):
     adapter_mode: AdapterMode = AdapterMode.LORA
     precision: Precision = Precision.FP16
     load_in_4bit: bool = False
+    device: str = Field(default="cuda:0", pattern=r"^(?:cpu|cuda:[0-9]+)$")
     sequence_length: int = Field(default=128, ge=8, le=32768)
     batch_size: int = Field(default=1, ge=1)
     gradient_accumulation_steps: int = Field(default=4, ge=1)

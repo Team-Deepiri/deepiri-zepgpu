@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import time
+from collections.abc import Awaitable
 from dataclasses import dataclass, field
 from typing import Any, cast
 
-from redis import Redis
+from redis.asyncio import Redis
 
 from deepiri_zepgpu.training.binary import MAX_PAYLOAD_BYTES, BinaryEnvelope, EnvelopeError
 
@@ -233,17 +234,23 @@ class RedisBinaryRelayStore:
         self.ttl_seconds = ttl_seconds
         self._redis: Redis = client or Redis.from_url(url, decode_responses=False)
 
-    def _get(self, key: str) -> bytes | None:
-        return cast(bytes | None, self._redis.get(key))
+    async def close(self) -> None:
+        await self._redis.aclose()
 
-    def _hget(self, key: str, field: str) -> bytes | None:
-        return cast(bytes | None, self._redis.hget(key, field))
+    async def _get(self, key: str) -> bytes | None:
+        response = cast(Awaitable[Any], self._redis.get(key))
+        return cast(bytes | None, await response)
 
-    def _hgetall(self, key: str) -> dict[bytes, bytes]:
-        return cast(dict[bytes, bytes], self._redis.hgetall(key))
+    async def _hget(self, key: str, field: str) -> bytes | None:
+        response = cast(Awaitable[Any], self._redis.hget(key, field))
+        return cast(bytes | None, await response)
 
-    def _mget(self, keys: list[str]) -> list[bytes | None]:
-        return cast(list[bytes | None], self._redis.mget(keys))
+    async def _hgetall(self, key: str) -> dict[bytes, bytes]:
+        response = cast(Awaitable[Any], self._redis.hgetall(key))
+        return cast(dict[bytes, bytes], await response)
+
+    async def _mget(self, keys: list[str]) -> list[bytes | None]:
+        return cast(list[bytes | None], await self._redis.mget(keys))
 
     @staticmethod
     def _index_key(transfer_id: str) -> str:
@@ -253,15 +260,15 @@ class RedisBinaryRelayStore:
     def _base(room_id: str, run_id: str, transfer_id: str) -> str:
         return f"zepgpu:training:relay:{room_id}:{run_id}:{transfer_id}"
 
-    def _lookup(self, transfer_id: str) -> tuple[str, str, str]:
-        value = self._get(self._index_key(transfer_id))
+    async def _lookup(self, transfer_id: str) -> tuple[str, str, str]:
+        value = await self._get(self._index_key(transfer_id))
         if not value:
             raise EnvelopeError("unknown transfer")
         decoded = value.decode("ascii") if isinstance(value, bytes) else str(value)
         room_id, run_id = decoded.split(":", 1)
         return room_id, run_id, self._base(room_id, run_id, transfer_id)
 
-    def begin(
+    async def begin(
         self,
         transfer_id: str,
         room_id: str,
@@ -276,14 +283,16 @@ class RedisBinaryRelayStore:
             raise EnvelopeError("invalid chunk count")
         index_key = self._index_key(transfer_id)
         base = self._base(room_id, run_id, transfer_id)
-        with self._redis.lock(
+        async with self._redis.lock(
             f"zepgpu:training:relay:lock:{transfer_id}", timeout=10, blocking_timeout=5
         ):
-            existing_scope = self._get(index_key)
+            existing_scope = await self._get(index_key)
             expected_scope = f"{room_id}:{run_id}".encode()
             if existing_scope and existing_scope != expected_scope:
                 raise TransferConflictError("conflicting duplicate transfer")
-            existing = self._hgetall(f"{base}:meta")
+            existing = await self._hgetall(f"{base}:meta")
+            if existing.get(b"status") == b"completed":
+                raise TransferConflictError("transfer is already completed")
             metadata = {
                 b"room_id": room_id.encode(),
                 b"run_id": run_id.encode(),
@@ -308,14 +317,14 @@ class RedisBinaryRelayStore:
             pipeline.set(index_key, expected_scope, ex=self.ttl_seconds, nx=True)
             pipeline.hset(f"{base}:meta", mapping=metadata)
             pipeline.expire(f"{base}:meta", self.ttl_seconds)
-            pipeline.execute()
+            await pipeline.execute()
 
-    def put_chunk(self, transfer_id: str, index: int, chunk: bytes) -> None:
-        room_id, run_id, base = self._lookup(transfer_id)
+    async def put_chunk(self, transfer_id: str, index: int, chunk: bytes) -> None:
+        room_id, run_id, base = await self._lookup(transfer_id)
         del room_id, run_id
         meta_key = f"{base}:meta"
-        with self._redis.lock(f"{base}:lock", timeout=10, blocking_timeout=5):
-            meta = self._hgetall(meta_key)
+        async with self._redis.lock(f"{base}:lock", timeout=10, blocking_timeout=5):
+            meta = await self._hgetall(meta_key)
             if not meta or meta.get(b"status") != b"uploading":
                 raise EnvelopeError("transfer is not accepting chunks")
             total_chunks = int(meta[b"total_chunks"])
@@ -324,7 +333,7 @@ class RedisBinaryRelayStore:
             if len(chunk) > self.max_chunk_bytes:
                 raise EnvelopeError("chunk exceeds size limit")
             chunk_key = f"{base}:chunk:{index}"
-            existing = self._get(chunk_key)
+            existing = await self._get(chunk_key)
             if existing is not None:
                 if hashlib.sha256(existing).digest() != hashlib.sha256(chunk).digest():
                     raise TransferConflictError("conflicting duplicate chunk")
@@ -337,24 +346,24 @@ class RedisBinaryRelayStore:
             pipeline.hincrby(meta_key, "received_bytes", len(chunk))
             pipeline.expire(meta_key, self.ttl_seconds)
             pipeline.expire(self._index_key(transfer_id), self.ttl_seconds)
-            pipeline.execute()
+            await pipeline.execute()
 
-    def complete(self, transfer_id: str) -> BinaryEnvelope:
-        room_id, run_id, base = self._lookup(transfer_id)
+    async def complete(self, transfer_id: str) -> BinaryEnvelope:
+        room_id, run_id, base = await self._lookup(transfer_id)
         meta_key = f"{base}:meta"
-        with self._redis.lock(f"{base}:lock", timeout=30, blocking_timeout=5):
-            meta = self._hgetall(meta_key)
+        async with self._redis.lock(f"{base}:lock", timeout=30, blocking_timeout=5):
+            meta = await self._hgetall(meta_key)
             if not meta:
                 raise EnvelopeError("unknown transfer")
             if meta.get(b"status") == b"completed":
-                encoded = self._get(f"{base}:payload")
+                encoded = await self._get(f"{base}:payload")
                 if encoded is None:
                     raise EnvelopeError("completed transfer payload expired")
                 return BinaryEnvelope.decode(
                     encoded, expected_room_id=room_id, expected_run_id=run_id
                 )
             total_chunks = int(meta[b"total_chunks"])
-            chunks = self._mget([f"{base}:chunk:{index}" for index in range(total_chunks)])
+            chunks = await self._mget([f"{base}:chunk:{index}" for index in range(total_chunks)])
             if any(chunk is None for chunk in chunks):
                 raise EnvelopeError("transfer is incomplete")
             encoded = b"".join(chunk for chunk in chunks if chunk is not None)
@@ -375,37 +384,37 @@ class RedisBinaryRelayStore:
             pipeline.set(f"{base}:payload", encoded, ex=self.ttl_seconds)
             pipeline.hset(meta_key, "status", "completed")
             pipeline.expire(meta_key, self.ttl_seconds)
-            pipeline.execute()
+            await pipeline.execute()
             return envelope
 
-    def receive(self, transfer_id: str, target_worker_id: str) -> BinaryEnvelope:
-        room_id, run_id, base = self._lookup(transfer_id)
-        meta = self._hgetall(f"{base}:meta")
+    async def receive(self, transfer_id: str, target_worker_id: str) -> BinaryEnvelope:
+        room_id, run_id, base = await self._lookup(transfer_id)
+        meta = await self._hgetall(f"{base}:meta")
         if not meta or meta.get(b"status") != b"completed":
             raise EnvelopeError("transfer is not completed")
         expected_target = meta.get(b"target_worker_id", b"").decode()
         if expected_target and expected_target != target_worker_id:
             raise TransferConflictError("transfer belongs to another target worker")
-        encoded = self._get(f"{base}:payload")
+        encoded = await self._get(f"{base}:payload")
         if encoded is None:
             raise EnvelopeError("completed transfer payload expired")
         return BinaryEnvelope.decode(encoded, expected_room_id=room_id, expected_run_id=run_id)
 
-    def scope(self, transfer_id: str) -> tuple[str, str, str | None]:
-        room_id, run_id, base = self._lookup(transfer_id)
-        worker_id = self._hget(f"{base}:meta", "worker_id")
+    async def scope(self, transfer_id: str) -> tuple[str, str, str | None]:
+        room_id, run_id, base = await self._lookup(transfer_id)
+        worker_id = await self._hget(f"{base}:meta", "worker_id")
         decoded = worker_id.decode() if worker_id else None
         return room_id, run_id, decoded or None
 
-    def target(self, transfer_id: str) -> str | None:
-        _, _, base = self._lookup(transfer_id)
-        target = self._hget(f"{base}:meta", "target_worker_id")
+    async def target(self, transfer_id: str) -> str | None:
+        _, _, base = await self._lookup(transfer_id)
+        target = await self._hget(f"{base}:meta", "target_worker_id")
         decoded = target.decode() if target else None
         return decoded or None
 
-    def inspect(self, transfer_id: str) -> dict[str, Any]:
-        room_id, run_id, base = self._lookup(transfer_id)
-        meta = self._hgetall(f"{base}:meta")
+    async def inspect(self, transfer_id: str) -> dict[str, Any]:
+        room_id, run_id, base = await self._lookup(transfer_id)
+        meta = await self._hgetall(f"{base}:meta")
         return {
             "room_id": room_id,
             "run_id": run_id,
@@ -414,17 +423,17 @@ class RedisBinaryRelayStore:
             "total_chunks": int(meta.get(b"total_chunks", b"0")),
         }
 
-    def cleanup(self, now: float | None = None) -> int:
+    async def cleanup(self, now: float | None = None) -> int:
         del now
         return 0
 
-    def abort(self, transfer_id: str) -> bool:
+    async def abort(self, transfer_id: str) -> bool:
         try:
-            _, _, base = self._lookup(transfer_id)
+            _, _, base = await self._lookup(transfer_id)
         except EnvelopeError:
             return False
-        keys = list(self._redis.scan_iter(match=f"{base}:*", count=1000))
+        keys = [key async for key in self._redis.scan_iter(match=f"{base}:*", count=1000)]
         if keys:
-            self._redis.delete(*keys)
-        self._redis.delete(self._index_key(transfer_id))
+            await self._redis.delete(*keys)
+        await self._redis.delete(self._index_key(transfer_id))
         return True

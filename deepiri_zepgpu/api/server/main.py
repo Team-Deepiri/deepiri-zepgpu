@@ -96,13 +96,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     vpn_stop = asyncio.Event()
     vpn_task = asyncio.create_task(_vpn_registry_maintenance_loop(vpn_stop))
-    yield
-    vpn_stop.set()
-    vpn_task.cancel()
-    with suppress(asyncio.CancelledError):
-        await vpn_task
-    await close_db()
-    await queue.disconnect()
+    try:
+        yield
+    finally:
+        vpn_stop.set()
+        vpn_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await vpn_task
+        from deepiri_zepgpu.api.server.routes.training_runs import relay_store
+
+        await relay_store.close()
+        await close_db()
+        await queue.disconnect()
 
 
 app = FastAPI(

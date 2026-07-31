@@ -36,6 +36,10 @@ poetry run zepgpu-train examples/training/tiny_qlora.json --smoke
 Each output directory contains a resolved, recursively secret-filtered `config.json`, per-step
 checkpoints, `adapter-final`, `metrics.json`, and `summary.txt`. QLoRA fails explicitly if the
 Transformers/bitsandbytes stack does not report that the base model was loaded in 4-bit mode.
+The explicit `device` setting defaults to `cuda:0`; requesting CUDA when it is unavailable or
+selecting a nonexistent device index fails before model loading. This is still a single-device
+baseline, not multi-GPU support. Non-quantized unit/smoke configurations may select `cpu` with a
+CPU-compatible precision, while QLoRA retains Transformers/bitsandbytes-controlled CUDA placement.
 
 Resume the optimizer, adapter, step counter, Python RNG, Torch RNG, and all CUDA RNG states:
 
@@ -54,8 +58,8 @@ poetry run zepgpu-train examples/training/tiny_lora.json --smoke \
 - `communication_compute_ratio` is `sync_seconds / useful_compute_seconds`, or zero when useful
   compute is zero. It is therefore exactly zero for a single-node run.
 - Peak allocated and reserved VRAM come from Torch CUDA peak-memory counters. GPU utilization is
-  sampled with NVML after each step; `null` means NVML was unavailable rather than an invented
-  value.
+  sampled with NVML after each step. The maintained `nvidia-ml-py` distribution provides the
+  `pynvml` import; `null` means NVML was unavailable rather than an invented value.
 - JSON metrics also record model, dataset, adapter mode, precision, effective configuration,
   package/platform versions, CUDA version, device name/count, compute capability, and total VRAM.
 
@@ -87,10 +91,14 @@ worker, and transfer scopes; synchronization round; nanosecond timestamp; payloa
 shape and dtype; compression metadata; exact byte length; SHA-256 checksum; and extension bytes.
 Scope, metadata, length, checksum, and duplicate-transfer conflicts are validated before use.
 
-`TransferManager` attempts its abstract direct channel first. Only direct unavailability or timeout
-causes bounded retry and HTTP relay fallback; authentication or validation errors do not silently
-fall back. `PcclDirectChannel` is an adapter boundary for a future PCCL sender, not a bundled PCCL
-implementation. Tests use the same interface with two in-memory workers.
+`TransferManager` attempts its abstract direct channel first. `PcclDirectChannel` accepts an async
+sender callable whose inputs are the target worker ID and the unmodified binary envelope bytes.
+The envelope scopes the room, run, source worker, and round. The sender owns direct-path timeout,
+scope authorization/validation, any PCCL-specific metrics, and delivery acknowledgement before it
+returns. It must remain non-blocking (or isolate a blocking binding itself). Only
+`DirectUnavailable` or `TimeoutError` causes bounded retry and HTTP relay fallback; authentication,
+validation, or other protocol errors propagate. This is an adapter boundary for a future PCCL
+sender, not a bundled PCCL implementation. Tests use the same interface with two in-memory workers.
 
 The production coordinator relay accepts and returns `application/octet-stream`, never JSON or
 base64 model payloads. The sender performs begin, idempotent chunk upload, completion, and status

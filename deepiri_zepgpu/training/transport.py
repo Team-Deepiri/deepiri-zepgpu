@@ -49,6 +49,27 @@ class InMemoryDirectChannel:
 
 
 class PcclDirectChannel:
+    """Phase 16 adapter boundary for a future asynchronous PCCL sender.
+
+    ``sender`` must be an async callable accepting the assigned target worker ID and the
+    unmodified ``BinaryEnvelope.encode()`` bytes. The envelope carries the room, run,
+    source-worker, round, checksum, and payload metadata; the target argument supplies the
+    destination-worker scope. A concrete sender must authorize and validate all of those scopes
+    before delivery and must raise authorization or envelope errors rather than translating them
+    into connectivity failures.
+
+    The sender owns its network timeout and should raise ``TimeoutError`` when it expires, or
+    ``DirectUnavailable`` when the direct path cannot be established. Only those two failures are
+    retried and may fall back to the coordinator relay. Other failures propagate without fallback.
+    Direct delivery acknowledgement, if the eventual PCCL protocol requires one, is the sender's
+    responsibility before this coroutine returns; there is no separate Phase 16 PCCL ack API.
+
+    ``TransferManager`` records path, byte, duration, and retry metrics, while a concrete sender is
+    responsible for any PCCL-specific metrics. The callable must remain non-blocking/async; any
+    blocking PCCL binding must manage its own thread boundary. Phase 16 does not bundle or claim a
+    PCCL networking implementation.
+    """
+
     def __init__(self, sender: Callable[[str, bytes], Awaitable[None]] | None = None) -> None:
         self.sender = sender
 

@@ -4,6 +4,7 @@
   "model_name": "hf-internal-testing/tiny-random-gpt2",
   "adapter_mode": "lora",
   "precision": "fp16",
+  "device": "cuda:0",
   "sequence_length": 64,
   "batch_size": 1,
   "gradient_accumulation_steps": 2,

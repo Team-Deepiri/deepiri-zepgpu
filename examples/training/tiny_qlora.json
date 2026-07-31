@@ -4,6 +4,7 @@
   "model_name": "hf-internal-testing/tiny-random-gpt2",
   "adapter_mode": "qlora",
   "precision": "fp16",
+  "device": "cuda:0",
   "load_in_4bit": true,
   "sequence_length": 64,
   "batch_size": 1,

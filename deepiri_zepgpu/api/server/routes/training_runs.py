@@ -13,7 +13,6 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, R
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from starlette.concurrency import run_in_threadpool
 
 from deepiri_zepgpu.api.server.dependencies import get_db_session, get_required_user
 from deepiri_zepgpu.api.server.routes.node_tasks import get_verified_peer
@@ -29,6 +28,7 @@ from deepiri_zepgpu.database.repositories.training_run_repository import (
     TrainingRunRepository,
     TrainingRunTransitionError,
     TrainingWorkerEventConflict,
+    TrainingWorkerEventValidationError,
 )
 from deepiri_zepgpu.training.binary import EnvelopeError
 from deepiri_zepgpu.training.config import TrainingRunConfig
@@ -371,10 +371,6 @@ async def _assigned_worker(
     return run, worker
 
 
-async def _relay_call(method: str, *args: Any, **kwargs: Any) -> Any:
-    return await run_in_threadpool(getattr(relay_store, method), *args, **kwargs)
-
-
 async def _get_run_worker(db: AsyncSession, run_id: str, worker_id: str) -> TrainingWorker:
     result = await db.execute(
         select(TrainingWorker).where(
@@ -392,7 +388,7 @@ async def _require_transfer_owner(
     db: AsyncSession, peer: Peer, room_id: str, transfer_id: str
 ) -> None:
     try:
-        transfer_room_id, run_id, worker_id = await _relay_call("scope", transfer_id)
+        transfer_room_id, run_id, worker_id = await relay_store.scope(transfer_id)
     except EnvelopeError as exc:
         raise HTTPException(status_code=404, detail="Transfer not found") from exc
     if transfer_room_id != room_id:
@@ -498,6 +494,8 @@ async def submit_worker_event(
             occurred_at=event.timestamp,
             payload=event.payload,
         )
+    except TrainingWorkerEventValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except (TrainingRunTransitionError, TrainingWorkerEventConflict) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return _response(run)
@@ -534,10 +532,9 @@ async def begin_relay_transfer(
     _verify_relay_scope(peer, room_id_string)
     worker = await _require_relay_worker(db, peer, room_id_string, run_id_string)
     await _get_run_worker(db, run_id_string, str(target_worker_id))
-    await _relay_call("cleanup")
+    await relay_store.cleanup()
     try:
-        await _relay_call(
-            "begin",
+        await relay_store.begin(
             transfer_id_string,
             room_id_string,
             run_id_string,
@@ -570,8 +567,8 @@ async def upload_relay_chunk(
     if content_length is not None and content_length > relay_store.max_chunk_bytes:
         raise HTTPException(status_code=413, detail="Chunk exceeds size limit")
     try:
-        await _relay_call(
-            "put_chunk", transfer_id_string, chunk_index, await _read_bounded_chunk(request)
+        await relay_store.put_chunk(
+            transfer_id_string, chunk_index, await _read_bounded_chunk(request)
         )
     except TransferConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -592,7 +589,7 @@ async def complete_relay_transfer(
     _verify_relay_scope(peer, room_id_string)
     await _require_transfer_owner(db, peer, room_id_string, transfer_id_string)
     try:
-        await _relay_call("complete", transfer_id_string)
+        await relay_store.complete(transfer_id_string)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return Response(status_code=204)
@@ -609,15 +606,15 @@ async def receive_relay_transfer(
     transfer_id_string = str(transfer_id)
     _verify_relay_scope(peer, room_id_string)
     try:
-        transfer_room_id, run_id, _ = await _relay_call("scope", transfer_id_string)
-        target_worker_id = await _relay_call("target", transfer_id_string)
+        transfer_room_id, run_id, _ = await relay_store.scope(transfer_id_string)
+        target_worker_id = await relay_store.target(transfer_id_string)
     except EnvelopeError as exc:
         raise HTTPException(status_code=404, detail="Transfer not found") from exc
     if transfer_room_id != room_id_string or target_worker_id is None:
         raise HTTPException(status_code=403, detail="Cross-room or untargeted relay denied")
     await _require_target_worker(db, peer, run_id, target_worker_id)
     try:
-        envelope = await _relay_call("receive", transfer_id_string, target_worker_id)
+        envelope = await relay_store.receive(transfer_id_string, target_worker_id)
     except EnvelopeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return Response(content=envelope.encode(), media_type="application/octet-stream")
@@ -634,7 +631,7 @@ async def inspect_relay_transfer(
     transfer_id_string = str(transfer_id)
     _verify_relay_scope(peer, room_id_string)
     await _require_transfer_owner(db, peer, room_id_string, transfer_id_string)
-    return await _relay_call("inspect", transfer_id_string)
+    return await relay_store.inspect(transfer_id_string)
 
 
 @router.post("/relay/{transfer_id}/ack", status_code=204)
@@ -648,14 +645,14 @@ async def acknowledge_relay_transfer(
     transfer_id_string = str(transfer_id)
     _verify_relay_scope(peer, room_id_string)
     try:
-        transfer_room_id, run_id, _ = await _relay_call("scope", transfer_id_string)
-        target_worker_id = await _relay_call("target", transfer_id_string)
+        transfer_room_id, run_id, _ = await relay_store.scope(transfer_id_string)
+        target_worker_id = await relay_store.target(transfer_id_string)
     except EnvelopeError as exc:
         raise HTTPException(status_code=404, detail="Transfer not found") from exc
     if transfer_room_id != room_id_string or target_worker_id is None:
         raise HTTPException(status_code=403, detail="Cross-room or untargeted relay denied")
     await _require_target_worker(db, peer, run_id, target_worker_id)
-    await _relay_call("abort", transfer_id_string)
+    await relay_store.abort(transfer_id_string)
     return Response(status_code=204)
 
 
@@ -670,5 +667,5 @@ async def abort_relay_transfer(
     transfer_id_string = str(transfer_id)
     _verify_relay_scope(peer, room_id_string)
     await _require_transfer_owner(db, peer, room_id_string, transfer_id_string)
-    await _relay_call("abort", transfer_id_string)
+    await relay_store.abort(transfer_id_string)
     return Response(status_code=204)

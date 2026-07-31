@@ -80,6 +80,10 @@ class TrainingWorkerEventConflict(ValueError):
     pass
 
 
+class TrainingWorkerEventValidationError(ValueError):
+    pass
+
+
 class TrainingRunRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -281,119 +285,227 @@ class TrainingRunRepository:
         await self.session.flush()
         return True
 
-    async def _apply_worker_event(  # noqa: C901
+    async def _apply_worker_event(
         self, run: TrainingRun, worker: TrainingWorker, kind: str, payload: dict[str, Any]
     ) -> None:
         now = datetime.now(UTC)
-        if kind == "ready":
-            if worker.state == TrainingWorkerState.READY and run.state in {
-                TrainingRunState.PREPARING,
-                TrainingRunState.READY,
-            }:
-                worker.last_heartbeat_at = now
-                return
-            if run.state == TrainingRunState.CREATED:
-                await self.prepare(run)
-            if run.state != TrainingRunState.PREPARING:
-                raise TrainingRunTransitionError("worker readiness is only valid while preparing")
-            worker.state = TrainingWorkerState.READY
-            worker.ready_at = worker.ready_at or now
+        handlers = {
+            "ready": self._handle_ready_event,
+            "heartbeat": self._handle_heartbeat_event,
+            "progress": self._handle_progress_event,
+            "log": self._handle_log_event,
+            "round_started": self._handle_round_started_event,
+            "round_completed": self._handle_round_completed_event,
+            "round_failed": self._handle_round_failed_event,
+            "checkpointing": self._handle_checkpointing_event,
+            "checkpoint_completed": self._handle_checkpoint_completed_event,
+            "reconnected": self._handle_reconnect_event,
+            "shutdown": self._handle_shutdown_event,
+            "aborted": self._handle_abort_event,
+            "completed": self._handle_completed_event,
+        }
+        handler = handlers.get(kind)
+        if handler is None:
+            raise TrainingWorkerEventValidationError(f"unsupported worker event: {kind}")
+        await handler(run, worker, payload, now)
+
+    async def _handle_ready_event(
+        self,
+        run: TrainingRun,
+        worker: TrainingWorker,
+        payload: dict[str, Any],
+        now: datetime,
+    ) -> None:
+        del payload
+        if worker.state == TrainingWorkerState.READY and run.state in {
+            TrainingRunState.PREPARING,
+            TrainingRunState.READY,
+        }:
             worker.last_heartbeat_at = now
-            if run.workers and all(item.state == TrainingWorkerState.READY for item in run.workers):
-                await self.transition(run, TrainingRunState.READY)
             return
-        if kind in {"heartbeat", "progress", "log"}:
-            worker.last_heartbeat_at = now
-            if kind != "log":
-                progress = payload.get("progress", payload)
-                if isinstance(progress, dict):
-                    worker.progress = {**worker.progress, **progress}
-            return
-        if kind == "round_started":
-            round_number = self._event_round(payload)
-            if run.state not in {
-                TrainingRunState.RUNNING,
-                TrainingRunState.SYNCING,
-            }:
-                raise TrainingRunTransitionError("round cannot start unless run is running")
-            if round_number <= worker.current_round:
-                raise TrainingWorkerEventConflict("round must increase monotonically")
-            worker.current_round = round_number
-            worker.state = TrainingWorkerState.SYNCING
-            worker.progress = {**worker.progress, "round_status": "started"}
-            if run.state == TrainingRunState.RUNNING:
-                await self.transition(run, TrainingRunState.SYNCING)
-            return
-        if kind == "round_completed":
-            round_number = self._event_round(payload)
-            if round_number != worker.current_round or worker.state != TrainingWorkerState.SYNCING:
-                raise TrainingWorkerEventConflict("round completion does not match active round")
-            worker.state = TrainingWorkerState.RUNNING
-            worker.progress = {**worker.progress, "round_status": "completed"}
-            if all(
-                item.current_round == round_number
-                and item.progress.get("round_status") == "completed"
-                for item in run.workers
-            ):
-                await self.transition(run, TrainingRunState.RUNNING)
-            return
-        if kind == "round_failed":
-            round_number = self._event_round(payload)
-            worker.current_round = max(worker.current_round, round_number)
-            worker.state = TrainingWorkerState.FAILED
-            worker.error = worker.error or str(payload.get("error_type", "worker round failed"))
-            worker.stopped_at = now
-            await self.fail(run, error=worker.error, failed_worker=worker)
-            return
-        if kind == "checkpointing":
-            if run.state not in {
-                TrainingRunState.RUNNING,
-                TrainingRunState.SYNCING,
-                TrainingRunState.CHECKPOINTING,
-            }:
-                raise TrainingRunTransitionError("checkpointing requires an active run")
-            worker.state = TrainingWorkerState.CHECKPOINTING
-            await self.transition(run, TrainingRunState.CHECKPOINTING)
-            return
-        if kind == "checkpoint_completed":
-            if worker.state != TrainingWorkerState.CHECKPOINTING:
-                raise TrainingRunTransitionError("worker is not checkpointing")
-            worker.state = TrainingWorkerState.RUNNING
-            if all(item.state == TrainingWorkerState.RUNNING for item in run.workers):
-                await self.transition(run, TrainingRunState.RUNNING)
-            return
-        if kind == "reconnected":
-            worker.restart_count += 1
-            worker.last_heartbeat_at = now
-            worker.state = (
-                TrainingWorkerState.READY
-                if run.state in {TrainingRunState.PREPARING, TrainingRunState.READY}
-                else TrainingWorkerState.RUNNING
-            )
-            return
-        if kind == "shutdown":
-            worker.state = TrainingWorkerState.STOPPED
-            worker.stopped_at = now
-            return
-        if kind == "aborted":
-            worker.state = TrainingWorkerState.ABORTED
-            worker.stopped_at = now
-            worker.credential_revoked_at = now
-            await self.abort(run)
-            return
-        if kind == "completed":
-            worker.state = TrainingWorkerState.COMPLETED
-            worker.stopped_at = now
-            if all(item.state == TrainingWorkerState.COMPLETED for item in run.workers):
-                await self.transition(run, TrainingRunState.COMPLETED)
-            return
-        raise TrainingWorkerEventConflict(f"unsupported worker event: {kind}")
+        if run.state == TrainingRunState.CREATED:
+            await self.prepare(run)
+        if run.state != TrainingRunState.PREPARING:
+            raise TrainingRunTransitionError("worker readiness is only valid while preparing")
+        worker.state = TrainingWorkerState.READY
+        worker.ready_at = worker.ready_at or now
+        worker.last_heartbeat_at = now
+        if run.workers and all(item.state == TrainingWorkerState.READY for item in run.workers):
+            await self.transition(run, TrainingRunState.READY)
+
+    @staticmethod
+    async def _handle_heartbeat_event(
+        run: TrainingRun,
+        worker: TrainingWorker,
+        payload: dict[str, Any],
+        now: datetime,
+    ) -> None:
+        del run
+        worker.last_heartbeat_at = now
+        progress = payload.get("progress", payload)
+        if isinstance(progress, dict):
+            worker.progress = {**worker.progress, **progress}
+
+    async def _handle_progress_event(
+        self,
+        run: TrainingRun,
+        worker: TrainingWorker,
+        payload: dict[str, Any],
+        now: datetime,
+    ) -> None:
+        await self._handle_heartbeat_event(run, worker, payload, now)
+
+    @staticmethod
+    async def _handle_log_event(
+        run: TrainingRun,
+        worker: TrainingWorker,
+        payload: dict[str, Any],
+        now: datetime,
+    ) -> None:
+        del run, payload
+        worker.last_heartbeat_at = now
+
+    async def _handle_round_started_event(
+        self,
+        run: TrainingRun,
+        worker: TrainingWorker,
+        payload: dict[str, Any],
+        now: datetime,
+    ) -> None:
+        del now
+        round_number = self._event_round(payload)
+        if run.state not in {TrainingRunState.RUNNING, TrainingRunState.SYNCING}:
+            raise TrainingRunTransitionError("round cannot start unless run is running")
+        if round_number <= worker.current_round:
+            raise TrainingWorkerEventConflict("round must increase monotonically")
+        worker.current_round = round_number
+        worker.state = TrainingWorkerState.SYNCING
+        worker.progress = {**worker.progress, "round_status": "started"}
+        if run.state == TrainingRunState.RUNNING:
+            await self.transition(run, TrainingRunState.SYNCING)
+
+    async def _handle_round_completed_event(
+        self,
+        run: TrainingRun,
+        worker: TrainingWorker,
+        payload: dict[str, Any],
+        now: datetime,
+    ) -> None:
+        del now
+        round_number = self._event_round(payload)
+        if round_number != worker.current_round or worker.state != TrainingWorkerState.SYNCING:
+            raise TrainingWorkerEventConflict("round completion does not match active round")
+        worker.state = TrainingWorkerState.RUNNING
+        worker.progress = {**worker.progress, "round_status": "completed"}
+        if all(
+            item.current_round == round_number and item.progress.get("round_status") == "completed"
+            for item in run.workers
+        ):
+            await self.transition(run, TrainingRunState.RUNNING)
+
+    async def _handle_round_failed_event(
+        self,
+        run: TrainingRun,
+        worker: TrainingWorker,
+        payload: dict[str, Any],
+        now: datetime,
+    ) -> None:
+        round_number = self._event_round(payload)
+        worker.current_round = max(worker.current_round, round_number)
+        worker.state = TrainingWorkerState.FAILED
+        worker.error = worker.error or str(payload.get("error_type", "worker round failed"))
+        worker.stopped_at = now
+        await self.fail(run, error=worker.error, failed_worker=worker)
+
+    async def _handle_checkpointing_event(
+        self,
+        run: TrainingRun,
+        worker: TrainingWorker,
+        payload: dict[str, Any],
+        now: datetime,
+    ) -> None:
+        del payload, now
+        if run.state not in {
+            TrainingRunState.RUNNING,
+            TrainingRunState.SYNCING,
+            TrainingRunState.CHECKPOINTING,
+        }:
+            raise TrainingRunTransitionError("checkpointing requires an active run")
+        worker.state = TrainingWorkerState.CHECKPOINTING
+        await self.transition(run, TrainingRunState.CHECKPOINTING)
+
+    async def _handle_checkpoint_completed_event(
+        self,
+        run: TrainingRun,
+        worker: TrainingWorker,
+        payload: dict[str, Any],
+        now: datetime,
+    ) -> None:
+        del payload, now
+        if worker.state != TrainingWorkerState.CHECKPOINTING:
+            raise TrainingRunTransitionError("worker is not checkpointing")
+        worker.state = TrainingWorkerState.RUNNING
+        if all(item.state == TrainingWorkerState.RUNNING for item in run.workers):
+            await self.transition(run, TrainingRunState.RUNNING)
+
+    @staticmethod
+    async def _handle_reconnect_event(
+        run: TrainingRun,
+        worker: TrainingWorker,
+        payload: dict[str, Any],
+        now: datetime,
+    ) -> None:
+        del payload
+        worker.restart_count += 1
+        worker.last_heartbeat_at = now
+        worker.state = (
+            TrainingWorkerState.READY
+            if run.state in {TrainingRunState.PREPARING, TrainingRunState.READY}
+            else TrainingWorkerState.RUNNING
+        )
+
+    @staticmethod
+    async def _handle_shutdown_event(
+        run: TrainingRun,
+        worker: TrainingWorker,
+        payload: dict[str, Any],
+        now: datetime,
+    ) -> None:
+        del run, payload
+        worker.state = TrainingWorkerState.STOPPED
+        worker.stopped_at = now
+
+    async def _handle_abort_event(
+        self,
+        run: TrainingRun,
+        worker: TrainingWorker,
+        payload: dict[str, Any],
+        now: datetime,
+    ) -> None:
+        del payload
+        worker.state = TrainingWorkerState.ABORTED
+        worker.stopped_at = now
+        worker.credential_revoked_at = now
+        await self.abort(run)
+
+    async def _handle_completed_event(
+        self,
+        run: TrainingRun,
+        worker: TrainingWorker,
+        payload: dict[str, Any],
+        now: datetime,
+    ) -> None:
+        del payload
+        worker.state = TrainingWorkerState.COMPLETED
+        worker.stopped_at = now
+        if all(item.state == TrainingWorkerState.COMPLETED for item in run.workers):
+            await self.transition(run, TrainingRunState.COMPLETED)
 
     @staticmethod
     def _event_round(payload: dict[str, Any]) -> int:
         value = payload.get("round")
-        if not isinstance(value, int) or value < 1:
-            raise TrainingWorkerEventConflict("event requires a positive round")
+        if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+            raise TrainingWorkerEventValidationError("event requires a positive round")
         return value
 
     async def add_artifact(self, run: TrainingRun, artifact: dict[str, Any]) -> TrainingRun:

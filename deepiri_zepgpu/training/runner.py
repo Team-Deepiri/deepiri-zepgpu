@@ -49,14 +49,14 @@ def _imports() -> tuple[Any, Any, Any]:
     return torch, transformers, peft
 
 
-def _gpu_utilization() -> float | None:
+def _gpu_utilization(device_index: int = 0) -> float | None:
     pynvml_module: Any | None = None
     try:
         pynvml_module = import_module("pynvml")
         pynvml_module.nvmlInit()
         return float(
             pynvml_module.nvmlDeviceGetUtilizationRates(
-                pynvml_module.nvmlDeviceGetHandleByIndex(0)
+                pynvml_module.nvmlDeviceGetHandleByIndex(device_index)
             ).gpu
         )
     except Exception:
@@ -101,7 +101,8 @@ def _checkpoint(
 def _seed_runtime(torch: Any, transformers: Any, seed: int) -> None:
     random.seed(seed)
     torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
     if hasattr(torch.backends, "cudnn"):
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
@@ -109,13 +110,40 @@ def _seed_runtime(torch: Any, transformers: Any, seed: int) -> None:
         transformers.set_seed(seed)
 
 
+def _resolve_device(config: TrainingRunConfig, torch: Any) -> Any:
+    try:
+        device = torch.device(config.device)
+    except (RuntimeError, ValueError) as exc:
+        raise ValueError(f"Invalid training device: {config.device}") from exc
+    if device.type == "cuda":
+        if not torch.cuda.is_available():
+            raise RuntimeError(
+                f"CUDA device {config.device} was requested, but CUDA is unavailable"
+            )
+        device_index = 0 if device.index is None else device.index
+        if device_index < 0 or device_index >= torch.cuda.device_count():
+            raise ValueError(
+                f"CUDA device index {device_index} is unavailable; "
+                f"found {torch.cuda.device_count()} device(s)"
+            )
+        torch.cuda.set_device(device)
+    elif config.load_in_4bit:
+        raise RuntimeError("QLoRA 4-bit loading requires a CUDA device")
+    return device
+
+
 def _model_load_kwargs(
-    config: TrainingRunConfig, torch: Any, transformers: Any, dtype: Any
+    config: TrainingRunConfig,
+    torch: Any,
+    transformers: Any,
+    dtype: Any,
+    device: Any,
 ) -> dict[str, Any]:
     transformers_major = int(str(transformers.__version__).split(".", 1)[0])
     dtype_argument = "dtype" if transformers_major >= 5 else "torch_dtype"
-    kwargs: dict[str, Any] = {dtype_argument: dtype, "device_map": {"": 0}}
+    kwargs: dict[str, Any] = {dtype_argument: dtype}
     if config.load_in_4bit:
+        kwargs["device_map"] = {"": 0 if device.index is None else device.index}
         kwargs["quantization_config"] = transformers.BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_quant_type="nf4",
@@ -125,8 +153,20 @@ def _model_load_kwargs(
     return kwargs
 
 
+def _move_optimizer_state(optimizer: Any, device: Any) -> None:
+    for state in optimizer.state.values():
+        for key, value in state.items():
+            if hasattr(value, "to"):
+                state[key] = value.to(device)
+
+
 def _load_model(
-    config: TrainingRunConfig, torch: Any, transformers: Any, peft: Any, run_id: str
+    config: TrainingRunConfig,
+    torch: Any,
+    transformers: Any,
+    peft: Any,
+    run_id: str,
+    device: Any,
 ) -> tuple[Any, Any, Any, int, str]:
     tokenizer = transformers.AutoTokenizer.from_pretrained(config.model_name)
     if tokenizer.pad_token_id is None:
@@ -136,9 +176,13 @@ def _load_model(
         Precision.FP16: torch.float16,
         Precision.FP32: torch.float32,
     }[config.precision]
-    if config.precision == Precision.BF16 and not torch.cuda.is_bf16_supported():
+    if (
+        config.precision == Precision.BF16
+        and device.type == "cuda"
+        and not torch.cuda.is_bf16_supported()
+    ):
         raise RuntimeError("bf16 precision is not supported by this CUDA device")
-    model_kwargs = _model_load_kwargs(config, torch, transformers, dtype)
+    model_kwargs = _model_load_kwargs(config, torch, transformers, dtype, device)
     model = transformers.AutoModelForCausalLM.from_pretrained(config.model_name, **model_kwargs)
     if config.load_in_4bit:
         if not bool(getattr(model, "is_loaded_in_4bit", False)):
@@ -165,6 +209,8 @@ def _load_model(
                 task_type=peft.TaskType.CAUSAL_LM,
             ),
         )
+    if not config.load_in_4bit:
+        model = model.to(device)
     optimizer = torch.optim.AdamW(
         (parameter for parameter in model.parameters() if parameter.requires_grad),
         lr=config.learning_rate,
@@ -172,11 +218,12 @@ def _load_model(
     start_step = 0
     if resume_metadata and resume_path:
         optimizer_state = torch.load(
-            resume_path / "optimizer.pt", map_location="cuda", weights_only=True
+            resume_path / "optimizer.pt", map_location=device, weights_only=True
         )
         if int(optimizer_state["step"]) != resume_metadata.step:
             raise ValueError("checkpoint optimizer step does not match checkpoint metadata")
         optimizer.load_state_dict(optimizer_state["optimizer"])
+        _move_optimizer_state(optimizer, device)
         _restore_rng_state(torch, optimizer_state)
         start_step = int(optimizer_state["step"])
     return tokenizer, model, optimizer, start_step, run_id
@@ -190,6 +237,7 @@ def _train_steps(
     optimizer: Any,
     start_step: int,
     run_id: str,
+    device: Any,
 ) -> list[StepMetric]:
     texts = config.dataset.texts or EXAMPLE_TEXTS
     encoded = tokenizer(
@@ -199,16 +247,20 @@ def _train_steps(
         padding="max_length",
         return_tensors="pt",
     )
-    torch.cuda.reset_peak_memory_stats()
+    if device.type == "cuda":
+        torch.cuda.reset_peak_memory_stats(device)
     model.train()
     optimizer.zero_grad(set_to_none=True)
     step_metrics: list[StepMetric] = []
     for step in range(start_step + 1, config.max_steps + 1):
         step_started = time.perf_counter()
-        token_count, sample_count, losses = _accumulate_step(config, model, encoded, texts, step)
+        token_count, sample_count, losses = _accumulate_step(
+            config, model, encoded, texts, step, device
+        )
         optimizer.step()
         optimizer.zero_grad(set_to_none=True)
-        torch.cuda.synchronize()
+        if device.type == "cuda":
+            torch.cuda.synchronize(device)
         elapsed = time.perf_counter() - step_started
         step_metrics.append(
             StepMetric(
@@ -218,7 +270,11 @@ def _train_steps(
                 step_seconds=elapsed,
                 compute_seconds=elapsed,
                 loss=sum(losses) / len(losses),
-                gpu_utilization_percent=_gpu_utilization(),
+                gpu_utilization_percent=(
+                    _gpu_utilization(0 if device.index is None else device.index)
+                    if device.type == "cuda"
+                    else None
+                ),
             )
         )
         if step % config.checkpoint_every_steps == 0:
@@ -234,7 +290,12 @@ def _train_steps(
 
 
 def _accumulate_step(
-    config: TrainingRunConfig, model: Any, encoded: Any, texts: list[str], step: int
+    config: TrainingRunConfig,
+    model: Any,
+    encoded: Any,
+    texts: list[str],
+    step: int,
+    device: Any,
 ) -> tuple[int, int, list[float]]:
     token_count = 0
     sample_count = 0
@@ -245,8 +306,9 @@ def _accumulate_step(
             + accumulation_index * config.batch_size
         ) % len(texts)
         indices = [(offset + index) % len(texts) for index in range(config.batch_size)]
-        input_ids = encoded["input_ids"][indices].cuda(non_blocking=True)
-        attention_mask = encoded["attention_mask"][indices].cuda(non_blocking=True)
+        non_blocking = device.type == "cuda"
+        input_ids = encoded["input_ids"][indices].to(device, non_blocking=non_blocking)
+        attention_mask = encoded["attention_mask"][indices].to(device, non_blocking=non_blocking)
         labels = input_ids.masked_fill(attention_mask == 0, -100)
         output = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
         loss = output.loss / config.gradient_accumulation_steps
@@ -258,10 +320,9 @@ def _accumulate_step(
 
 
 def run_training(config: TrainingRunConfig) -> TrainingMetrics:
-    """Run adapter fine-tuning on one CUDA GPU and persist metrics/artifacts."""
+    """Run adapter fine-tuning on one explicitly configured device."""
     torch, transformers, peft = _imports()
-    if not torch.cuda.is_available():
-        raise RuntimeError("A CUDA GPU is required for the local training baseline")
+    device = _resolve_device(config, torch)
 
     _seed_runtime(torch, transformers, config.seed)
 
@@ -271,9 +332,11 @@ def run_training(config: TrainingRunConfig) -> TrainingMetrics:
     config.write_json(config.output_dir / "config.json")
 
     tokenizer, model, optimizer, start_step, run_id = _load_model(
-        config, torch, transformers, peft, run_id
+        config, torch, transformers, peft, run_id, device
     )
-    step_metrics = _train_steps(config, torch, tokenizer, model, optimizer, start_step, run_id)
+    step_metrics = _train_steps(
+        config, torch, tokenizer, model, optimizer, start_step, run_id, device
+    )
 
     final_dir = config.output_dir / "adapter-final"
     model.save_pretrained(final_dir)
@@ -304,7 +367,25 @@ def run_training(config: TrainingRunConfig) -> TrainingMetrics:
             optional_versions["bitsandbytes"] = bitsandbytes
         except ImportError:
             pass
-    device_properties = torch.cuda.get_device_properties(0)
+    hardware: dict[str, Any] = {
+        "device": str(device),
+        "cuda": str(torch.version.cuda),
+        "device_count": int(torch.cuda.device_count()),
+    }
+    peak_allocated_vram_bytes = 0
+    peak_reserved_vram_bytes = 0
+    if device.type == "cuda":
+        device_index = 0 if device.index is None else device.index
+        device_properties = torch.cuda.get_device_properties(device)
+        hardware.update(
+            {
+                "device": torch.cuda.get_device_name(device),
+                "compute_capability": ".".join(map(str, torch.cuda.get_device_capability(device))),
+                "total_vram_bytes": int(device_properties.total_memory),
+            }
+        )
+        peak_allocated_vram_bytes = int(torch.cuda.max_memory_allocated(device_index))
+        peak_reserved_vram_bytes = int(torch.cuda.max_memory_reserved(device_index))
     metrics = TrainingMetrics(
         run_id=run_id,
         started_at=started_at,
@@ -317,16 +398,10 @@ def run_training(config: TrainingRunConfig) -> TrainingMetrics:
         sequence_length=config.sequence_length,
         gradient_accumulation_steps=config.gradient_accumulation_steps,
         software_versions=runtime_versions(optional_versions),
-        hardware={
-            "device": torch.cuda.get_device_name(0),
-            "cuda": str(torch.version.cuda),
-            "compute_capability": ".".join(map(str, torch.cuda.get_device_capability(0))),
-            "total_vram_bytes": int(device_properties.total_memory),
-            "device_count": int(torch.cuda.device_count()),
-        },
+        hardware=hardware,
         steps=step_metrics,
-        peak_allocated_vram_bytes=int(torch.cuda.max_memory_allocated()),
-        peak_reserved_vram_bytes=int(torch.cuda.max_memory_reserved()),
+        peak_allocated_vram_bytes=peak_allocated_vram_bytes,
+        peak_reserved_vram_bytes=peak_reserved_vram_bytes,
         artifact_ref=str(final_dir),
     )
     metrics.write_json(config.output_dir / "metrics.json")

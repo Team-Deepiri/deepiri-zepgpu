@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from redis import Redis
+from redis.asyncio import Redis
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -122,7 +122,7 @@ async def training_context(integration_engine, monkeypatch: pytest.MonkeyPatch):
     )
     monkeypatch.setattr(training_routes, "relay_store", relay_store)
     redis_client = Redis.from_url(REDIS_URL)
-    redis_client.flushdb()
+    await redis_client.flushdb()
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -136,8 +136,9 @@ async def training_context(integration_engine, monkeypatch: pytest.MonkeyPatch):
         )
 
     app.dependency_overrides.clear()
-    redis_client.flushdb()
-    redis_client.close()
+    await redis_client.flushdb()
+    await relay_store.close()
+    await redis_client.aclose()
     async with integration_engine.begin() as connection:
         await connection.execute(
             text(
@@ -431,6 +432,44 @@ async def test_first_worker_failure_cancels_peers_and_preserves_cause(training_c
 
 
 @pytest.mark.asyncio
+async def test_worker_event_validation_and_conflict_statuses(training_context) -> None:
+    context = training_context
+    run = await create_run(context)
+    workers, credentials = await issue_credentials(context, run)
+    for peer_id in context.peer_ids:
+        assert (
+            await event(
+                context,
+                run_id=run["id"],
+                worker_id=workers[peer_id],
+                peer_id=peer_id,
+                credential=credentials[peer_id],
+                kind="ready",
+            )
+        ).status_code == 200
+    assert (
+        await context.client.post(f"/api/v1/training-runs/{run['id']}/start")
+    ).status_code == 200
+
+    source_peer = context.peer_ids[0]
+    common = {
+        "run_id": run["id"],
+        "worker_id": workers[source_peer],
+        "peer_id": source_peer,
+        "credential": credentials[source_peer],
+        "kind": "round_started",
+    }
+    for malformed_payload in ({}, {"round": 0}, {"round": -1}, {"round": True}):
+        response = await event(context, payload=malformed_payload, **common)
+        assert response.status_code == 422, response.text
+
+    assert (await event(context, payload={"round": 1}, **common)).status_code == 200
+    conflict = await event(context, payload={"round": 1}, **common)
+    assert conflict.status_code == 409
+    assert "monotonically" in conflict.json()["detail"]
+
+
+@pytest.mark.asyncio
 async def test_http_relay_fallback_target_download_and_redis_sharing(training_context) -> None:
     context = training_context
     run = await create_run(context)
@@ -486,6 +525,8 @@ async def test_http_relay_fallback_target_download_and_redis_sharing(training_co
         )
         == envelope
     )
+    with pytest.raises(ValueError, match="unknown transfer"):
+        await training_routes.relay_store.scope(envelope.transfer_id)
 
 
 @pytest.mark.asyncio
@@ -537,7 +578,7 @@ async def test_two_persistent_workers_use_coordinator_across_rounds(training_con
 @pytest.mark.asyncio
 async def test_redis_backend_idempotency_corruption_limits_and_ttl() -> None:
     redis_client = Redis.from_url(REDIS_URL)
-    redis_client.flushdb()
+    await redis_client.flushdb()
     source = RedisBinaryRelayStore(
         REDIS_URL, max_transfer_bytes=4096, max_chunk_bytes=2048, ttl_seconds=1
     )
@@ -561,7 +602,7 @@ async def test_redis_backend_idempotency_corruption_limits_and_ttl() -> None:
         payload=b"abc",
     )
     encoded = envelope.encode()
-    source.begin(
+    await source.begin(
         envelope.transfer_id,
         room_id,
         run_id,
@@ -570,10 +611,27 @@ async def test_redis_backend_idempotency_corruption_limits_and_ttl() -> None:
         target_worker_id=target_id,
         round_number=7,
     )
-    source.put_chunk(envelope.transfer_id, 0, encoded)
-    source.put_chunk(envelope.transfer_id, 0, encoded)
-    assert second_process.complete(envelope.transfer_id) == envelope
-    assert second_process.receive(envelope.transfer_id, target_id) == envelope
+    await source.put_chunk(envelope.transfer_id, 0, encoded)
+    await source.put_chunk(envelope.transfer_id, 0, encoded)
+    with pytest.raises(ValueError, match="conflicting duplicate chunk"):
+        await source.put_chunk(envelope.transfer_id, 0, b"different")
+    assert await second_process.complete(envelope.transfer_id) == envelope
+    assert await second_process.complete(envelope.transfer_id) == envelope
+    assert await second_process.receive(envelope.transfer_id, target_id) == envelope
+    with pytest.raises(ValueError, match="another target worker"):
+        await second_process.receive(envelope.transfer_id, str(uuid.uuid4()))
+    with pytest.raises(ValueError, match="already completed"):
+        await source.begin(
+            envelope.transfer_id,
+            room_id,
+            run_id,
+            1,
+            worker_id=worker_id,
+            target_worker_id=target_id,
+            round_number=7,
+        )
+    with pytest.raises(ValueError, match="not accepting chunks"):
+        await source.put_chunk(envelope.transfer_id, 0, encoded)
 
     corrupted = BinaryEnvelope(
         room_id=room_id,
@@ -589,7 +647,7 @@ async def test_redis_backend_idempotency_corruption_limits_and_ttl() -> None:
     )
     corrupted_bytes = bytearray(corrupted.encode())
     corrupted_bytes[-1] ^= 1
-    source.begin(
+    await source.begin(
         corrupted.transfer_id,
         room_id,
         run_id,
@@ -598,14 +656,62 @@ async def test_redis_backend_idempotency_corruption_limits_and_ttl() -> None:
         target_worker_id=target_id,
         round_number=8,
     )
-    source.put_chunk(corrupted.transfer_id, 0, bytes(corrupted_bytes))
+    await source.put_chunk(corrupted.transfer_id, 0, bytes(corrupted_bytes))
     with pytest.raises(ValueError, match="checksum"):
-        second_process.complete(corrupted.transfer_id)
+        await second_process.complete(corrupted.transfer_id)
+
+    for scope_name, begin_overrides in (
+        ("room", {"room_id": str(uuid.uuid4())}),
+        ("run", {"run_id": str(uuid.uuid4())}),
+        ("worker", {"worker_id": str(uuid.uuid4())}),
+        ("round", {"round_number": 10}),
+    ):
+        scoped = BinaryEnvelope(
+            room_id=room_id,
+            run_id=run_id,
+            worker_id=worker_id,
+            transfer_id=str(uuid.uuid4()),
+            round=9,
+            payload_type="gradient",
+            shape=(1,),
+            dtype="float32",
+            compression="none",
+            payload=b"scope",
+        )
+        begin_scope = {
+            "room_id": room_id,
+            "run_id": run_id,
+            "worker_id": worker_id,
+            "round_number": 9,
+            **begin_overrides,
+        }
+        await source.begin(
+            scoped.transfer_id,
+            begin_scope["room_id"],
+            begin_scope["run_id"],
+            1,
+            worker_id=begin_scope["worker_id"],
+            target_worker_id=target_id,
+            round_number=begin_scope["round_number"],
+        )
+        await source.put_chunk(scoped.transfer_id, 0, scoped.encode())
+        with pytest.raises(ValueError, match=scope_name):
+            await source.complete(scoped.transfer_id)
+        assert await source.abort(scoped.transfer_id)
 
     abandoned = str(uuid.uuid4())
-    source.begin(abandoned, room_id, run_id, 1, round_number=1)
+    await source.begin(abandoned, room_id, run_id, 1, round_number=1)
     await asyncio.sleep(1.1)
     with pytest.raises(ValueError, match="unknown transfer"):
-        second_process.scope(abandoned)
-    redis_client.flushdb()
-    redis_client.close()
+        await second_process.scope(abandoned)
+    with pytest.raises(ValueError, match="unknown transfer"):
+        await second_process.scope(envelope.transfer_id)
+    assert await source.cleanup() == 0
+    await redis_client.flushdb()
+    await source.close()
+    await second_process.close()
+    await redis_client.aclose()
+
+
+def test_relay_routes_use_native_async_io() -> None:
+    assert not hasattr(training_routes, "run_in_threadpool")
