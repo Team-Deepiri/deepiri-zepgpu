@@ -20,6 +20,10 @@ async def test_user_belongs_to_network_true_when_peer_exists() -> None:
     repo = VpnNetworkRepository(db)
     assert await repo.user_belongs_to_network("user-1", "room-1") is True
     db.execute.assert_awaited_once()
+    statement = str(db.execute.await_args.args[0])
+    assert "vpn_peers.user_id" in statement
+    assert "vpn_peers.vpn_network_id" in statement
+    assert "LIMIT" in statement
 
 
 @pytest.mark.asyncio

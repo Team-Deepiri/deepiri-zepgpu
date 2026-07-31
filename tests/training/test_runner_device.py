@@ -105,11 +105,3 @@ def test_qlora_keeps_transformers_device_map() -> None:
     )
     assert kwargs["device_map"] == {"": 0}
     assert kwargs["quantization_config"]["load_in_4bit"] is True
-
-
-def test_nvml_unavailable_reports_no_utilization(monkeypatch: pytest.MonkeyPatch) -> None:
-    def unavailable(name: str) -> Any:
-        raise ImportError(name)
-
-    monkeypatch.setattr(runner, "import_module", unavailable)
-    assert runner._gpu_utilization() is None

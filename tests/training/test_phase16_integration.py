@@ -4,9 +4,11 @@ import asyncio
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock
 
 import pytest
 import pytest_asyncio
+from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient
 from redis.asyncio import Redis
 from sqlalchemy import text
@@ -32,6 +34,7 @@ from deepiri_zepgpu.training.transport import (
 )
 from deepiri_zepgpu.training.worker import HttpWorkerCoordinator, PersistentTrainingWorker
 from deepiri_zepgpu.vpn.crypto import encrypt_value
+from deepiri_zepgpu.vpn.repositories import VpnNetworkRepository
 
 pytestmark = pytest.mark.integration
 
@@ -203,6 +206,77 @@ async def event(
             "payload": payload or {},
         },
     )
+
+
+@pytest.mark.asyncio
+async def test_training_room_authorization_uses_one_targeted_peer_membership_query(
+    training_context, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    context = training_context
+    member = User(
+        id=uuid.uuid4(),
+        username=f"member-{uuid.uuid4().hex[:8]}",
+        email=f"member-{uuid.uuid4().hex[:8]}@example.com",
+        password_hash="unused",
+        role=UserRole.USER,
+        is_active=True,
+        is_verified=True,
+    )
+    unrelated = User(
+        id=uuid.uuid4(),
+        username=f"unrelated-{uuid.uuid4().hex[:8]}",
+        email=f"unrelated-{uuid.uuid4().hex[:8]}@example.com",
+        password_hash="unused",
+        role=UserRole.USER,
+        is_active=True,
+        is_verified=True,
+    )
+    member_peer = Peer(
+        id=uuid.uuid4(),
+        user_id=member.id,
+        vpn_network_id=uuid.UUID(context.room_id),
+        wireguard_public_key=f"member-{uuid.uuid4()}",
+        vpn_ip="10.8.0.10",
+        last_seen=datetime.now(UTC),
+        online_status=PeerOnlineStatus.ONLINE,
+    )
+    async with context.session_factory() as session:
+        session.add_all([member, unrelated, member_peer])
+        await session.commit()
+
+    original_check = VpnNetworkRepository.user_belongs_to_network
+    targeted_calls: list[tuple[str, str]] = []
+
+    async def tracked_check(
+        repository: VpnNetworkRepository, user_id: str, network_id: str
+    ) -> bool:
+        targeted_calls.append((user_id, network_id))
+        return await original_check(repository, user_id, network_id)
+
+    list_user_networks = AsyncMock(side_effect=AssertionError("bulk network lookup used"))
+    monkeypatch.setattr(VpnNetworkRepository, "user_belongs_to_network", tracked_check)
+    monkeypatch.setattr(VpnNetworkRepository, "list_user_networks", list_user_networks)
+
+    missing_room_id = str(uuid.uuid4())
+    async with context.session_factory() as session:
+        await training_routes._require_room_member(session, str(context.owner.id), context.room_id)
+        await training_routes._require_room_member(session, str(member.id), context.room_id)
+        with pytest.raises(HTTPException) as unrelated_error:
+            await training_routes._require_room_member(session, str(unrelated.id), context.room_id)
+        with pytest.raises(HTTPException) as missing_error:
+            await training_routes._require_room_member(
+                session, str(context.owner.id), missing_room_id
+            )
+
+    assert unrelated_error.value.status_code == 403
+    assert missing_error.value.status_code == 403
+    assert targeted_calls == [
+        (str(context.owner.id), context.room_id),
+        (str(member.id), context.room_id),
+        (str(unrelated.id), context.room_id),
+        (str(context.owner.id), missing_room_id),
+    ]
+    list_user_networks.assert_not_awaited()
 
 
 @pytest.mark.asyncio

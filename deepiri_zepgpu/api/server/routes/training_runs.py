@@ -131,8 +131,7 @@ def _response(run: TrainingRun) -> TrainingRunResponse:
 
 
 async def _require_room_member(db: AsyncSession, user_id: str, room_id: str) -> None:
-    networks = await VpnNetworkRepository(db).list_user_networks(user_id)
-    if not any(str(network.id) == room_id for network in networks):
+    if not await VpnNetworkRepository(db).user_belongs_to_network(user_id, room_id):
         raise HTTPException(status_code=403, detail="Not a member of this room")
 
 

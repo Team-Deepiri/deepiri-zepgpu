@@ -70,6 +70,10 @@ owner, assigned providers/workers, configuration, and artifacts. Legal states ar
 `preparing`, `ready`, `running`, `syncing`, `checkpointing`, `completed`, `failed`, `cancelled`, and
 `timed_out`.
 
+The public training API calls this scope `room_id`. It maps directly to the persisted VPN network
+identifier, which database models name `vpn_network_id`; both names refer to the same room/network
+scope in this subsystem.
+
 Creating a run does not start it. Credential issuance prepares the run and establishes its startup
 deadline. Each assigned worker authenticates, obtains only its own 15-minute room/run/worker/peer
 credential, and reports `ready`. The run becomes `ready` only after every assigned worker is ready;

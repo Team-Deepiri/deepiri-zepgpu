@@ -49,22 +49,51 @@ def _imports() -> tuple[Any, Any, Any]:
     return torch, transformers, peft
 
 
-def _gpu_utilization(device_index: int = 0) -> float | None:
-    pynvml_module: Any | None = None
-    try:
-        pynvml_module = import_module("pynvml")
-        pynvml_module.nvmlInit()
-        return float(
-            pynvml_module.nvmlDeviceGetUtilizationRates(
-                pynvml_module.nvmlDeviceGetHandleByIndex(device_index)
-            ).gpu
-        )
-    except Exception:
-        return None
-    finally:
-        if pynvml_module is not None:
+class NvmlSampler:
+    """Lazily initialized, failure-tolerant NVML sampler for one CUDA device."""
+
+    def __init__(self, device_index: int) -> None:
+        self.device_index = device_index
+        self._module: Any | None = None
+        self._handle: Any | None = None
+        self._initialization_attempted = False
+        self._initialized = False
+        self._shutdown = False
+
+    def _initialize(self) -> bool:
+        if self._shutdown or self._initialization_attempted:
+            return self._handle is not None
+        self._initialization_attempted = True
+        try:
+            self._module = import_module("pynvml")
+            self._module.nvmlInit()
+            self._initialized = True
+            self._handle = self._module.nvmlDeviceGetHandleByIndex(self.device_index)
+        except Exception:
+            self.shutdown()
+            return False
+        return True
+
+    def sample(self) -> float | None:
+        if not self._initialize():
+            return None
+        module = self._module
+        if module is None:
+            return None
+        try:
+            return float(module.nvmlDeviceGetUtilizationRates(self._handle).gpu)
+        except Exception:
+            return None
+
+    def shutdown(self) -> None:
+        if self._shutdown:
+            return
+        self._shutdown = True
+        if self._initialized and self._module is not None:
             with suppress(Exception):
-                pynvml_module.nvmlShutdown()
+                self._module.nvmlShutdown()
+        self._initialized = False
+        self._handle = None
 
 
 def _checkpoint(
@@ -238,6 +267,7 @@ def _train_steps(
     start_step: int,
     run_id: str,
     device: Any,
+    nvml_sampler: NvmlSampler | None,
 ) -> list[StepMetric]:
     texts = config.dataset.texts or EXAMPLE_TEXTS
     encoded = tokenizer(
@@ -270,11 +300,7 @@ def _train_steps(
                 step_seconds=elapsed,
                 compute_seconds=elapsed,
                 loss=sum(losses) / len(losses),
-                gpu_utilization_percent=(
-                    _gpu_utilization(0 if device.index is None else device.index)
-                    if device.type == "cuda"
-                    else None
-                ),
+                gpu_utilization_percent=(nvml_sampler.sample() if nvml_sampler else None),
             )
         )
         if step % config.checkpoint_every_steps == 0:
@@ -334,9 +360,24 @@ def run_training(config: TrainingRunConfig) -> TrainingMetrics:
     tokenizer, model, optimizer, start_step, run_id = _load_model(
         config, torch, transformers, peft, run_id, device
     )
-    step_metrics = _train_steps(
-        config, torch, tokenizer, model, optimizer, start_step, run_id, device
+    nvml_sampler = (
+        NvmlSampler(0 if device.index is None else device.index) if device.type == "cuda" else None
     )
+    try:
+        step_metrics = _train_steps(
+            config,
+            torch,
+            tokenizer,
+            model,
+            optimizer,
+            start_step,
+            run_id,
+            device,
+            nvml_sampler,
+        )
+    finally:
+        if nvml_sampler is not None:
+            nvml_sampler.shutdown()
 
     final_dir = config.output_dir / "adapter-final"
     model.save_pretrained(final_dir)
