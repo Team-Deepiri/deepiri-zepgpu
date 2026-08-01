@@ -129,7 +129,7 @@ class NodeTaskWorker:
 
         return processed
 
-    async def process_assignment(self, assignment: dict[str, Any]) -> dict[str, Any]:
+    async def process_assignment(self, assignment: dict[str, Any]) -> dict[str, Any]:  # noqa: C901
         """Claim, start, execute, and complete one assigned task."""
         assignment_id = str(assignment["assignment_id"])
         if assignment_id in self._active_ids:

@@ -341,7 +341,10 @@ async def reconcile_node_tasks(
     return ReconcileResponse(
         room_id=room_id,
         peer_id=str(peer.id),
-        outcomes=[ReconcileItem(**{k: v for k, v in item.items() if k in ReconcileItem.model_fields}) for item in outcomes],
+        outcomes=[
+            ReconcileItem(**{k: v for k, v in item.items() if k in ReconcileItem.model_fields})
+            for item in outcomes
+        ],
     )
 
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -93,8 +94,7 @@ def validate_coordinator_url(value: str, *, allow_insecure_localhost: bool = Tru
         return value
 
     raise ValueError(
-        "Non-HTTPS coordinator URLs are only allowed for localhost/dev "
-        f"(got host={host!r})"
+        "Non-HTTPS coordinator URLs are only allowed for localhost/dev " f"(got host={host!r})"
     )
 
 
@@ -185,10 +185,8 @@ def save_agent_identity(
     with config_path.open("w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2, sort_keys=True)
         handle.write("\n")
-    try:
+    with contextlib.suppress(OSError):
         config_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
-    except OSError:
-        pass
     return config_path
 
 

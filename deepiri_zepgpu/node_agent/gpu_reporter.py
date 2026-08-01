@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from typing import Any
 
@@ -97,10 +98,8 @@ def _probe_runtime() -> dict[str, Any]:
         runtime["pytorch_version"] = getattr(torch, "__version__", None)
         if torch.cuda.is_available():
             runtime["cuda_version"] = getattr(torch.version, "cuda", None)
-            try:
+            with contextlib.suppress(Exception):
                 runtime["driver_version"] = str(torch.cuda.get_driver_version())
-            except Exception:
-                pass
             try:
                 major, minor = torch.cuda.get_device_capability(0)
                 runtime["compute_capability"] = f"{major}.{minor}"
@@ -119,7 +118,7 @@ def _probe_runtime() -> dict[str, Any]:
         logger.debug("PyTorch runtime probe unavailable", exc_info=False)
 
     try:
-        import deepspeed  # type: ignore
+        import deepspeed
 
         runtime["deepspeed_available"] = True
         _ = deepspeed

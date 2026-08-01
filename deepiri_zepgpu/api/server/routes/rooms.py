@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from datetime import UTC, datetime
 from math import ceil
 from uuid import UUID
@@ -325,7 +326,7 @@ async def get_room_node(
 
 
 @router.post("/{room_id}/nodes/{peer_id}/heartbeat", response_model=RoomNodeResponse)
-async def room_node_heartbeat(
+async def room_node_heartbeat(  # noqa: C901
     room_id: str,
     peer_id: str,
     data: RoomNodeHeartbeatRequest,
@@ -404,7 +405,6 @@ async def room_node_heartbeat(
         linked = getattr(updated_peer, "vpn_network", None)
         if linked is not None:
             transport_mode = getattr(linked, "transport_mode", None) or "wireguard"
-
 
     min_agent = (settings.vpn.min_compatible_agent_version or "").strip() or None
     assessment = assess_provider_health(
@@ -490,7 +490,7 @@ async def room_node_heartbeat(
     "/{room_id}/nodes/{peer_id}/revoke",
     response_model=RoomProviderRevokeResponse,
 )
-async def revoke_room_provider(
+async def revoke_room_provider(  # noqa: C901
     room_id: str,
     peer_id: str,
     user: User = Depends(get_required_user),
@@ -537,10 +537,8 @@ async def revoke_room_provider(
             task.status = TaskStatus.FAILED
             task.error = "Provider revoked by room host"
         if failed.gpu_share_id:
-            try:
+            with contextlib.suppress(Exception):
                 RemoteGpuLock().release(str(failed.gpu_share_id), str(failed.task_id))
-            except Exception:
-                pass
         if task is not None:
             await notify_remote_task_terminal_state(task=task, assignment=failed)
 

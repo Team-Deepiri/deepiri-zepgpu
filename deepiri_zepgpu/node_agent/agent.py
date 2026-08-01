@@ -264,9 +264,7 @@ def join_room(
             room_id=str(room["id"]),
             peer_id=str(member["id"]),
             auth_token=str(auth_token),
-            heartbeat_interval_seconds=int(
-                payload.get("heartbeat_interval_seconds") or 30
-            ),
+            heartbeat_interval_seconds=int(payload.get("heartbeat_interval_seconds") or 30),
             enable_task_worker=True,
             node_name=node_name,
             provider_mode=provider_mode,

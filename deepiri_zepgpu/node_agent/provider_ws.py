@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import random
 from collections.abc import Awaitable, Callable
@@ -63,7 +64,7 @@ class ProviderAssignmentSocket:
             self.min_backoff_seconds * (2 ** min(self._consecutive_failures, 6)),
         )
         jitter = random.uniform(0, base * 0.25)
-        return base + jitter
+        return float(base + jitter)
 
     async def start(self) -> None:
         if self._running:
@@ -74,17 +75,13 @@ class ProviderAssignmentSocket:
     async def stop(self) -> None:
         self._running = False
         if self._ws is not None:
-            try:
+            with contextlib.suppress(Exception):
                 await self._ws.close()
-            except Exception:
-                pass
             self._ws = None
         if self._task is not None:
             self._task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._task
-            except (asyncio.CancelledError, Exception):
-                pass
             self._task = None
 
     async def _run_loop(self) -> None:
@@ -102,10 +99,8 @@ class ProviderAssignmentSocket:
                     delay,
                     self._consecutive_failures,
                 )
-                try:
+                with contextlib.suppress(Exception):
                     await self.on_message({"type": "reconnecting", "delay_seconds": delay})
-                except Exception:
-                    pass
                 await asyncio.sleep(delay)
 
     async def _connect_once(self) -> None:

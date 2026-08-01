@@ -34,9 +34,21 @@ def _task_status(task: Task | None) -> str:
     return task.status.value if hasattr(task.status, "value") else str(task.status)
 
 
+def _isoformat_or_none(value: Any) -> str | None:
+    if value is None:
+        return None
+    iso = getattr(value, "isoformat", None)
+    if callable(iso):
+        result = iso()
+        return str(result) if result is not None else None
+    return str(value)
+
+
 def room_event_type_for_assignment(assignment: NodeTaskAssignment) -> str:
     """Map assignment terminal/active status to a room dashboard event type."""
-    status = assignment.status.value if hasattr(assignment.status, "value") else str(assignment.status)
+    status = (
+        assignment.status.value if hasattr(assignment.status, "value") else str(assignment.status)
+    )
     reason = assignment.terminal_reason or ""
     if status == "completed":
         return "room_task_completed"
@@ -78,14 +90,12 @@ async def emit_assignment_room_event(
             error=assignment.error or (task.error if task is not None else None),
             terminal_reason=getattr(assignment, "terminal_reason", None),
             claim_generation=getattr(assignment, "claim_generation", None),
-            lease_expires_at=(
-                assignment.lease_expires_at.isoformat()
-                if getattr(assignment, "lease_expires_at", None) is not None
-                else None
+            lease_expires_at=_isoformat_or_none(getattr(assignment, "lease_expires_at", None)),
+            cancel_requested=(
+                bool(getattr(assignment, "cancel_requested_at", None))
+                if hasattr(assignment, "cancel_requested_at")
+                else bool(getattr(assignment, "cancel_requested", False))
             ),
-            cancel_requested=bool(getattr(assignment, "cancel_requested_at", None))
-            if hasattr(assignment, "cancel_requested_at")
-            else bool(getattr(assignment, "cancel_requested", False)),
         ),
     )
 

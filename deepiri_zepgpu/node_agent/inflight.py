@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import tempfile
@@ -67,10 +68,8 @@ def save_inflight(state: dict[str, Any], path: str | Path | None = None) -> Path
         return None
     finally:
         if tmp_name and os.path.exists(tmp_name):
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(tmp_name)
-            except OSError:
-                pass
 
 
 def list_inflight_ids(path: str | Path | None = None) -> list[str]:

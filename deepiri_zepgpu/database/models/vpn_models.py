@@ -138,7 +138,9 @@ class Peer(UUIDMixin, TimestampMixin, Base):
         DateTime(timezone=True), nullable=True
     )
     path_measurement_kind: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    recent_failures: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    recent_failures: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
     last_claim_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     user: Mapped[User] = relationship("User", back_populates="vpn_peers", lazy="joined")

@@ -37,8 +37,7 @@ def normalize_transport_mode(value: str | None, *, default: str | None = None) -
     mode = str(value).strip().lower()
     if mode not in VALID_TRANSPORT_MODES:
         raise InvalidTransportModeError(
-            f"Invalid transport_mode {value!r}; expected one of "
-            f"{sorted(VALID_TRANSPORT_MODES)}"
+            f"Invalid transport_mode {value!r}; expected one of " f"{sorted(VALID_TRANSPORT_MODES)}"
         )
     return mode
 

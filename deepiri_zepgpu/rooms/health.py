@@ -45,7 +45,7 @@ def _enum_value(value: Any) -> str:
     return value.value if hasattr(value, "value") else str(value)
 
 
-def assess_provider_health(
+def assess_provider_health(  # noqa: C901
     *,
     online_status: Any,
     last_seen: datetime | None,
@@ -82,13 +82,16 @@ def assess_provider_health(
                 "Last claim is older than the claim-timeout window while provider is offline",
             )
 
-    if min_compatible_agent_version and agent_version:
-        if not _version_compatible(agent_version, min_compatible_agent_version):
-            return HealthAssessment(
-                HEALTH_INCOMPATIBLE,
-                f"Agent version {agent_version} is incompatible "
-                f"(requires >= {min_compatible_agent_version})",
-            )
+    if (
+        min_compatible_agent_version
+        and agent_version
+        and (not _version_compatible(agent_version, min_compatible_agent_version))
+    ):
+        return HealthAssessment(
+            HEALTH_INCOMPATIBLE,
+            f"Agent version {agent_version} is incompatible "
+            f"(requires >= {min_compatible_agent_version})",
+        )
 
     status = _enum_value(online_status)
     if status in {"offline", PeerOnlineStatus.OFFLINE.value}:

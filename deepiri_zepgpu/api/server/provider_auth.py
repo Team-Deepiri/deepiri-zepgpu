@@ -134,7 +134,9 @@ async def verify_provider_credentials(
         raise HTTPException(status_code=404, detail="Peer not found")
 
     if room_id is not None and str(peer.vpn_network_id) != str(room_id):
-        raise HTTPException(status_code=403, detail="Provider credentials are not valid for this room")
+        raise HTTPException(
+            status_code=403, detail="Provider credentials are not valid for this room"
+        )
 
     if peer.revoked_at is not None:
         raise HTTPException(status_code=403, detail="Provider has been revoked")

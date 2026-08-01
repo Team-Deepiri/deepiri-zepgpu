@@ -17,15 +17,15 @@ from starlette.responses import Response
 from deepiri_zepgpu.api.server.routes import api_router, websocket
 from deepiri_zepgpu.api.server.websocket_manager import manager
 from deepiri_zepgpu.config import settings
+from deepiri_zepgpu.config import settings as app_settings
 from deepiri_zepgpu.database import close_db, init_db
 from deepiri_zepgpu.database.session import get_db_context
 from deepiri_zepgpu.queue.redis_queue import queue
+from deepiri_zepgpu.rooms.assignment_sweep import run_assignment_sweep
 from deepiri_zepgpu.storage.result_store import result_store
 from deepiri_zepgpu.vpn.config import vpn_settings
 from deepiri_zepgpu.vpn.peer_manager import mark_stale_peers_offline
 from deepiri_zepgpu.vpn.pool_sync import get_registered_gpu_pool, refresh_gpu_pool_from_db
-from deepiri_zepgpu.rooms.assignment_sweep import run_assignment_sweep
-from deepiri_zepgpu.config import settings as app_settings
 
 REQUEST_COUNT = Counter(
     "zepgpu_http_requests_total",

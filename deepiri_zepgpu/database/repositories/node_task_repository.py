@@ -421,7 +421,9 @@ class NodeTaskRepository:
         gpu_share.state = GpuShareState.IDLE
         gpu_share.current_task_id = None
 
-    def _lease_expired(self, assignment: NodeTaskAssignment, *, now: datetime | None = None) -> bool:
+    def _lease_expired(
+        self, assignment: NodeTaskAssignment, *, now: datetime | None = None
+    ) -> bool:
         if assignment.lease_expires_at is None:
             return False
         current = now or datetime.now(UTC)
@@ -430,7 +432,7 @@ class NodeTaskRepository:
             expires = expires.replace(tzinfo=UTC)
         return current > expires
 
-    async def mark_terminal(
+    async def mark_terminal(  # noqa: C901
         self,
         assignment: NodeTaskAssignment,
         *,
@@ -743,7 +745,7 @@ class NodeTaskRepository:
                 break
         return timed_out
 
-    async def reconcile_for_peer(
+    async def reconcile_for_peer(  # noqa: C901
         self,
         *,
         vpn_network_id: str,
