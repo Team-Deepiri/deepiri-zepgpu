@@ -1,1010 +1,741 @@
-# ZepGPU Phase 10–19 Implementation Roadmap
+# ZepGPU Phase 10–19 Revised Implementation Roadmap
 
 ## Project Vision
 
-ZepGPU should continue evolving from a serverless GPU task framework into a **host-created distributed GPU room network**.
+ZepGPU should evolve from a serverless GPU task framework into a **host-created distributed GPU room network** that can support real fine-tuning and distributed training over heterogeneous provider machines.
 
 A host should be able to:
 
 - Create a GPU room.
-- Invite other users or machines into that room.
-- See connected provider nodes and their GPU capacity.
-- Dispatch GPU workloads to one or more connected providers.
-- Track task execution, node health, failures, logs, and results in real time.
-- Use the room as a practical foundation for multi-GPU LLM training and fine-tuning workflows.
+- Invite provider machines through NAT-friendly, outbound-only networking.
+- See provider identity, health, GPU capacity, runtime compatibility, and path quality.
+- Dispatch work through a reliable coordinator-mediated lifecycle.
+- Run reproducible single-node and multi-node LoRA/QLoRA workloads.
+- Exchange training updates through a binary data path that never depends on the legacy pickle task router.
+- Coordinate compressed WAN training and topology-aware high-bandwidth GPU islands.
+- Recover runs from provider failure, coordinator restart, and checkpoint restore.
+- Understand performance, bottlenecks, failures, and artifacts through a production-ready dashboard.
 
-The direction remains room-scoped GPU compute and remote task dispatch. ZepGPU should support general GPU workloads, but the flagship long-term workload is **multi-GPU LLM training/fine-tuning across N provider machines**.
+The flagship workload is **multi-GPU LLM training and fine-tuning across provider machines connected through consumer internet**, while preserving support for general GPU workloads.
 
 ---
 
 # Current Baseline
 
-This roadmap assumes Phases 0–9 already exist as the current baseline and should not be restarted or renumbered here.
+This roadmap assumes Phases 0–9 already exist and should not be restarted or renumbered.
 
-Earlier work includes or is expected to include:
+The baseline includes:
 
-- Core task framework, API server, database, Redis/Celery queue, UI, monitoring, and deployment foundations.
-- Room/VPN compatibility, room creation, invites, config generation, peer membership, and GPU pool reporting.
-- Room-scoped node heartbeat and GPU metrics.
+- Core task framework, API, database, Redis/Celery queue, UI, monitoring, and deployment foundations.
+- Room and VPN compatibility.
+- Room creation, invites, peer membership, and GPU-pool reporting.
+- Room-scoped heartbeat and GPU metrics.
 - Room-aware task assignment.
 - Remote no-op execution through a node agent.
-- Room dashboard and real-time task/node visibility.
+- Room dashboard and room/task visibility.
 - Local room simulation.
-- Phase 9 cloud/deployment architecture research.
+- Phase 9 research on cloud deployment, NAT-friendly connectivity, low-communication distributed training, GPU islands, compression, and the memory wall.
 
-If any Phase 0–9 gaps remain, they are captured as hardening work in Phase 10+ instead of reopening old phases.
+Phases 10 and 11 are complete. Later phases build on that verified baseline.
 
 ---
 
-# Five Core Design Integrations
+# Architecture Principles
 
-The Phase 10–19 roadmap includes five designs that turn the room network into a complete distributed training workflow.
+## Control Plane vs Training Data Plane
 
-| Design | Purpose | Primary Phase(s) |
+| Plane | Responsibilities | Primary Technologies |
 |---|---|---|
-| **Room Training Job Specification** | Gives ZepGPU a standard, first-class way to describe an LLM training or fine-tuning job. | Phase 15 and Phase 18 |
-| **Training Readiness and Placement Planner** | Checks whether a room can realistically run a requested job and explains the placement decision. | Phase 15 |
-| **Distributed Training Launcher** | Coordinates ranks, workers, GPU reservations, startup, failure handling, logs, and checkpoints. | Phase 18 |
-| **Communication and Topology Profiler** | Measures or estimates how efficiently provider machines and GPUs can communicate. | Phase 15 and Phase 19 |
-| **Training Run Dashboard** | Shows live workers, GPUs, logs, metrics, checkpoints, bottlenecks, and failure reasons. | Phase 19 |
+| **Control plane** | Rooms, invites, provider identity, authorization, heartbeats, assignment lifecycle, scheduling, checkpoints, audit, WebSockets | FastAPI, Postgres, Redis, Celery, HTTPS/WSS |
+| **Provider agent** | Join, persist identity, heartbeat, receive assignments, run workloads, report status, logs, metrics, and artifacts | Python CLI/agent, HTTPS/WSS |
+| **Training data plane** | Binary update transfer, compressed synchronization, direct or relayed exchange, persistent workers | PCCL or equivalent, binary HTTPS/WSS relay fallback, later overlay |
+| **High-bandwidth island** | Pool memory and execute FSDP/tensor-parallel workloads inside same-host or LAN-class groups | PyTorch FSDP2, NCCL, optional TP |
+| **WAN synchronization** | Exchange infrequent compressed updates between workers or islands | LoRA/QLoRA, DeMo or equivalent, DiLoCo, overlap, min-k sync |
 
-These designs are integrated into existing phases rather than added as separate phases because they are parts of one end-to-end training workflow:
+## Non-Negotiable Constraints
 
-1. The **Training Job Specification** describes what should run.
-2. The **Readiness and Placement Planner** determines whether the room can run it.
-3. The **Communication and Topology Profiler** supplies network and hardware facts to that decision.
-4. The **Distributed Training Launcher** starts and coordinates the job.
-5. The **Training Run Dashboard** shows what happened and whether the run was efficient.
+- Training code must not use the legacy pickle/base64 task path.
+- Aggregate room VRAM must never be described as automatically equivalent to one larger GPU.
+- FSDP or tensor parallelism must be limited to high-bandwidth groups.
+- WAN training should use infrequent and compressed synchronization.
+- Providers should not require inbound ports for the normal cloud-room workflow.
+- Existing WireGuard rooms must remain compatible until deliberately migrated.
+- Metrics and measured evidence must begin before the final phase.
+- Literature-class utilization is aspirational, not guaranteed on consumer hardware.
+
+---
+
+# Revised Phase Summary
+
+| Phase | Title | Primary Outcome |
+|---|---|---|
+| 10 | Baseline Hardening and Local Simulation Gate | Reliable, repeatable room-network baseline |
+| 11 | Cloud Coordinator Packaging and Runbooks | Deployable always-on coordinator |
+| 12 | NAT-Friendly Provider Join, Identity, and Trust | Secure outbound-only provider onboarding |
+| 13 | Dial-Out Assignment Lifecycle and Provider Recovery | Reliable claims, leases, results, cancellation, and restart recovery |
+| 14 | Transport Modes, Provider Capabilities, and Path Observability | WireGuard/dial-out coexistence with hardware and path visibility |
+| 15 | Single-Node LoRA/QLoRA Training Baseline | Reproducible single-GPU training and metric foundation |
+| 16 | Persistent Training Workers and Binary Data Channel | Long-lived workers and non-pickle transfer |
+| 17 | Two-Node WAN LoRA with Compressed Updates | First real communication-efficient WAN training run |
+| 18 | Elastic DiLoCo Training and Topology-Aware GPU Islands | Elastic WAN training plus island-local memory pooling |
+| 19 | Overlay Networking, Recovery, Mixed Hardware, and Production Pilot | Hard-NAT data plane, recovery, integrity, observability, and pilot release |
 
 ---
 
 # Implementation Phases
 
-Only implementation tasks that directly require code, docs, tests, or repo changes use checklist boxes. Explanatory sections, recommendations, acceptance criteria, and review criteria are written as plain bullets so the checklist stays focused on work that can actually be completed in the repo.
-
----
-
 ## Phase 10: Baseline Hardening and Local Simulation Gate
 
-**Goal:** Make the existing room-network path reliable enough to serve as the foundation for cloud and multi-GPU work.
+**Status:** Complete
 
-This phase does not restart Phase 8 or Phase 9. It verifies and hardens the current baseline so future phases can build on it safely.
+**Goal:** Make the existing room-network path reliable enough to serve as the foundation for cloud and distributed-training work.
 
 ### 10.1 Local Room Simulation
 
-- [ ] Add or update `docs/room_network_local_testing.md`.
-- [ ] Add or update a local simulation script such as `scripts/verify_room_network_local_simulation.py`.
-- [ ] Verify local coordinator startup.
-- [ ] Verify user registration and login.
-- [ ] Verify room creation.
-- [ ] Verify invite creation.
-- [ ] Verify provider/node join.
-- [ ] Verify simulated GPU heartbeat.
-- [ ] Verify GPU pool summary.
-- [ ] Verify room-aware no-op dispatch.
-- [ ] Verify remote no-op completion.
-- [ ] Verify task result visibility.
-- [ ] Verify WebSocket or polling updates for room/task state.
+- [x] Add or update `docs/room_network_local_testing.md`.
+- [x] Add or update `scripts/verify_room_network_local_simulation.py`.
+- [x] Verify coordinator startup, registration/login, room creation, invite creation, provider join, heartbeat, GPU pool, no-op dispatch, completion, results, and live updates.
 
-### 10.2 Baseline Reliability Fixes
+### 10.2 Reliability
 
-- [ ] Confirm room APIs do not break existing `/api/v1/vpn/*` compatibility.
-- [ ] Confirm node task assignment lifecycle is idempotent where possible.
-- [ ] Confirm failed no-op assignments release GPU locks.
-- [ ] Confirm offline or stale providers become unhealthy after missed heartbeats.
-- [ ] Add explicit test coverage for room access checks.
-- [ ] Add explicit test coverage for cross-room task denial.
-- [ ] Add regression tests for room creation, invite, join, heartbeat, GPU pool, and no-op dispatch.
+- [x] Preserve `/api/v1/vpn/*` compatibility.
+- [x] Harden assignment lifecycle idempotency where practical.
+- [x] Release GPU locks after failure.
+- [x] Mark stale providers unhealthy.
+- [x] Add room-access, cross-room denial, and regression tests.
 
 ### 10.3 Documentation
 
-- [ ] Update README with a short room-network quick start.
-- [ ] Document how to run one coordinator and one simulated provider locally.
-- [ ] Document common local failure modes.
-- [ ] Document which parts are simulation-only and which parts are ready for real providers.
+- [x] Add room-network quick start.
+- [x] Document one coordinator plus one simulated provider.
+- [x] Document common failure modes.
+- [x] Separate simulation-only behavior from real-provider-ready behavior.
 
 ### 10.4 Acceptance Criteria
 
-- Local simulation can be run repeatedly by a new developer.
-- A simulated provider appears in a room.
-- Simulated GPU metrics appear in the room GPU pool.
+- Local simulation is repeatable.
+- A simulated provider and its GPU metrics appear in the room.
 - A room no-op task completes through the node-agent path.
 - Existing VPN routes still work.
-- Tests pass locally and in CI where practical.
+- Tests pass locally.
 
 ---
 
 ## Phase 11: Cloud Coordinator Packaging and Runbooks
 
-**Goal:** Package the coordinator so it can run as a managed service or a self-hosted service.
+**Status:** Complete
 
-The coordinator should be the always-on control plane for rooms, invites, provider identity, scheduling, task lifecycle, Postgres, Redis, Celery, WebSockets, and UI/API access. It should not require a GPU.
+**Goal:** Package the coordinator for managed or self-hosted deployment without requiring a GPU.
 
-### 11.1 Coordinator Deployment Artifact
+### 11.1 Deployment Artifact
 
-- [ ] Add `docker/docker-compose.prod.yml` for coordinator-only deployment.
-- [ ] Include API service.
-- [ ] Include optional UI service.
-- [ ] Include Postgres service or managed Postgres configuration.
-- [ ] Include Redis service or managed Redis configuration.
-- [ ] Include Celery worker.
-- [ ] Include Celery beat if needed for heartbeat expiry, cleanup, or scheduling.
-- [ ] Add health checks for critical services.
-- [ ] Keep local development compose working.
+- [x] Add production Compose.
+- [x] Include API, optional UI, Postgres, Redis, Celery worker, and Celery beat.
+- [x] Add critical-service health checks.
+- [x] Keep development Compose working.
 
-### 11.2 Public URL, TLS, and Reverse Proxy
+### 11.2 URL, TLS, and Reverse Proxy
 
-- [ ] Add a reverse proxy example using Caddy or nginx.
-- [ ] Add configuration for `COORDINATOR_PUBLIC_URL` or equivalent.
-- [ ] Document HTTPS and WSS requirements.
-- [ ] Document CORS settings for the UI.
-- [ ] Document when UDP 51820 is required for WireGuard rooms.
-- [ ] Make clear that dial-out rooms should not require provider inbound ports.
+- [x] Add Caddy or nginx reverse-proxy example.
+- [x] Add public coordinator URL configuration.
+- [x] Document HTTPS, WSS, CORS, and WireGuard UDP requirements.
+- [x] Document that dial-out providers require no inbound ports.
 
-### 11.3 Managed and Self-Hosted Runbooks
+### 11.3 Runbooks and Smoke Tests
 
-- [ ] Add `docs/deploy/cloud_coordinator.md`.
-- [ ] Add a self-hosted coordinator section.
-- [ ] Add a managed coordinator section.
-- [ ] Document required CPU/RAM/storage assumptions.
-- [ ] Document secret generation and rotation.
-- [ ] Document Postgres backup and restore.
-- [ ] Document Redis persistence expectations.
-- [ ] Document troubleshooting for DNS, TLS, WSS, Redis, Postgres, and Celery.
+- [x] Add `docs/deploy/cloud_coordinator.md`.
+- [x] Document managed and self-hosted deployment.
+- [x] Document resource assumptions, secrets, backup/restore, persistence, and troubleshooting.
+- [x] Add smoke tests for health, register/login, room creation, invite creation, and room listing.
 
-### 11.4 Smoke Tests
+### 11.4 Acceptance Criteria
 
-- [ ] Add `scripts/smoke_cloud_coordinator.py` or equivalent.
-- [ ] Smoke test health endpoint.
-- [ ] Smoke test register/login.
-- [ ] Smoke test room creation.
-- [ ] Smoke test invite creation.
-- [ ] Smoke test room listing from public coordinator URL.
-
-### 11.5 Acceptance Criteria
-
-- A fresh VM or laptop can run the coordinator stack.
-- The coordinator works without a local GPU.
-- A user can register, login, create a room, and create an invite.
-- The coordinator can be reached through a documented public URL.
-- Self-hosted limitations are clearly documented.
-- Phase 10 local simulation still works.
+- A fresh laptop can run the coordinator stack.
+- Coordinator operation does not require a GPU.
+- UI and API are reachable through documented HTTPS routing.
+- Phase 10 simulation still works.
 
 ---
 
-## Phase 12: NAT-Friendly Provider Join and Agent Identity
+## Phase 12: NAT-Friendly Provider Join, Identity, and Trust
 
-**Goal:** Let GPU provider machines join rooms through outbound-only networking using an invite and coordinator URL.
+**Goal:** Let providers join rooms through outbound-only HTTPS/WSS using one invite command, persistent agent identity, and room-scoped credentials.
 
-Provider machines should not need inbound ports for the primary cloud-room workflow.
+This phase absorbs the critical provider-security work that previously appeared in the old Phase 16.
 
-### 12.1 Provider Join UX
+### 12.1 Provider CLI and Join UX
 
 - [ ] Add or update `zepgpu-node join --invite <code> --coordinator <url>`.
 - [ ] Add or update `zepgpu-node serve`.
 - [ ] Add or update `zepgpu-node status`.
-- [ ] Persist provider config under `~/.zepgpu/agent.json` or equivalent.
-- [ ] Store coordinator URL.
-- [ ] Store room ID.
-- [ ] Store provider/peer ID.
-- [ ] Store room-scoped agent token.
-- [ ] Store heartbeat interval and agent metadata.
-- [ ] Ensure token values are never printed in normal logs.
+- [ ] Add logout, disconnect, or credential-reset command.
+- [ ] Include coordinator URL and one-line command in invite copy text.
+- [ ] Return clear errors for invalid, expired, exhausted, or revoked invites.
+- [ ] Reject non-HTTPS coordinator URLs outside localhost/dev.
+- [ ] Require no inbound provider ports.
 
-### 12.2 Agent Identity and Tokens
+### 12.2 Persistent Provider Identity
 
-- [ ] Add or harden room-scoped provider tokens.
-- [ ] Keep human JWT authentication separate from provider-agent authentication.
-- [ ] Add token expiration fields if not already present.
-- [ ] Add token revocation fields if not already present.
-- [ ] Add token last-used tracking if practical.
-- [ ] Ensure provider tokens are scoped to one room/network.
-- [ ] Ensure cross-room heartbeat and task claim attempts are rejected.
+- [ ] Persist config under `~/.zepgpu/agent.json` or equivalent.
+- [ ] Store coordinator URL, room ID, provider ID, node name, token, token expiry, heartbeat interval, and agent version.
+- [ ] Never print token values in normal logs.
+- [ ] Define reconnect behavior for an already-registered provider.
 
-### 12.3 Room Invite Integration
+### 12.3 Room-Scoped Provider Tokens
 
-- [ ] Make room invite copy text include the coordinator URL and one-line provider join command.
-- [ ] Ensure bad invite codes fail clearly.
-- [ ] Ensure expired invite codes fail clearly.
-- [ ] Ensure revoked invite codes fail clearly.
-- [ ] Prevent duplicate provider joins where appropriate.
-- [ ] Keep existing WireGuard config generation available for WireGuard rooms.
+- [ ] Keep provider tokens separate from human JWTs.
+- [ ] Scope each token to one room and provider identity.
+- [ ] Add expiration, rotation, revocation, and optional last-used tracking.
+- [ ] Ensure revoked providers cannot heartbeat, poll, claim, submit logs, or complete tasks.
+- [ ] Reject cross-room heartbeat, claim, status, log, and completion requests.
+- [ ] Redact provider tokens from logs, API errors, UI, and audit payloads.
 
-### 12.4 Provider Heartbeat
+### 12.4 Invite and Membership Rules
 
-- [ ] Ensure provider heartbeat works with the room-scoped agent token.
-- [ ] Include agent version.
-- [ ] Include hostname or friendly node name if allowed.
-- [ ] Include GPU inventory.
-- [ ] Include available GPU memory.
-- [ ] Include utilization metrics when available.
-- [ ] Include provider mode such as real GPU, CPU/dev mode, or simulated mode.
+- [ ] Enforce invite expiry, maximum uses, and revocation.
+- [ ] Prevent unintended duplicate provider joins.
+- [ ] Preserve WireGuard config generation for WireGuard rooms.
+- [ ] Add host/admin provider revoke action.
+- [ ] Release or fail active assignments after provider revocation.
 
-### 12.5 Acceptance Criteria
+### 12.5 Authenticated Heartbeat
 
-- A provider can join a room with one copied command.
-- Provider config persists locally.
-- Provider can heartbeat using only outbound HTTPS.
-- Host can see the provider online.
-- Cross-room token use is rejected.
-- Existing room/VPN join paths are not broken.
+- [ ] Authenticate heartbeat with the room-scoped provider token.
+- [ ] Include agent version, node name, provider mode, basic GPU inventory, free memory, and utilization.
+- [ ] Update token last-used timestamp where practical.
+- [ ] Reject expired, revoked, stale, or cross-room credentials clearly.
 
----
+### 12.6 Tests
 
-## Phase 13: Dial-Out Task Pull and Remote Execution Lifecycle
+- [ ] Test successful join and persisted identity.
+- [ ] Test invalid, expired, exhausted, and revoked invites.
+- [ ] Test expired, rotated, and revoked provider tokens.
+- [ ] Test cross-room heartbeat and claim denial.
+- [ ] Test HTTPS enforcement.
+- [ ] Test token redaction.
 
-**Goal:** Make outbound-only provider execution reliable before adding real training workloads.
+### 12.7 Acceptance Criteria
 
-The MVP control path should be coordinator-mediated task pull/result upload. WebSockets can notify providers, but polling should remain a reliable fallback.
-
-### 13.1 Task Claim and Lease Semantics
-
-- [ ] Add or harden assignment claim flow.
-- [ ] Add `claimed_at` if missing.
-- [ ] Add `lease_expires_at` if missing.
-- [ ] Add claim-token or equivalent idempotency guard if needed.
-- [ ] Ensure a provider can only claim its own room assignments.
-- [ ] Ensure claim/start/complete/fail transitions are idempotent where possible.
-- [ ] Ensure cancelled tasks cannot later complete successfully.
-
-### 13.2 Provider Polling and Notification
-
-- [ ] Ensure provider can poll for pending assignments.
-- [ ] Ensure WSS task assignment notification is optional, not required.
-- [ ] Ensure polling works behind NAT with no inbound provider port.
-- [ ] Add backoff behavior when no work exists.
-- [ ] Add clear errors for invalid token, revoked token, and deleted room.
-
-### 13.3 Failure Recovery
-
-- [ ] Add timeout handling for accepted but never-started assignments.
-- [ ] Add timeout handling for running assignments.
-- [ ] Release GPU locks on fail, timeout, or cancel.
-- [ ] Mark provider unhealthy after missed heartbeats.
-- [ ] Requeue or mark failed assignments according to retry policy.
-- [ ] Add tests for killed provider while task is assigned.
-- [ ] Add tests for killed provider while task is running.
-
-### 13.4 Results, Logs, and Events
-
-- [ ] Standardize remote result metadata.
-- [ ] Add or harden task log submission.
-- [ ] Add or harden task result submission.
-- [ ] Trigger callback webhook after remote completion.
-- [ ] Broadcast WebSocket update after task status change.
-- [ ] Add room activity events for assigned, claimed, started, completed, failed, cancelled, and timed out.
-
-### 13.5 Acceptance Criteria
-
-- Provider can poll, claim, start, complete, and fail a no-op task.
-- No inbound provider ports are required.
-- Failed or timed-out assignments release GPU capacity.
-- Host can see task lifecycle state.
-- Callback and WebSocket updates fire after terminal states.
-- Tests cover success, failure, cancellation, timeout, and provider disconnect.
+- A provider joins with one copied command.
+- Provider identity persists across restarts.
+- Provider heartbeats through outbound HTTPS/WSS.
+- Revoked or expired credentials stop working.
+- Cross-room access is rejected.
+- Existing room and WireGuard join paths remain intact.
 
 ---
 
-## Phase 14: Transport Modes and WireGuard Compatibility
+## Phase 13: Dial-Out Assignment Lifecycle and Provider Recovery
 
-**Goal:** Make WireGuard and dial-out execution coexist cleanly.
+**Goal:** Harden assignment delivery, claims, leases, completion, logs, cancellation, retries, stale-task cleanup, and provider restart recovery.
 
-WireGuard remains supported for existing rooms and advanced L3 mesh use cases. New cloud-oriented rooms should default toward dial-out provider execution.
+This phase builds the **control-plane lifecycle**, not the training data channel.
 
-### 14.1 Transport Mode Model
+### 13.1 Assignment Delivery
 
-- [ ] Add transport mode enum: `wireguard`, `dialout`, `overlay`.
-- [ ] Add `transport_mode` to the room/network model.
-- [ ] Default existing rows to `wireguard`.
-- [ ] Default new cloud rooms to `dialout`.
-- [ ] Add config such as `ROOM_DEFAULT_TRANSPORT`.
-- [ ] Expose `transport_mode` in room API responses.
-- [ ] Show transport mode in the room UI.
+- [ ] Prefer WSS push notification when available.
+- [ ] Keep HTTPS polling/claim as fallback.
+- [ ] Add backoff and jitter when no work exists.
+- [ ] Add reconnect behavior after coordinator or network interruption.
+- [ ] Define behavior when room or provider access disappears.
 
-### 14.2 Dispatch Strategy
+### 13.2 Claims and Leases
 
-- [ ] Keep existing WireGuard task routing path.
-- [ ] Add or formalize a dial-out task router.
-- [ ] Select routing strategy from `transport_mode`.
-- [ ] Ensure dial-out rooms do not require UDP 51820.
-- [ ] Ensure WireGuard rooms can still generate configs.
-- [ ] Add tests for WireGuard room behavior.
-- [ ] Add tests for dial-out room behavior.
+- [ ] Add or harden assignment claim endpoint.
+- [ ] Add `claimed_at`, `lease_expires_at`, and a claim token/generation if missing.
+- [ ] Restrict claim to the assigned room/provider.
+- [ ] Make duplicate claim/start/complete/fail calls deterministic.
+- [ ] Prevent cancelled tasks from completing.
+- [ ] Prevent expired leases from reviving silently.
 
-### 14.3 Overlay Stub
+### 13.3 Provider Restart and Reconnect
 
-- [ ] Add a proposed overlay interface or stub only if useful.
-- [ ] Keep overlay disabled by default.
-- [ ] Document overlay as future work for large payloads or direct peer paths.
-- [ ] Do not introduce a mandatory relay dependency in this phase.
+- [ ] Persist enough local state to identify in-flight assignments.
+- [ ] Add coordinator reconciliation endpoint.
+- [ ] Define resume, fail, or abandon behavior by state.
+- [ ] Recover valid leases after restart.
+- [ ] Reject stale local state after lease expiry.
+- [ ] Reconcile buffered logs/results after temporary disconnection.
 
-### 14.4 Acceptance Criteria
+### 13.4 Cancellation, Timeout, and Cleanup
+
+- [ ] Add accepted-but-never-started timeout.
+- [ ] Add running timeout.
+- [ ] Propagate cancellation to provider.
+- [ ] Release GPU locks on failure, timeout, cancellation, or lease expiry.
+- [ ] Requeue or fail according to explicit retry policy.
+- [ ] Record deterministic terminal reasons.
+- [ ] Prevent duplicate cleanup from releasing another task's reservation.
+
+### 13.5 Logs, Results, and Events
+
+- [ ] Standardize result metadata.
+- [ ] Add batched/chunked log submission.
+- [ ] Add result and artifact-reference submission.
+- [ ] Broadcast task state through WebSocket.
+- [ ] Trigger callback webhook after terminal state.
+- [ ] Add activity events for assigned, claimed, started, reconnecting, completed, failed, cancelled, timed out, and lease expired.
+- [ ] Record the first terminal cause and ignore conflicting later calls.
+
+### 13.6 Tests
+
+- [ ] Test success, failure, cancellation, timeout, lease expiry, and disconnect.
+- [ ] Test restart with valid and expired leases.
+- [ ] Test duplicate lifecycle calls.
+- [ ] Test callback and WebSocket terminal updates.
+- [ ] Test GPU release for every terminal path.
+
+### 13.7 Acceptance Criteria
+
+- Provider receives work through WSS or HTTPS fallback.
+- Provider can claim, start, complete, fail, and cancel assignments.
+- Duplicate lifecycle calls are safe.
+- Restarted providers reconcile state deterministically.
+- Timed-out and failed assignments release capacity.
+- No training payloads are transferred through this lifecycle.
+
+---
+
+## Phase 14: Transport Modes, Provider Capabilities, and Path Observability
+
+**Goal:** Support WireGuard and dial-out modes while reporting provider GPU inventory, runtime compatibility, health reasons, and path characteristics.
+
+This phase absorbs the capability-inventory portion of the old Phase 15.
+
+### 14.1 Transport Modes
+
+- [ ] Add `wireguard`, `dialout`, and `overlay` modes.
+- [ ] Persist `transport_mode` on rooms/networks.
+- [ ] Default existing rows to `wireguard` and new cloud rooms to `dialout`.
+- [ ] Add a configurable default.
+- [ ] Expose mode in API and UI.
+- [ ] Keep overlay experimental until Phase 19.
+
+### 14.2 Routing Compatibility
+
+- [ ] Preserve legacy WireGuard routing.
+- [ ] Formalize dial-out routing.
+- [ ] Select strategy from room mode.
+- [ ] Ensure dial-out requires no UDP 51820.
+- [ ] Preserve WireGuard config generation.
+- [ ] Quarantine legacy pickle execution to WireGuard-only generic tasks.
+- [ ] Add a guard preventing training modules from using the legacy task router.
+
+### 14.3 Provider Capability Inventory
+
+- [ ] Report GPU count, model, device index, total/free VRAM, utilization, temperature, and power where available.
+- [ ] Report compute capability, driver, CUDA, PyTorch, container runtime, NCCL, and optional FSDP/DeepSpeed support.
+- [ ] Report P2P access, NVLink, and PCIe/topology hints where detectable.
+- [ ] Timestamp capability reports and mark unavailable fields explicitly.
+
+### 14.4 Provider Health Reasons
+
+- [ ] Distinguish healthy, degraded, stale, offline, revoked, incompatible, and claim-timeout states.
+- [ ] Record last heartbeat, last claim, recent failures, and version mismatch.
+- [ ] Expose a human-readable health reason through API, events, and UI.
+
+### 14.5 Path Observability
+
+- [ ] Record path type: `direct`, `relay`, or `unknown`.
+- [ ] Record path class: `same_host`, `lan`, `wan`, or `relay`.
+- [ ] Measure provider-to-coordinator RTT.
+- [ ] Add optional provider-to-provider RTT and bandwidth samples.
+- [ ] Track measurement freshness.
+- [ ] Distinguish measured values from estimates.
+- [ ] Add Prometheus metrics and NAT/path troubleshooting docs.
+
+### 14.6 Tests and Acceptance
+
+- [ ] Test migration defaults and mode coexistence.
+- [ ] Test capability validation and stale data.
+- [ ] Test provider-health transitions.
+- [ ] Test path reporting.
+- [ ] Test training-code prohibition on legacy task router.
+
+Acceptance criteria:
 
 - Existing WireGuard rooms still work.
-- New dial-out rooms work without provider inbound ports.
-- API and UI expose the active transport mode.
-- Scheduler uses the correct strategy for the room mode.
-- Overlay is clearly marked as future or experimental.
+- Dial-out rooms work without inbound provider ports.
+- API/UI expose transport mode, capabilities, health reason, and path data.
+- Training code cannot use the legacy pickle path.
 
 ---
 
-## Phase 15: Multi-GPU Capability Inventory and Training-Aware Scheduling
+## Phase 15: Single-Node LoRA/QLoRA Training Baseline
 
-**Goal:** Extend provider reporting and scheduling so ZepGPU can reason about multi-GPU LLM training workloads before launching them.
+**Goal:** Build a reproducible single-GPU fine-tuning harness with LoRA or QLoRA, mixed precision, checkpointing, peak-VRAM tracking, throughput metrics, and communication-to-compute instrumentation.
 
-This phase integrates three core designs:
+This phase starts real training earlier. Full multi-GPU scheduling and reservations move to Phase 18.
 
-- **Room Training Job Specification**
-- **Training Readiness and Placement Planner**
-- **Communication and Topology Profiler**
+### 15.1 Training Package
 
-Together, these designs let the coordinator understand what the user wants to run, what each provider can supply, how well provider groups can communicate, and whether the requested training job is realistic.
+- [ ] Add `deepiri_zepgpu/training/`.
+- [ ] Keep ML dependencies optional.
+- [ ] Add a versioned training-run configuration model.
+- [ ] Add local training CLI/script.
+- [ ] Ensure no dependency on the legacy pickle task router.
+- [ ] Add a small reproducible model and dataset example.
 
-The phase must not claim that aggregate VRAM behaves exactly like one larger GPU. Feasibility depends on the selected distributed strategy, per-GPU memory, runtime support, topology, and communication performance.
+### 15.2 LoRA/QLoRA Baseline
 
-### 15.1 Provider Capability Reporting
+- [ ] Support LoRA and compatible QLoRA.
+- [ ] Support bf16/fp16 and 4-bit base loading where available.
+- [ ] Support gradient accumulation and activation/gradient checkpointing.
+- [ ] Support configurable sequence length, batch size, and seed.
+- [ ] Add short smoke-run mode.
+- [ ] Support checkpoint save/resume.
+- [ ] Save adapter or final artifact reference.
 
-- [ ] Extend heartbeat or provider inventory to report GPU count.
-- [ ] Report GPU model/name.
-- [ ] Report total VRAM per GPU.
-- [ ] Report available VRAM per GPU.
-- [ ] Report compute capability.
-- [ ] Report CUDA version when available.
-- [ ] Report driver version when available.
-- [ ] Report NVLink availability if detectable.
-- [ ] Report PCIe topology if detectable.
-- [ ] Report peer-to-peer access support if detectable.
-- [ ] Report supported runtimes such as PyTorch, CUDA, Docker, NCCL, and optional DeepSpeed.
-- [ ] Report provider network hints such as RTT or measured bandwidth when available.
+### 15.3 Metric Harness
 
-### 15.2 Design 4 — Communication and Topology Profiler
+- [ ] Record tokens/s, samples/s, step time, useful compute time, sync time, bytes sent/received, communication-to-compute ratio, peak allocated/reserved VRAM, and GPU utilization.
+- [ ] Record model, dataset, precision, batch size, sequence length, software versions, and hardware.
+- [ ] Emit JSON metrics and a human-readable summary.
+- [ ] Report single-node synchronization bytes/time and ratio as zero.
 
-- [ ] Add lightweight provider-to-coordinator latency measurement.
-- [ ] Add optional provider-to-provider bandwidth/latency measurement where safe.
-- [ ] Add optional NCCL or `torch.distributed` communication smoke test for compatible environments.
-- [ ] Track whether a provider group is same-machine, same-LAN, same-region, or WAN/unknown.
-- [ ] Store recent communication profile results for scheduler decisions.
-- [ ] Clearly mark communication metrics as estimates unless measured directly.
+### 15.4 Reproducibility and Tests
 
-### 15.3 Design 1 — Room Training Job Specification
+- [ ] Document one RTX-class setup, minimum VRAM, and tested runtime versions.
+- [ ] Store at least one baseline result.
+- [ ] Add no-GPU schema/metric tests for CI.
+- [ ] Add optional GPU integration test.
+- [ ] Test config validation, ratio math, checkpoint metadata, resume state, secret filtering, and task-router isolation.
 
-**Purpose:** Give ZepGPU a standard, first-class description of a distributed training or fine-tuning request.
+### 15.5 Acceptance Criteria
 
-Without this design, training jobs would be treated as generic remote tasks and the scheduler would not know how many GPUs to reserve, which runtime is required, how much memory is needed, or where checkpoints should be stored.
-
-#### Data Model
-
-- [ ] Add a first-class training job model or task subtype.
-- [ ] Add a stable training job ID.
-- [ ] Link the training job to the room, submitting user, and underlying task records.
-- [ ] Add lifecycle states such as `pending`, `planning`, `reserved`, `starting`, `running`, `checkpointing`, `completed`, `failed`, `cancelled`, and `timed_out`.
-- [ ] Store creation, planning, startup, completion, and failure timestamps.
-- [ ] Store a machine-readable failure reason.
-- [ ] Store the final placement plan used for the run.
-
-#### User-Supplied Job Fields
-
-- [ ] Support model reference.
-- [ ] Support dataset reference.
-- [ ] Support training script or container image.
-- [ ] Support command/entrypoint.
-- [ ] Support number of nodes.
-- [ ] Support GPUs per node.
-- [ ] Support total required GPU count.
-- [ ] Support minimum VRAM per GPU.
-- [ ] Support preferred or required GPU type.
-- [ ] Support framework/runtime requirement.
-- [ ] Support precision such as fp32, fp16, bf16, or adapter/quantized mode where applicable.
-- [ ] Support an initial distributed strategy hint such as single-node, DDP, or FSDP.
-- [ ] Preserve future strategy values such as ZeRO-style, pipeline parallelism, and tensor parallelism without promising immediate support.
-- [ ] Support expected model size or parameter count.
-- [ ] Support batch-size and sequence-length hints where available.
-- [ ] Support checkpoint interval.
-- [ ] Support checkpoint output artifact reference.
-- [ ] Support final model artifact reference.
-- [ ] Support maximum runtime.
-- [ ] Support retry policy.
-- [ ] Support environment variables with secret filtering.
-- [ ] Support input and output artifact references.
-
-#### API and Validation
-
-- [ ] Add create, inspect, cancel, and list endpoints for training jobs.
-- [ ] Validate required fields before scheduling.
-- [ ] Reject unsupported strategy/runtime combinations clearly.
-- [ ] Reject impossible GPU-count requests clearly.
-- [ ] Keep generic room task APIs working.
-- [ ] Add Pydantic schemas and frontend TypeScript types.
-- [ ] Add API examples to the documentation.
-
-### 15.4 Scheduler Policy
-
-- [ ] Filter providers by online status.
-- [ ] Filter providers by GPU count.
-- [ ] Filter providers by VRAM requirements.
-- [ ] Filter providers by runtime requirements.
-- [ ] Prefer same-machine multi-GPU when possible.
-- [ ] Prefer same-LAN or low-latency groups before WAN groups for communication-heavy training.
-- [ ] Prefer higher bandwidth provider groups for distributed training.
-- [ ] Avoid providers with recent failures or stale heartbeats.
-- [ ] Reserve multiple GPUs atomically for a training job.
-- [ ] Release all reserved GPUs if any reservation fails.
-
-### 15.5 Design 2 — Training Readiness and Placement Planner
-
-**Purpose:** Check whether the room can realistically run the requested job before any GPU is reserved.
-
-The planner should produce both a machine-readable placement plan and a human-readable explanation. It should be conservative and clearly identify estimates.
-
-#### Readiness Analysis
-
-- [ ] Estimate required model memory.
-- [ ] Estimate optimizer-state memory where applicable.
-- [ ] Estimate gradient memory.
-- [ ] Estimate activation memory from available batch-size and sequence-length hints.
-- [ ] Consider precision.
-- [ ] Consider checkpointing and activation recomputation settings if known.
-- [ ] Compare estimated requirements against per-GPU VRAM, not only aggregate room VRAM.
-- [ ] Consider whether sharding is required.
-- [ ] Consider whether the selected distributed strategy is supported.
-- [ ] Consider runtime compatibility across all selected providers.
-- [ ] Consider provider health and recent failures.
-- [ ] Consider communication profile quality.
-- [ ] Consider same-machine, same-LAN, same-region, and WAN placement classes.
-
-#### Placement Planning
-
-- [ ] Generate one or more candidate provider groups.
-- [ ] Prefer same-machine multi-GPU placement.
-- [ ] Prefer same-LAN or low-latency providers for communication-heavy jobs.
-- [ ] Avoid mixing incompatible CUDA/runtime environments.
-- [ ] Avoid stale or unreliable providers.
-- [ ] Ensure the proposed group satisfies the requested GPU count.
-- [ ] Ensure each selected GPU satisfies the per-GPU VRAM requirement.
-- [ ] Produce a reasoned placement score.
-- [ ] Store the selected plan with the training job.
-- [ ] Allow the scheduler to reject the run if no safe placement exists.
-
-#### Planner Output
-
-- [ ] Return readiness state: `capable`, `marginal`, or `insufficient`.
-- [ ] Return estimated memory requirement.
-- [ ] Return selected strategy or strategy recommendation.
-- [ ] Return selected providers and GPUs.
-- [ ] Return topology classification.
-- [ ] Return communication-quality summary.
-- [ ] Return warnings.
-- [ ] Return actionable failure reasons.
-- [ ] Clearly label estimates as approximate.
-- [ ] Expose the explanation in API and UI.
-
-#### Example Failure Reasons
-
-- Not enough GPUs.
-- Insufficient VRAM on one or more GPUs.
-- Aggregate VRAM is sufficient, but per-GPU VRAM is not.
-- Required runtime is missing.
-- Selected GPUs have incompatible runtime versions.
-- Provider group is too unreliable.
-- Communication profile is too weak for the requested strategy.
-- No provider group can be reserved atomically.
-
-
-### 15.5A Scheduling Philosophy
-
-The scheduler should optimize for predictable, reliable execution rather than simply selecting the first available GPUs.
-
-#### Scheduling Objectives
-
-- [ ] Prefer successful execution over aggressive placement.
-- [ ] Prefer same-machine placement whenever possible.
-- [ ] Prefer same-LAN placement before WAN for communication-heavy workloads.
-- [ ] Prefer lower-latency provider groups when multiple valid placements exist.
-- [ ] Maximize GPU utilization without sacrificing reliability.
-- [ ] Produce deterministic placement decisions where practical.
-- [ ] Record why a placement was selected.
-- [ ] Expose scheduler reasoning through the API and UI.
-- [ ] Keep scheduling policy configurable as the platform evolves.
-
-### 15.6 UI Updates
-
-- [ ] Show per-node GPU count.
-- [ ] Show total room VRAM.
-- [ ] Show available room VRAM.
-- [ ] Show grouped provider capacity for multi-GPU jobs.
-- [ ] Show communication/topology hints.
-- [ ] Show training readiness warnings.
-- [ ] Show why a training job cannot be scheduled.
-
-### 15.7 Acceptance Criteria
-
-- Room dashboard shows multi-GPU capacity.
-- Scheduler can reserve multiple GPUs atomically.
-- Training jobs can express multi-GPU requirements.
-- System explains why a job is or is not schedulable.
-- Communication/topology hints are available when measured.
-- Existing single-GPU and no-op workflows still work.
+- One GPU completes a short LoRA/QLoRA run.
+- Training produces a checkpoint or adapter artifact.
+- Harness reports throughput, VRAM, compute, sync, bytes, and ratio.
+- Single-node ratio is zero.
+- The baseline is reproducible and becomes the Phase 17 comparison target.
 
 ---
 
-## Phase 16: Secure Provider Revocation, Audit, and Room Trust
+## Phase 16: Persistent Training Workers and Binary Data Channel
 
-**Goal:** Harden provider trust before running real distributed workloads.
+**Goal:** Create long-lived provider training workers and a direct-or-relayed binary channel that avoids the legacy pickle and JSON task path.
 
-Remote GPU sharing requires strong room-scoped authorization, revocation, and audit trails.
+### 16.1 Training-Run Lifecycle
 
-### 16.1 Provider Revocation
+- [ ] Add first-class training-run records and states: `created`, `preparing`, `ready`, `running`, `syncing`, `checkpointing`, `completed`, `failed`, `cancelled`, and `timed_out`.
+- [ ] Link runs to room, user, providers, and artifacts.
+- [ ] Add create, inspect, start, abort, and list APIs.
+- [ ] Keep training runs separate from generic one-shot tasks.
 
-- [ ] Add or harden provider revoke endpoint.
-- [ ] Ensure revoked providers cannot heartbeat.
-- [ ] Ensure revoked providers cannot poll tasks.
-- [ ] Ensure revoked providers cannot claim tasks.
-- [ ] Ensure revoked providers cannot submit logs.
-- [ ] Ensure revoked providers cannot complete tasks.
-- [ ] Release or fail active assignments when a provider is revoked.
-- [ ] Add UI action for room host/admin to revoke a provider.
+### 16.2 Persistent Worker
 
-### 16.2 Room Authorization
+- [ ] Add long-lived training-worker mode.
+- [ ] Keep workers alive across synchronization rounds.
+- [ ] Authenticate with provider identity and optional short-lived run credentials.
+- [ ] Add ready, heartbeat/progress, graceful shutdown, forced abort, restart, and reconnect behavior.
+- [ ] Buffer progress/logs during short coordinator outages.
 
-- [ ] Verify only room members can view room details.
-- [ ] Verify only room host/admin can create invites.
-- [ ] Verify only room host/admin can revoke invites.
-- [ ] Verify only authorized users can dispatch room tasks.
-- [ ] Verify providers can only act within their room.
-- [ ] Add cross-room deny tests for all node-task routes.
+### 16.3 Binary Exchange Format
 
-### 16.3 Audit Events
+- [ ] Define a versioned binary envelope with run ID, worker ID, round, payload type, shape/dtype, compression metadata, length, checksum, and timestamp.
+- [ ] Reject malformed, mismatched, duplicate-conflicting, or cross-room payloads.
+- [ ] Keep the format extensible for later mixed hardware.
 
-- [ ] Log room created.
-- [ ] Log invite created.
-- [ ] Log invite used.
-- [ ] Log invite revoked.
-- [ ] Log provider joined.
-- [ ] Log provider heartbeat stale/offline.
-- [ ] Log provider revoked.
-- [ ] Log task assigned.
-- [ ] Log task claimed.
-- [ ] Log task started.
-- [ ] Log task completed.
-- [ ] Log task failed.
-- [ ] Log task cancelled.
-- [ ] Log multi-GPU reservation created and released.
+### 16.4 Direct and Relayed Transfer
 
-### 16.4 Optional Node Identity Groundwork
+- [ ] Prefer direct worker-to-worker or collective transfer.
+- [ ] Add coordinator binary relay fallback using chunked HTTPS or WSS binary.
+- [ ] Avoid JSON/base64 and pickle.
+- [ ] Add transfer IDs, idempotency, retries, size limits, cleanup, and direct-vs-relay metrics.
+- [ ] Evaluate PCCL as the default direct channel while keeping an abstract interface.
 
-- [ ] Add persistent node identity key field if useful.
-- [ ] Add output checksum fields for future signed results.
-- [ ] Document signed results as future hardening unless implemented.
+### 16.5 Integrity and Tests
 
-### 16.5 Acceptance Criteria
+- [ ] Verify checksum, run ID, worker ID, round, and room scope.
+- [ ] Test persistent worker lifecycle, direct exchange, relay fallback, corruption, malformed metadata, duplicates, retry, cleanup, and cross-room denial.
+- [ ] Test that no training module imports or calls pickle task routing.
 
-- Revoked providers lose all room/task privileges.
-- Cross-room provider actions are rejected.
-- Room host/admin can see meaningful audit history.
-- Security tests cover room, provider, and node-task authorization.
-- Tokens are redacted in logs and UI.
+### 16.6 Acceptance Criteria
+
+- Two simulated workers remain alive across multiple rounds.
+- Workers exchange binary payloads directly and through relay fallback.
+- Checksums detect corruption.
+- Transfer metrics record bytes, path, and duration.
+- Training traffic never uses the legacy pickle path.
 
 ---
 
-## Phase 17: Real Containerized Remote Execution
+## Phase 17: Two-Node WAN LoRA with Compressed Updates
 
-**Goal:** Move from remote no-op execution to real provider-side workloads.
+**Goal:** Run real two-node LoRA fine-tuning over consumer internet using compressed updates, communication overlap, and measured efficiency improvements.
 
-This phase turns ZepGPU from a room-network demo into a usable remote compute platform.
+Container execution is supporting infrastructure; the main outcome is real WAN training.
 
-### 17.1 Remote Execution Spec
+### 17.1 Safe Training Runtime
 
-- [ ] Define a remote execution spec.
-- [ ] Support Docker image.
-- [ ] Support command/entrypoint.
-- [ ] Support environment variables with secret filtering.
-- [ ] Support GPU requirement.
-- [ ] Support timeout.
-- [ ] Support input artifact references.
-- [ ] Support output artifact references.
-- [ ] Support stdout/stderr logs.
-- [ ] Support exit code.
-- [ ] Support result metadata.
-
-
-### 17.1A Extensible Workload Model
-
-The execution framework should support multiple workload types without coupling the platform exclusively to LLM training.
-
-#### Workload Abstraction
-
-- [ ] Introduce a first-class workload abstraction.
-- [ ] Support Generic Task workloads.
-- [ ] Support Training Job workloads.
-- [ ] Reserve API support for Inference Job workloads.
-- [ ] Reserve API support for Benchmark workloads.
-- [ ] Reserve API support for Interactive Session workloads.
-- [ ] Allow workload type to determine validation and execution behavior.
-- [ ] Preserve backwards compatibility with existing task APIs.
-- [ ] Document supported workload lifecycle and transitions.
-
-### 17.2 Provider Container Runner
-
-- [ ] Add provider-side container runner.
-- [ ] Pull or use local Docker image.
-- [ ] Run container with GPU access when available.
-- [ ] Apply timeout and kill behavior.
-- [ ] Capture stdout and stderr.
-- [ ] Capture exit code.
-- [ ] Upload logs to coordinator.
-- [ ] Upload result metadata to coordinator.
-- [ ] Upload artifacts or artifact references.
-- [ ] Clean up containers after completion.
-
-### 17.3 Safety Controls
-
+- [ ] Define a training workload/container spec with image/runtime, command, GPU assignment, secret-filtered environment, model/dataset references, timeout, logs, checkpoints, and artifacts.
 - [ ] Disable privileged containers by default.
-- [ ] Add image allowlist or trust policy for MVP.
-- [ ] Limit mounted paths.
-- [ ] Redact secrets from logs.
-- [ ] Document sandbox limitations.
-- [ ] Add safe dev/test images.
-- [ ] Add timeout tests.
-- [ ] Add failure tests.
-- [ ] Add artifact tests.
+- [ ] Restrict mounts and add an MVP image trust policy.
+- [ ] Clean up containers and temporary data after terminal state.
 
-### 17.4 Acceptance Criteria
+### 17.2 Two-Worker LoRA Run
 
-- Provider can run a safe container task.
-- Task lifecycle updates correctly.
-- Logs are visible from coordinator/API/UI.
-- Exit code determines completed or failed state.
-- Timeout kills long-running job.
-- Output artifact metadata is stored.
-- No-op runner still works.
+- [ ] Launch two provider workers in one room.
+- [ ] Validate matching base model, tokenizer, precision, and adapter structure.
+- [ ] Run independent local steps.
+- [ ] Exchange adapter deltas or pseudo-gradients through Phase 16.
+- [ ] Apply synchronized updates over multiple rounds.
+- [ ] Save final adapter/checkpoint and both workers' metrics.
+
+### 17.3 Compressed Updates
+
+- [ ] Integrate DeMo or a documented equivalent.
+- [ ] Support low-bit representation and configurable compression knobs.
+- [ ] Add error feedback where required.
+- [ ] Record uncompressed/compressed bytes and compression ratio.
+- [ ] Validate decompression and update shape.
+- [ ] Add a toy convergence test.
+
+### 17.4 Communication Overlap and Metrics
+
+- [ ] Overlap transfer with local compute where practical.
+- [ ] Record blocked and overlapped communication time, useful compute time, ratio, bytes per step/round, sync frequency, GPU utilization, RTT, and bandwidth.
+- [ ] Make blocking fallback explicit.
+
+### 17.5 Baseline Comparison and Failure Handling
+
+- [ ] Compare loss/quality, tokens/s, VRAM, bytes, and ratio against Phase 15 and a naive full-precision baseline.
+- [ ] Record hardware, network, model, dataset, and exact settings.
+- [ ] Abort both workers if one required worker fails.
+- [ ] Propagate cancellation and timeout.
+- [ ] Preserve the latest valid checkpoint.
+- [ ] Release locks and clean up runtime resources.
+
+### 17.6 Acceptance Criteria
+
+- Two NAT-friendly providers complete a short LoRA fine-tune.
+- Training uses binary compressed updates.
+- Direct and relay paths both work.
+- Bytes per round are below the documented naive baseline.
+- Communication-to-compute ratio is measured.
+- Quality remains within an agreed tolerance of Phase 15.
 
 ---
 
-## Phase 18: Distributed LLM Training MVP
+## Phase 18: Elastic DiLoCo Training and Topology-Aware GPU Islands
 
-**Goal:** Prove that a ZepGPU room can launch and coordinate a small multi-GPU LLM training or fine-tuning job.
+**Goal:** Add infrequent WAN synchronization, overlap, straggler tolerance, elastic join/leave, checkpoint recovery, topology-aware grouping, multi-GPU reservations, and FSDP/TP inside high-bandwidth islands.
 
-This phase integrates the **Distributed Training Launcher** design and consumes the Training Job Specification, readiness result, communication profile, and placement plan created in Phase 15.
+This phase absorbs the old Phase 15 scheduler and reservation work.
 
-The first implementation should support one controlled strategy rather than attempting DDP, FSDP, ZeRO, pipeline parallelism, and tensor parallelism at the same time. The recommended first target is PyTorch DDP or FSDP on one machine or a controlled LAN environment before attempting unstable WAN training.
+### 18.1 Distributed Training Job
 
-### 18.1 Training Job Spec
+- [ ] Add a first-class training-job spec with model, dataset, runtime, nodes, GPUs/node, total GPUs, minimum VRAM/GPU, precision, LoRA/QLoRA settings, DiLoCo `H`, minimum `k`, sync deadline, checkpoint interval, max runtime, resume policy, and runtime requirements.
 
-- [ ] Add `training` task kind or equivalent metadata.
-- [ ] Support model reference.
-- [ ] Support dataset reference.
-- [ ] Support training script or container image.
-- [ ] Support number of nodes.
-- [ ] Support GPUs per node.
-- [ ] Support precision such as fp32, fp16, bf16, or quantized/adapter mode where applicable.
-- [ ] Support strategy such as DDP, FSDP, or ZeRO-style.
-- [ ] Support checkpoint interval.
-- [ ] Support output checkpoint artifact.
-- [ ] Support max runtime.
+### 18.2 Readiness and Placement Planner
 
-### 18.2 Design 3 — Distributed Training Launcher
+- [ ] Filter by health, GPU count, per-GPU VRAM, runtime compatibility, reliability, path class, RTT, and bandwidth.
+- [ ] Prefer same-host and LAN islands.
+- [ ] Avoid WAN FSDP/TP.
+- [ ] Generate candidate groups and return `capable`, `marginal`, or `insufficient` with warnings and actionable reasons.
+- [ ] Store the selected plan and clearly label estimates.
 
-- [ ] Choose first supported strategy for MVP.
-- [ ] Start with the simplest reliable target, preferably same-machine multi-GPU or LAN multi-node before WAN training.
-- [ ] Prefer a small practical first target such as PyTorch DDP or FSDP over many strategies at once.
-- [ ] Generate rank/world-size configuration.
-- [ ] Assign coordinator-selected providers to a training group.
-- [ ] Reserve all required GPUs atomically.
-- [ ] Start all assigned provider workers.
-- [ ] Fail the training job if not all workers start.
-- [ ] Collect status from each worker.
-- [ ] Collect logs from each worker.
-- [ ] Mark job failed if a required worker fails.
-- [ ] Release all GPUs on completion or failure.
-
-#### Training Group Creation
-
-- [ ] Create a training group record for each launch attempt.
-- [ ] Attach the approved placement plan.
-- [ ] Assign each selected provider a stable worker ID.
-- [ ] Assign global rank.
-- [ ] Assign local rank.
-- [ ] Set world size.
-- [ ] Select rendezvous host and port or coordinator mechanism.
-- [ ] Generate a short-lived training-group credential.
-- [ ] Keep training-group credentials separate from human and provider tokens.
-
-#### Atomic Reservation and Startup
+### 18.3 Atomic Multi-GPU Reservations
 
 - [ ] Reserve all required GPUs atomically.
-- [ ] Fail before startup if any reservation cannot be acquired.
-- [ ] Send each provider its worker configuration.
-- [ ] Require every worker to acknowledge startup.
-- [ ] Enforce a startup deadline.
-- [ ] Start the run only after the required worker set is ready.
-- [ ] Fail and clean up if any required worker does not start.
-- [ ] Prevent duplicate worker starts.
-- [ ] Record startup events for each worker.
+- [ ] Roll back every reservation on partial failure.
+- [ ] Add TTL, ownership, idempotent release, stale cleanup, and audit events.
+- [ ] Prevent one task from releasing another task's reservation.
 
-#### Runtime Coordination
+### 18.4 Topology-Aware Islands
 
-- [ ] Track worker states such as assigned, preparing, ready, running, checkpointing, completed, and failed.
-- [ ] Collect heartbeat or progress signals from every worker.
-- [ ] Stream or batch worker logs.
-- [ ] Propagate cancellation to every worker.
-- [ ] Enforce max runtime.
-- [ ] Mark the full training job failed if a required worker fails.
-- [ ] Release every GPU reservation after terminal state.
-- [ ] Preserve enough state to debug partial startup and partial failure.
+- [ ] Define island membership.
+- [ ] Group same-host and supported LAN-class providers.
+- [ ] Use Phase 14 capability/path data.
+- [ ] Record interconnect class, runtime compatibility, aggregate capacity, and grouping explanation.
+- [ ] Keep WAN peers outside FSDP/TP islands.
 
-#### Failure Policy
+### 18.5 Island-Local Memory Pooling
 
-- [ ] Define behavior for provider disconnect before startup.
-- [ ] Define behavior for provider disconnect during training.
-- [ ] Define behavior for one worker exiting with a nonzero code.
-- [ ] Define behavior for rendezvous timeout.
-- [ ] Define behavior for checkpoint failure.
-- [ ] Define whether the MVP retries the full group or fails immediately.
-- [ ] Avoid silently replacing a worker mid-run unless the selected framework and checkpoint state make that safe.
+- [ ] Add FSDP2 inside compatible islands.
+- [ ] Add TP only where interconnect supports it.
+- [ ] Support one multi-GPU machine first, then controlled LAN islands.
+- [ ] Record rank/process-group config and peak VRAM/GPU.
+- [ ] Demonstrate a model that OOMs on one GPU but runs in an island.
 
-### 18.3 Training Artifacts
+### 18.6 DiLoCo and Elasticity
 
-- [ ] Store training logs.
-- [ ] Store metrics such as loss, step time, samples/sec, tokens/sec if available.
-- [ ] Store checkpoints or checkpoint references.
-- [ ] Store final model artifact reference.
-- [ ] Store distributed config used for the run.
-- [ ] Add checkpoint resume support or document it as future work.
+- [ ] Implement local inner optimization and configurable outer interval `H`.
+- [ ] Implement outer optimizer.
+- [ ] Add eager or streaming overlap.
+- [ ] Reuse Phase 17 compression.
+- [ ] Record outer-round bytes and communication ratio.
+- [ ] Add late-join checkpoint bootstrap, graceful leave, failure detection, min-k sync, late-update policy, and rejoin.
+- [ ] Add chaos test that kills one worker.
 
-### 18.4 First Demo Workload
+### 18.7 Distributed Launcher
 
-- [ ] Add a small example training container.
-- [ ] Add a tiny dataset or documented sample dataset.
-- [ ] Add a controlled fine-tuning example.
-- [ ] Add a local/simulated test path where real GPUs are not required.
-- [ ] Add an optional real multi-GPU test path.
+- [ ] Create training groups, attach placement plans, assign worker/island IDs and ranks, generate short-lived credentials, enforce readiness/startup deadlines, prevent duplicate starts, propagate cancellation, and release reservations after terminal state.
 
-### 18.5 Acceptance Criteria
+### 18.8 Acceptance Criteria
 
-- Host can submit a small distributed training job.
-- Scheduler reserves multiple GPUs.
-- Providers receive their roles/ranks.
-- Training workers start.
-- Logs return to coordinator.
-- Training metrics are visible.
-- Checkpoint or final artifact reference is stored.
-- Failures release all reserved GPUs.
+- Scheduler explains feasibility.
+- GPUs are reserved atomically.
+- Same-host/LAN islands are preferred for FSDP/TP.
+- WAN links use compressed outer synchronization.
+- Configurable `H` and min-k sync are demonstrated.
+- Worker drop/rejoin works from checkpoint.
+- A model that OOMs on one GPU runs on a supported island.
 
 ---
 
-## Phase 19: Performance, Efficiency, and Release-Ready Demo
+## Phase 19: Overlay Networking, Recovery, Mixed Hardware, and Production Pilot
 
-**Goal:** Optimize, measure, and present the multi-GPU room training system clearly.
+**Goal:** Add hard-NAT overlay networking, durable checkpoint recovery, integrity checks, neutral update formats, optional mixed-hardware support, dashboards, soak tests, and a reproducible production pilot.
 
-This phase completes two designs:
+### 19.1 Overlay Networking
 
-- **Communication and Topology Profiler**, by comparing measured communication behavior with actual training performance.
-- **Training Run Dashboard**, by giving hosts and reviewers one place to understand workers, GPUs, metrics, checkpoints, bottlenecks, and failures.
+- [ ] Define overlay interface: `connect`, `send`, `receive`, `close`, and `path_type`.
+- [ ] Implement iroh or equivalent direct-to-relay QUIC path.
+- [ ] Add `transport_mode=overlay`.
+- [ ] Prefer direct and fall back to relay.
+- [ ] Keep coordinator binary relay as fallback.
+- [ ] Preserve WireGuard and dial-out coexistence.
+- [ ] Record direct/relay success, relay bytes, and NAT-join results.
+- [ ] Add migration guidance without forcing migration.
 
-This phase makes the project demonstrable and helps the team evaluate whether distributed room training is actually efficient rather than merely functional.
+### 19.2 Durable Checkpoint and Recovery
 
-### 19.1 Performance Measurement
+- [ ] Store model/adapter, optimizer, outer-optimizer, round, membership, config, compression settings, and artifact references.
+- [ ] Restore after coordinator or provider restart.
+- [ ] Bootstrap late joiners.
+- [ ] Verify compatibility and reject partial/corrupt checkpoints.
+- [ ] Document retention and backup.
 
-- [ ] Track queue wait time.
-- [ ] Track assignment latency.
-- [ ] Track provider claim latency.
-- [ ] Track startup latency.
-- [ ] Track training step time.
-- [ ] Track samples/sec or tokens/sec where available.
-- [ ] Track GPU utilization.
-- [ ] Track memory utilization.
-- [ ] Track network transfer volume where available.
-- [ ] Track job failure rate.
+### 19.3 Neutral Update Format and Integrity
 
-### 19.2 Efficiency and Topology Feedback
+- [ ] Define framework-neutral outer-update schema using safetensors, NumPy, or equivalent.
+- [ ] Include model revision, parameter names/shapes, dtype, quantization, round, worker identity, and checksum.
+- [ ] Add room-scoped signature or MAC.
+- [ ] Reject tampered and replayed updates.
+- [ ] Keep the format extensible for MLX.
 
-- [ ] Show whether training is bottlenecked by memory, compute, network, startup, or queueing when detectable.
-- [ ] Show provider group latency/bandwidth hints.
-- [ ] Show same-node vs multi-node placement warnings.
-- [ ] Add scheduler notes explaining why a provider group was selected.
-- [ ] Add NCCL or `torch.distributed` benchmark output where available.
-- [ ] Add retry or fallback policy for slow/unhealthy providers.
-- [ ] Add benchmark task for room throughput.
+### 19.4 Optional Mixed Hardware
 
+- [ ] Add experimental Apple/MLX worker path.
+- [ ] Keep NVIDIA/PyTorch primary.
+- [ ] Produce the same neutral update format.
+- [ ] Document homogeneous quantization restrictions.
+- [ ] Add simulated mixed-worker test and a real Mac+NVIDIA experiment when hardware is available.
 
-### 19.2A Observability Layer
+### 19.5 Observability and Dashboard
 
-Beyond the training dashboard, the platform should expose operational visibility suitable for long-running distributed systems.
+- [ ] Add coordinator, provider, worker, queue, GPU, WAN-byte, direct/relay, sync-round, checkpoint, failure, and rejoin metrics.
+- [ ] Add structured logs and trace IDs.
+- [ ] Add Grafana dashboards and alerts where available.
+- [ ] Add historical run comparison.
+- [ ] Build a training-run dashboard showing job, placement, islands, workers/ranks, provider health, GPU usage, loss, throughput, synchronization, communication ratio, path, checkpoints, logs, first failure, cleanup, and exported reports.
 
-#### Platform Observability
+### 19.6 Soak, Failure, and Recovery Tests
 
-- [ ] Integrate metrics collection for coordinator and providers.
-- [ ] Support Grafana dashboards where available.
-- [ ] Centralize application logs.
-- [ ] Add distributed tracing hooks.
-- [ ] Monitor coordinator health.
-- [ ] Monitor provider health.
-- [ ] Record historical resource utilization.
-- [ ] Record historical job metrics.
-- [ ] Add alerting hooks for failed or unhealthy jobs.
-- [ ] Add capacity-planning metrics.
-- [ ] Support historical performance comparisons across runs.
+- [ ] Run multi-hour soak test.
+- [ ] Restart coordinator, Redis according to persistence policy, and one provider.
+- [ ] Drop/restore network connectivity.
+- [ ] Force relay fallback.
+- [ ] Corrupt a transfer and checkpoint.
+- [ ] Revoke a provider mid-run.
+- [ ] Confirm deterministic recovery or terminal outcomes.
+- [ ] Confirm no leaked reservations, containers, or relay blobs.
 
-### 19.3 Design 5 — Training Run Dashboard
+### 19.7 Production Pilot
 
-**Purpose:** Give the host a clear control panel for understanding the entire distributed run.
+- [ ] Add a reproducible pilot runbook.
+- [ ] Define supported hardware/runtime matrix, deployment, network assumptions, model/dataset, runtime, checkpoint policy, and limitations.
+- [ ] Run one controlled multi-provider pilot.
+- [ ] Record hardware, network, metrics, failures, and outcome.
+- [ ] Publish architecture diagram, troubleshooting guide, release checklist, no-GPU CI path, and optional GPU integration workflow.
 
-Without this dashboard, a user may only know that a run failed or completed. The dashboard should make it possible to determine which worker failed, whether GPUs were underused, whether the network was the bottleneck, and whether adding GPUs improved training speed.
+### 19.8 Acceptance Criteria
 
-#### Run Overview
-
-- [ ] Add training run detail page.
-- [ ] Show job name and ID.
-- [ ] Show room.
-- [ ] Show model and dataset references.
-- [ ] Show selected strategy.
-- [ ] Show start time, elapsed time, and terminal status.
-- [ ] Show planner readiness result.
-- [ ] Show placement explanation.
-- [ ] Show active warnings.
-
-#### Worker and GPU View
-
-- [ ] Show participating providers.
-- [ ] Show worker IDs.
-- [ ] Show global and local ranks.
-- [ ] Show GPU model and device index.
-- [ ] Show worker state.
-- [ ] Show provider heartbeat status.
-- [ ] Show GPU utilization.
-- [ ] Show VRAM usage.
-- [ ] Show temperature and power when available.
-- [ ] Highlight failed, disconnected, or stalled workers.
-
-#### Training Metrics
-
-- [ ] Show current step or epoch.
-- [ ] Show loss when reported.
-- [ ] Show step time.
-- [ ] Show samples/sec or tokens/sec.
-- [ ] Show scaling efficiency.
-- [ ] Show estimated completion time when practical.
-- [ ] Show checkpoint progress.
-- [ ] Show final artifact reference.
-
-#### Logs and Failure Diagnosis
-
-- [ ] Show combined logs.
-- [ ] Allow filtering logs by worker.
-- [ ] Show startup errors.
-- [ ] Show runtime errors.
-- [ ] Show cancellation and timeout reasons.
-- [ ] Show the first failing worker.
-- [ ] Show cleanup and GPU release status.
-- [ ] Redact secrets.
-
-#### Communication and Bottleneck View
-
-- [ ] Show provider-group topology.
-- [ ] Show measured or estimated latency.
-- [ ] Show measured or estimated bandwidth.
-- [ ] Show NCCL or `torch.distributed` benchmark result when available.
-- [ ] Show whether the run appears memory-bound, compute-bound, communication-bound, startup-bound, or queue-bound.
-- [ ] Show scheduler notes explaining why the provider group was selected.
-- [ ] Compare predicted readiness with observed performance.
-
-#### Reporting
-
-- [ ] Show checkpoint and artifact links.
-- [ ] Add exportable run summary.
-- [ ] Include configuration, placement, metrics, warnings, and outcome.
-- [ ] Add a compact reviewer/demo mode if practical.
-
-### 19.4 SDK, CLI, and Demo Polish
-
-- [ ] Add or update Python SDK commands for rooms, providers, tasks, training jobs, logs, and results.
-- [ ] Add CLI commands for common room/training workflows.
-- [ ] Add one-command or guided local demo.
-- [ ] Add cloud coordinator demo.
-- [ ] Add multi-GPU training demo instructions.
-- [ ] Add architecture diagram.
-- [ ] Add troubleshooting guide.
-- [ ] Add release checklist.
-
-### 19.5 Acceptance Criteria
-
-- Team can run a clear demo from fresh clone or documented setup.
-- Demo shows room creation, provider join, GPU reporting, multi-GPU scheduling, and a training/fine-tuning run.
-- Dashboard shows performance and efficiency metrics.
-- README explains the product clearly.
-- Docs explain limits and realistic expectations.
-- CI validates the no-GPU smoke path.
+- Hard-NAT providers exchange training data through direct or relay overlay.
+- Existing WireGuard and dial-out rooms remain supported.
+- A run resumes from a durable checkpoint after a documented failure.
+- Tampered updates are rejected.
+- Dashboard explains workers, islands, GPU use, communication, checkpoints, and failure.
+- Soak tests leave no leaked reservations or workloads.
+- Team can reproduce a documented production pilot.
+- Performance claims are backed by measured hardware and network data.
 
 ---
 
-# End-to-End Success Criteria for the Five Designs
+# End-to-End Success Criteria
 
-The Phase 10–19 roadmap is complete only when the five designs work together as one workflow.
+## Provider and Room Flow
 
-## Functional Flow
+- Host creates a room.
+- Provider joins through one outbound-only command.
+- Provider receives a persistent room-scoped identity.
+- Revoked or cross-room credentials are rejected.
+- Provider reports hardware, runtime, health, and path information.
+- WireGuard, dial-out, and overlay modes coexist.
 
-- Host creates or selects a room.
-- Providers join through the supported room transport.
-- Providers report GPU and runtime capabilities.
-- Host submits a first-class training job.
-- Readiness planner evaluates feasibility.
-- Communication/topology information contributes to placement.
-- Scheduler selects and atomically reserves a compatible GPU group.
-- Distributed launcher assigns ranks and starts all workers.
-- Workers report logs, metrics, checkpoints, and terminal state.
-- Dashboard shows the full run and explains performance or failure.
-- All GPU reservations are released after completion, failure, cancellation, or timeout.
+## Control-Plane Reliability
 
-## Reliability
+- Assignments support WSS notification and HTTPS fallback.
+- Claims and lifecycle transitions are idempotent where practical.
+- Leases expire predictably.
+- Provider restart recovery is deterministic.
+- Logs, results, callbacks, and WebSocket updates are preserved.
+- Every terminal path releases GPU capacity.
 
-- No partial GPU reservation remains after a failed launch.
-- A revoked provider cannot participate.
-- A disconnected provider causes a clear, deterministic run outcome.
-- Worker startup and completion calls are idempotent where practical.
-- Checkpoint and artifact references remain attached to the run.
-- Failure reasons are visible to both API clients and UI users.
+## Training Progression
+
+- Phase 15 proves one-GPU LoRA/QLoRA and baseline metrics.
+- Phase 16 proves persistent workers and binary direct/relay exchange.
+- Phase 17 proves two-node compressed WAN LoRA.
+- Phase 18 proves elastic DiLoCo-style synchronization and island-local FSDP/TP.
+- Phase 19 proves hard-NAT overlay, recovery, integrity, observability, and a production pilot.
 
 ## Realism
 
-- The system does not describe aggregate VRAM as automatically equivalent to one larger GPU.
-- Readiness output distinguishes per-GPU memory from aggregate room memory.
-- Same-machine and same-LAN placement are preferred before WAN placement for the MVP.
-- Unsupported strategies are rejected rather than silently approximated.
-- Performance claims are backed by measured metrics.
+- Per-GPU VRAM is distinguished from aggregate room VRAM.
+- FSDP/TP is restricted to high-bandwidth islands.
+- WAN synchronization is compressed and infrequent.
+- Unsupported strategies are rejected.
+- Performance claims include hardware class and network conditions.
+- Literature utilization is treated as aspirational, not guaranteed.
 
-## Demo Readiness
+---
 
-- A documented small-model training or fine-tuning example exists.
-- The example can run in a controlled multi-GPU environment.
-- A no-GPU simulation path exists for CI and contributor development.
-- The demo includes room creation, provider join, scheduling, launch, live monitoring, and artifacts.
-- README and architecture docs explain limitations honestly.
+# Recommended Execution Order
 
+```text
+Phase 10  Complete baseline
+Phase 11  Complete coordinator packaging
+Phase 12  Secure NAT-friendly provider join
+Phase 13  Reliable dial-out assignment lifecycle
+Phase 14  Transport compatibility + capability/path visibility
+Phase 15  Single-GPU LoRA/QLoRA baseline
+Phase 16  Persistent workers + binary channel
+Phase 17  Two-node compressed WAN LoRA
+Phase 18  Elastic DiLoCo + topology-aware islands
+Phase 19  Overlay + recovery + mixed hardware + production pilot
+```
 
-# Future Expansion Gates
+Recommended parallelization after Phase 11:
 
-These are not part of the Phase 10–19 implementation plan unless the team explicitly promotes them.
+- Track A: Phases 12–14.
+- Track B: Phases 15–16.
+- Integrate both tracks before Phase 17.
+- Complete Phase 17 before Phase 18.
+- Complete Phase 18 before the Phase 19 pilot.
 
-## OpenAI-Compatible Inference Gateway
+---
 
-- [ ] Consider only after real execution and model/runtime inventory are stable.
-- [ ] Add `/v1/models`.
-- [ ] Add `/v1/chat/completions`.
-- [ ] Add `/v1/embeddings`.
-- [ ] Route inference to compatible room providers.
+# Deferred Research and Expansion
 
-## Model Registry and Runtime-Aware Routing
+These are not required for Phase 10–19 completion unless explicitly promoted:
 
-- [ ] Track installed models per provider.
-- [ ] Track runtime support per provider.
-- [ ] Route jobs based on model availability and warm/cold state.
-
-## Usage Accounting, Credits, and Quotas
-
-- [ ] Track GPU seconds.
-- [ ] Track VRAM-hours.
-- [ ] Track provider contribution.
-- [ ] Track user/room quotas.
-- [ ] Add reports for teams/labs.
-
-## Cloud Bursting
-
-- [ ] Use room GPUs first.
-- [ ] Launch cloud GPU only when policy allows.
-- [ ] Auto-join cloud instance as temporary provider.
-- [ ] Shut down idle cloud provider.
-
-## Overlay or Relay Data Plane
-
-- [ ] Add direct or relay path for large payloads only if coordinator-mediated transfer becomes a bottleneck.
-- [ ] Track path type and relay bytes.
-- [ ] Keep dial-out control path as the primary reliable base.
-
-## Advanced Distributed Training Strategies
-
-- [ ] Add deeper FSDP support.
-- [ ] Add ZeRO-style optimizer sharding.
-- [ ] Add pipeline parallelism.
-- [ ] Add tensor parallelism.
-- [ ] Add topology-aware automatic strategy selection.
+- SparseLoCo, CocktailSGD, and alternative error-feedback compressors.
+- Heterogeneous LoRA ranks and bandwidth-aware participation.
+- Async local-SGD variants and non-IID drift mitigation.
+- Content-addressed model/dataset distribution.
+- DiLoCoX, pipeline parallelism, broader tensor parallelism, and ZeRO-style island sharding.
+- Stronger verification, reputation systems, and ledger attestations.
+- OpenAI-compatible inference gateway, model registry, usage accounting, cloud bursting, and multi-region coordinator HA.
 
