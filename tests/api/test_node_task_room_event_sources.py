@@ -169,6 +169,34 @@ async def test_claim_and_accept_share_room_event_type(
 
 
 @pytest.mark.asyncio
+async def test_claim_on_terminal_soft_returns_noop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from deepiri_zepgpu.database.repositories.node_task_repository import mark_lifecycle_noop
+
+    assignment, db, peer, emit_event, notify = _prepare(monkeypatch)
+    assignment.status = SimpleNamespace(value="failed")
+    assignment.is_terminal = True
+    assignment.terminal_reason = "lease_expired"
+    assignment.error = "Lease expired"
+
+    class Repo:
+        def __init__(self, _db: object) -> None:
+            pass
+
+        async def mark_claimed(self, **_kwargs: object):
+            return mark_lifecycle_noop(assignment)
+
+    monkeypatch.setattr(node_tasks, "NodeTaskRepository", lambda _db: Repo())
+    response = await node_tasks.claim_node_task("assignment-1", db=db, peer=peer)
+    assert response.noop is True
+    assert response.status == "failed"
+    assert response.terminal_reason == "lease_expired"
+    emit_event.assert_not_awaited()
+    notify.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_complete_notifies_assignment_terminal_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

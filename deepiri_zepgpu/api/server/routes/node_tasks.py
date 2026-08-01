@@ -27,7 +27,7 @@ from deepiri_zepgpu.database.models.task import Task
 from deepiri_zepgpu.database.models.vpn_models import Peer
 from deepiri_zepgpu.database.repositories.node_task_repository import (
     NodeTaskRepository,
-    NodeTaskTransitionError,
+    is_lifecycle_noop,
 )
 from deepiri_zepgpu.vpn.repositories import VpnNetworkRepository
 
@@ -80,6 +80,13 @@ class NodeTaskResponse(BaseModel):
     cancel_requested: bool = False
     cancel_requested_at: datetime | None = None
     error: str | None = None
+    noop: bool = Field(
+        default=False,
+        description=(
+            "True when the request did not change state (idempotent retry or "
+            "ignored conflict against an already-terminal assignment)."
+        ),
+    )
 
 
 class CompleteNodeTaskRequest(BaseModel):
@@ -152,7 +159,11 @@ class PendingTasksResponse(BaseModel):
     cancel_requested: list[NodeTaskResponse] = Field(default_factory=list)
 
 
-def _assignment_to_response(assignment: NodeTaskAssignment) -> NodeTaskResponse:
+def _assignment_to_response(
+    assignment: NodeTaskAssignment,
+    *,
+    noop: bool | None = None,
+) -> NodeTaskResponse:
     return NodeTaskResponse(
         assignment_id=str(assignment.id),
         room_id=str(assignment.vpn_network_id),
@@ -171,6 +182,7 @@ def _assignment_to_response(assignment: NodeTaskAssignment) -> NodeTaskResponse:
         cancel_requested=bool(getattr(assignment, "cancel_requested_at", None)),
         cancel_requested_at=getattr(assignment, "cancel_requested_at", None),
         error=assignment.error,
+        noop=is_lifecycle_noop(assignment) if noop is None else noop,
     )
 
 
@@ -345,16 +357,17 @@ async def claim_node_task(
     db: AsyncSession = Depends(get_db_session),
     peer: Peer = Depends(get_verified_peer),
 ) -> NodeTaskResponse:
+    """Claim an assignment. Terminal conflicts soft-return current state (``noop``)."""
     repo = NodeTaskRepository(db)
-    try:
-        assignment = await repo.mark_claimed(assignment_id=assignment_id, peer_id=str(peer.id))
-    except NodeTaskTransitionError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    assignment = await repo.mark_claimed(assignment_id=assignment_id, peer_id=str(peer.id))
     if assignment is None:
         raise HTTPException(status_code=404, detail="Assignment not found")
+    noop = is_lifecycle_noop(assignment)
     await db.commit()
     await db.refresh(assignment)
     task = await _task_for_assignment(db, assignment)
+    if noop:
+        return _assignment_to_response(assignment, noop=True)
     if assignment.is_terminal:
         await notify_assignment_terminal(task=task, assignment=assignment)
     else:
@@ -382,16 +395,17 @@ async def start_node_task(
     db: AsyncSession = Depends(get_db_session),
     peer: Peer = Depends(get_verified_peer),
 ) -> NodeTaskResponse:
+    """Start an assignment. Terminal/idempotent conflicts soft-return (``noop``)."""
     repo = NodeTaskRepository(db)
-    try:
-        assignment = await repo.mark_running(assignment_id=assignment_id, peer_id=str(peer.id))
-    except NodeTaskTransitionError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    assignment = await repo.mark_running(assignment_id=assignment_id, peer_id=str(peer.id))
     if assignment is None:
         raise HTTPException(status_code=404, detail="Assignment not found")
+    noop = is_lifecycle_noop(assignment)
     await db.commit()
     await db.refresh(assignment)
     task = await _task_for_assignment(db, assignment)
+    if noop:
+        return _assignment_to_response(assignment, noop=True)
     if assignment.is_terminal:
         await notify_assignment_terminal(task=task, assignment=assignment)
     else:
@@ -410,24 +424,24 @@ async def complete_node_task(
     db: AsyncSession = Depends(get_db_session),
     peer: Peer = Depends(get_verified_peer),
 ) -> NodeTaskResponse:
+    """Complete an assignment. Already-terminal retries soft-return (``noop``)."""
     repo = NodeTaskRepository(db)
-    try:
-        assignment = await repo.mark_completed(
-            assignment_id=assignment_id,
-            peer_id=str(peer.id),
-            result_metadata=request.result_metadata,
-        )
-    except NodeTaskTransitionError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    assignment = await repo.mark_completed(
+        assignment_id=assignment_id,
+        peer_id=str(peer.id),
+        result_metadata=request.result_metadata,
+    )
     if assignment is None:
         raise HTTPException(status_code=404, detail="Assignment not found")
 
+    noop = is_lifecycle_noop(assignment)
     task = await _task_for_assignment(db, assignment)
 
     await db.commit()
     await db.refresh(assignment)
-    await notify_assignment_terminal(task=task, assignment=assignment)
-    return _assignment_to_response(assignment)
+    if not noop:
+        await notify_assignment_terminal(task=task, assignment=assignment)
+    return _assignment_to_response(assignment, noop=noop)
 
 
 @router.post("/{assignment_id}/fail", response_model=NodeTaskResponse)
@@ -437,24 +451,24 @@ async def fail_node_task(
     db: AsyncSession = Depends(get_db_session),
     peer: Peer = Depends(get_verified_peer),
 ) -> NodeTaskResponse:
+    """Fail an assignment. Already-terminal retries soft-return (``noop``)."""
     repo = NodeTaskRepository(db)
-    try:
-        assignment = await repo.mark_failed(
-            assignment_id=assignment_id,
-            peer_id=str(peer.id),
-            error=request.error,
-        )
-    except NodeTaskTransitionError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    assignment = await repo.mark_failed(
+        assignment_id=assignment_id,
+        peer_id=str(peer.id),
+        error=request.error,
+    )
     if assignment is None:
         raise HTTPException(status_code=404, detail="Assignment not found")
 
+    noop = is_lifecycle_noop(assignment)
     task = await _task_for_assignment(db, assignment)
 
     await db.commit()
     await db.refresh(assignment)
-    await notify_assignment_terminal(task=task, assignment=assignment)
-    return _assignment_to_response(assignment)
+    if not noop:
+        await notify_assignment_terminal(task=task, assignment=assignment)
+    return _assignment_to_response(assignment, noop=noop)
 
 
 @router.post("/{assignment_id}/logs", response_model=NodeTaskLogResponse)

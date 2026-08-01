@@ -25,13 +25,30 @@ from deepiri_zepgpu.database.models.vpn_models import GpuShare, GpuShareState
 
 logger = logging.getLogger(__name__)
 
+# Transient attribute set on assignments when a lifecycle call is a no-op
+# (already terminal, or idempotent same-status). Not a DB column.
+_LIFECYCLE_NOOP_ATTR = "_lifecycle_noop"
 
-class NodeTaskTransitionError(ValueError):
-    """Raised when a lifecycle request conflicts with terminal state."""
+
+def mark_lifecycle_noop(assignment: NodeTaskAssignment) -> NodeTaskAssignment:
+    """Flag an assignment so API handlers can skip duplicate notifies/events."""
+    setattr(assignment, _LIFECYCLE_NOOP_ATTR, True)
+    return assignment
+
+
+def is_lifecycle_noop(assignment: NodeTaskAssignment) -> bool:
+    return bool(getattr(assignment, _LIFECYCLE_NOOP_ATTR, False))
 
 
 class NodeTaskRepository:
-    """Persistence layer for room node task assignments."""
+    """Persistence layer for room node task assignments.
+
+    Lifecycle policy (soft-return): conflicting claim/start/complete/fail against an
+    already-terminal assignment does not raise. The existing row is returned unchanged
+    (with ``_lifecycle_noop`` set) so dial-out agents can treat retries as idempotent.
+    Callers should inspect ``status`` / ``terminal_reason`` (and API ``noop``) rather
+    than assuming HTTP 200 means the requested transition applied.
+    """
 
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -230,6 +247,7 @@ class NodeTaskRepository:
         attempted: str,
         peer_id: str | None = None,
     ) -> NodeTaskAssignment:
+        """Soft-return: keep first terminal cause; do not raise to the API layer."""
         logger.info(
             "Ignoring %s on terminal assignment %s (status=%s reason=%s)",
             attempted,
@@ -247,7 +265,7 @@ class NodeTaskRepository:
                 "peer_id": peer_id,
             },
         )
-        return assignment
+        return mark_lifecycle_noop(assignment)
 
     async def mark_claimed(
         self,
@@ -345,9 +363,9 @@ class NodeTaskRepository:
             return None
 
         if assignment.status == NodeAssignmentStatus.RUNNING:
-            return assignment
+            return mark_lifecycle_noop(assignment)
         if assignment.status == NodeAssignmentStatus.COMPLETED:
-            return assignment
+            return mark_lifecycle_noop(assignment)
         if assignment.status in {
             NodeAssignmentStatus.FAILED,
             NodeAssignmentStatus.CANCELLED,
@@ -548,7 +566,7 @@ class NodeTaskRepository:
             return None
 
         if assignment.status == NodeAssignmentStatus.COMPLETED:
-            return assignment
+            return mark_lifecycle_noop(assignment)
         if assignment.status in TERMINAL_STATUSES:
             return await self._ignore_terminal_conflict(
                 assignment, attempted="complete", peer_id=peer_id
@@ -593,7 +611,7 @@ class NodeTaskRepository:
             return None
 
         if assignment.status == NodeAssignmentStatus.FAILED:
-            return assignment
+            return mark_lifecycle_noop(assignment)
         if assignment.status in TERMINAL_STATUSES:
             return await self._ignore_terminal_conflict(
                 assignment, attempted="fail", peer_id=peer_id

@@ -14,7 +14,10 @@ from deepiri_zepgpu.database.models.node_task_assignment import (
     NodeTerminalReason,
 )
 from deepiri_zepgpu.database.models.task import TaskStatus
-from deepiri_zepgpu.database.repositories.node_task_repository import NodeTaskRepository
+from deepiri_zepgpu.database.repositories.node_task_repository import (
+    NodeTaskRepository,
+    is_lifecycle_noop,
+)
 
 
 class FakeResult:
@@ -143,6 +146,7 @@ async def test_first_terminal_wins_on_conflicting_complete() -> None:
     assert result is assignment
     assert assignment.status == NodeAssignmentStatus.CANCELLED
     assert assignment.terminal_reason == NodeTerminalReason.CANCELLED.value
+    assert is_lifecycle_noop(assignment) is True
 
 
 @pytest.mark.asyncio

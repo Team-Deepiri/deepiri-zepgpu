@@ -25,7 +25,7 @@ from deepiri_zepgpu.database.models.task import Task, TaskStatus
 from deepiri_zepgpu.database.models.vpn_models import Peer, PeerOnlineStatus, VpnInvite, VpnNetwork
 from deepiri_zepgpu.database.repositories.node_task_repository import (
     NodeTaskRepository,
-    NodeTaskTransitionError,
+    is_lifecycle_noop,
 )
 from deepiri_zepgpu.rooms.capabilities import normalize_capabilities
 from deepiri_zepgpu.rooms.health import HealthAssessment, assess_provider_health
@@ -557,15 +557,14 @@ async def revoke_room_provider(  # noqa: C901
     active = await task_repo.list_active_for_peer(peer_id=peer_id)
     failed_count = 0
     for assignment in active:
-        try:
-            failed = await task_repo.mark_failed(
-                assignment_id=str(assignment.id),
-                peer_id=peer_id,
-                error="Provider revoked by room host",
-            )
-        except NodeTaskTransitionError:
-            failed = None
+        failed = await task_repo.mark_failed(
+            assignment_id=str(assignment.id),
+            peer_id=peer_id,
+            error="Provider revoked by room host",
+        )
         if failed is None:
+            continue
+        if is_lifecycle_noop(failed):
             continue
         failed_count += 1
         task = await db.get(Task, failed.task_id)
