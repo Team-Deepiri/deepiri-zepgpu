@@ -125,6 +125,14 @@ unique smoke user each run. Then run the deeper provider simulation against the 
 
 ```bash
 poetry run python scripts/verify_room_network_local_simulation.py --base-url https://gpu.example.com
+poetry run python scripts/verify_phases_12_14_local.py --base-url https://gpu.example.com
+```
+
+For production NAT dial-out acceptance (second machine / network path), see
+[dialout_nat_smoke.md](dialout_nat_smoke.md):
+
+```bash
+poetry run python scripts/smoke_dialout_nat.py --base-url https://gpu.example.com --artifact-dir /tmp/zepgpu-nat-smoke
 ```
 
 ## Troubleshooting

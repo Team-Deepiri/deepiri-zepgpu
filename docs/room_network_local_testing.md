@@ -34,13 +34,22 @@ Every run creates uniquely named users and a room, so it is safe to repeat. The 
 
 1. coordinator health;
 2. owner and provider registration/login;
-3. room and invite creation;
-4. provider invite join and node credential issuance;
-5. simulated GPU heartbeat, node listing, and GPU pool summary;
+3. room creation with `transport_mode` (default `dialout`) and invite with join one-liner;
+4. provider invite join and **room-scoped provider token** issuance;
+5. provider-token heartbeat with capabilities/path, node listing, and GPU pool summary;
 6. room-aware no-op assignment through node-task polling;
-7. idempotent accept/start/complete retries;
-8. task polling and remote result visibility; and
-9. continued `/api/v1/vpn/*` visibility for the room.
+7. idempotent claim/lease (accept alias), start/complete retries;
+8. host revoke stops subsequent heartbeats;
+9. task polling and remote result visibility; and
+10. continued `/api/v1/vpn/*` visibility for the room.
+
+Phases 12–14 full matrix (cross-room denial, WireGuard coexistence, reconcile):
+
+```powershell
+poetry run python scripts/verify_phases_12_14_local.py
+```
+
+Production NAT dial-out (second machine / network path): see [deploy/dialout_nat_smoke.md](deploy/dialout_nat_smoke.md).
 
 Use a different coordinator with:
 
@@ -64,8 +73,17 @@ poetry run python -m deepiri_zepgpu.node_agent.agent `
   --enable-task-worker
 ```
 
+Prefer the Phase 12 CLI when testing dial-out identity persistence:
+
+```powershell
+poetry run zepgpu-node join --invite <code> --coordinator http://127.0.0.1:8000 `
+  --username <provider> --password <password> --node-name local-box
+poetry run zepgpu-node serve --simulate --enable-task-worker
+```
+
 The agent sends heartbeats and polls assigned no-op work until stopped with Ctrl+C. Human JWTs
-authorize room APIs; the per-peer token authorizes node-task lifecycle APIs. Do not interchange them.
+authorize join and host APIs; the room-scoped provider token authorizes heartbeat and node-task
+lifecycle APIs. Do not interchange them.
 
 ## Updates
 

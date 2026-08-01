@@ -15,6 +15,7 @@ import type {
   RoomNode,
   RoomNodeGpu,
   RoomDispatchRequest,
+  RoomProviderRevokeResponse,
   Task,
 } from '@/types'
 
@@ -84,6 +85,16 @@ export const roomsApi = {
 
   revokeRoomInvite: async (roomId: string, inviteId: string): Promise<void> => {
     await api.delete(`/rooms/${roomId}/invites/${inviteId}`)
+  },
+
+  revokeRoomProvider: async (
+    roomId: string,
+    peerId: string,
+  ): Promise<RoomProviderRevokeResponse> => {
+    const { data } = await api.post<RoomProviderRevokeResponse>(
+      `/rooms/${roomId}/nodes/${peerId}/revoke`,
+    )
+    return data
   },
 
   joinRoom: async (req: RoomJoinRequest): Promise<RoomJoinResponse> => {

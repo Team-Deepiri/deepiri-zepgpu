@@ -326,6 +326,16 @@ async def create_task(
                 assignment_status=dispatch_result.assignment.status.value,
             ),
         )
+        try:
+            from deepiri_zepgpu.api.server.node_task_lifecycle import push_provider_assignment
+
+            await push_provider_assignment(
+                peer_id=dispatch_result.peer_id,
+                assignment=dispatch_result.assignment,
+                event_type="assignment",
+            )
+        except Exception:
+            pass
     else:
         background_tasks.add_task(enqueue_task_to_celery, task.id)
 
@@ -417,6 +427,30 @@ async def cancel_task(
 
     if task.dispatch_mode in ROOM_DISPATCH_MODES and task.status == DBTaskStatus.ASSIGNED:
         await release_room_assignment(db, task_id=str(task.id))
+
+    assignment_repo = NodeTaskRepository(db)
+    assignment = await assignment_repo.get_by_task_id(str(task.id))
+    if assignment is not None and not assignment.is_terminal:
+        cancelled = await assignment_repo.request_cancel(
+            assignment_id=str(assignment.id),
+            reason="Task cancelled by user",
+        )
+        if cancelled is not None:
+            from deepiri_zepgpu.api.server.node_task_lifecycle import (
+                notify_assignment_terminal,
+                push_provider_assignment,
+            )
+
+            if cancelled.is_terminal:
+                await notify_assignment_terminal(task=task, assignment=cancelled)
+            else:
+                # Propagate cancel to provider via WSS; poll fallback uses cancel_requested.
+                if cancelled.peer_id:
+                    await push_provider_assignment(
+                        peer_id=str(cancelled.peer_id),
+                        assignment=cancelled,
+                        event_type="cancel",
+                    )
 
     await repo.mark_cancelled(task_id)
 

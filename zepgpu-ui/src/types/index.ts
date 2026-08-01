@@ -644,7 +644,10 @@ export type RoomMemberStatus = 'connected' | 'disconnected' | 'pending'
 export interface RoomCreateRequest {
   name: string
   description: string | null
+  transport_mode?: string | null
 }
+
+export type RoomTransportMode = 'wireguard' | 'dialout' | 'overlay'
 
 export interface Room {
   id: string
@@ -652,6 +655,9 @@ export interface Room {
   description: string | null
   host_id: string | null
   status: RoomStatus
+  transport_mode?: RoomTransportMode | string
+  transport_experimental?: boolean
+  requires_wireguard_udp?: boolean
   created_at: string
   updated_at: string | null
 }
@@ -677,6 +683,36 @@ export interface RoomGpuPoolSummary {
 
 export type RoomNodeStatus = 'connected' | 'disconnected' | 'awol' | 'pending'
 
+export type RoomNodeHealthState =
+  | 'healthy'
+  | 'degraded'
+  | 'stale'
+  | 'offline'
+  | 'revoked'
+  | 'incompatible'
+  | 'claim_timeout'
+
+export interface RoomNodePath {
+  path_type: string
+  path_class: string
+  coordinator_rtt_ms: number | null
+  measurement_kind: string
+  freshness_at: string | null
+  p2p_rtt_ms?: number | null
+  bandwidth_mbps?: number | null
+  is_measured: boolean
+}
+
+export interface RoomNodeCapabilities {
+  gpu_count: number
+  reported_at?: string | null
+  cuda_version?: string | null
+  pytorch_version?: string | null
+  driver_version?: string | null
+  runtime?: Record<string, unknown>
+  topology?: Record<string, unknown>
+}
+
 export interface RoomNode {
   id: string
   room_id: string
@@ -693,6 +729,16 @@ export interface RoomNode {
   total_memory_mb: number
   /** Sum of available_memory_mb across active GPU shares on this node (not single-GPU capacity). */
   available_memory_mb: number
+  node_name?: string | null
+  agent_version?: string | null
+  provider_mode?: string | null
+  revoked_at?: string | null
+  health_state?: RoomNodeHealthState | string | null
+  health_reason?: string | null
+  last_claim_at?: string | null
+  recent_failures?: number
+  capabilities?: RoomNodeCapabilities | null
+  path?: RoomNodePath | null
 }
 
 export interface RoomNodeGpu {
@@ -708,6 +754,8 @@ export interface RoomNodeGpu {
   gpu_type: string
   state: string
   utilization_percent: number | null
+  temperature_celsius?: number | null
+  power_watts?: number | null
   is_active: boolean
   last_updated: string
 }
@@ -744,6 +792,8 @@ export interface RoomInvite {
   use_count: number
   is_revoked: boolean
   created_at: string
+  coordinator_url?: string | null
+  join_command?: string | null
 }
 
 export interface RoomJoinRequest {
@@ -754,6 +804,9 @@ export interface RoomJoinResponse {
   room: Room
   member: RoomMember
   config_available: boolean
+  auth_token?: string | null
+  token_expires_at?: string | null
+  heartbeat_interval_seconds?: number | null
 }
 
 export interface RoomConnectionConfig {
@@ -761,6 +814,17 @@ export interface RoomConnectionConfig {
   peer_id: string
   config: string
   filename: string
+  transport_mode?: string
+  requires_wireguard_udp?: boolean
+  auth_token?: string | null
+  token_expires_at?: string | null
+}
+
+export interface RoomProviderRevokeResponse {
+  peer_id: string
+  room_id: string
+  revoked_at: string
+  failed_assignments: number
 }
 
 export type RoomWebSocketEventType =
@@ -768,6 +832,7 @@ export type RoomWebSocketEventType =
   | 'room_member_left'
   | 'room_node_online'
   | 'room_node_offline'
+  | 'room_provider_revoked'
   | 'room_gpu_update'
   | 'room_task_assigned'
   | 'room_task_started'

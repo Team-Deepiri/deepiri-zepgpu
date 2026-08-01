@@ -351,6 +351,59 @@ async def _handle_room_client_message(
     await websocket.send_json({"type": "room_error", "detail": f"Unknown message type: {msg_type}"})
 
 
+@router.websocket("/ws/provider")
+async def provider_updates_websocket(
+    websocket: WebSocket,
+    token: str | None = Query(None),
+    peer_id: str | None = Query(None),
+    room_id: str | None = Query(None),
+) -> None:
+    """Provider-authenticated WSS channel for assignment push + cancel.
+
+    Connect with: ws://host/api/v1/ws/provider?token=<provider_token>&peer_id=...&room_id=...
+    """
+    if not token or not peer_id or not room_id:
+        await websocket.close(code=4001, reason="token, peer_id, and room_id required")
+        return
+
+    try:
+        from deepiri_zepgpu.api.server.provider_auth import verify_provider_credentials
+
+        async with get_db_context() as db:
+            peer = await verify_provider_credentials(
+                peer_id=peer_id,
+                authorization=f"Bearer {token}",
+                db=db,
+                room_id=room_id,
+                touch_last_used=True,
+            )
+    except Exception as exc:
+        detail = getattr(exc, "detail", "Authentication failed")
+        await websocket.close(code=4001, reason=str(detail)[:120])
+        return
+
+    await manager.connect_provider(websocket, str(peer.id))
+    try:
+        await websocket.send_json(
+            {
+                "type": "connected",
+                "peer_id": str(peer.id),
+                "room_id": str(room_id),
+                "message": "Connected to provider assignment stream",
+            }
+        )
+        while True:
+            data = await websocket.receive_json()
+            if isinstance(data, dict) and data.get("type") == "ping":
+                await websocket.send_json({"type": "pong"})
+            elif isinstance(data, dict) and data.get("type") == "reconnecting":
+                await websocket.send_json({"type": "ack", "event": "reconnecting"})
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await manager.disconnect_provider(websocket, str(peer.id))
+
+
 @router.websocket("/ws/rooms")
 async def room_updates_websocket(
     websocket: WebSocket,

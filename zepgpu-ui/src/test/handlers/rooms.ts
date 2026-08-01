@@ -128,6 +128,9 @@ export const roomHandlers = [
       expires_at: body.expires_at,
       use_count: 0,
       created_at: new Date().toISOString(),
+      coordinator_url: 'https://coordinator.example',
+      join_command:
+        'zepgpu-node join --invite NEWCODE1 --coordinator https://coordinator.example',
     }
     invites.unshift(invite)
     return HttpResponse.json(invite, { status: 201 })
@@ -168,5 +171,24 @@ export const roomHandlers = [
       return HttpResponse.json({ detail: 'Room not found' }, { status: 404 })
     }
     return HttpResponse.json(fixtureConfig)
+  }),
+
+  http.post('/api/v1/rooms/:roomId/nodes/:peerId/revoke', ({ params }) => {
+    if (params.roomId !== fixtureRoom.id) {
+      return HttpResponse.json({ detail: 'Room not found' }, { status: 404 })
+    }
+    const node = nodes.find((n) => n.id === params.peerId)
+    if (!node) {
+      return HttpResponse.json({ detail: 'Node not found' }, { status: 404 })
+    }
+    node.revoked_at = new Date().toISOString()
+    node.is_online = false
+    node.status = 'disconnected'
+    return HttpResponse.json({
+      peer_id: node.id,
+      room_id: params.roomId,
+      revoked_at: node.revoked_at,
+      failed_assignments: 0,
+    })
   }),
 ]

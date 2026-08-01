@@ -7,9 +7,14 @@ import RoomNodeCard from '@/components/rooms/RoomNodeCard'
 interface RoomNodeListProps {
   roomId: string
   enablePolling?: boolean
+  canRevokeProviders?: boolean
 }
 
-export default function RoomNodeList({ roomId, enablePolling = true }: RoomNodeListProps) {
+export default function RoomNodeList({
+  roomId,
+  enablePolling = true,
+  canRevokeProviders = false,
+}: RoomNodeListProps) {
   const queryClient = useQueryClient()
 
   const nodesQuery = useQuery({
@@ -66,6 +71,7 @@ export default function RoomNodeList({ roomId, enablePolling = true }: RoomNodeL
               roomId={roomId}
               node={node}
               enablePolling={enablePolling}
+              canRevoke={canRevokeProviders}
             />
           ))}
         </ul>

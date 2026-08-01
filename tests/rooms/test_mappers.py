@@ -217,4 +217,4 @@ def test_room_create_to_vpn_network_data_maps_name_only() -> None:
 
     data = room_create_to_vpn_network_data(request)
 
-    assert data == {"name": "GPU Room"}
+    assert data == {"name": "GPU Room", "transport_mode": "dialout"}

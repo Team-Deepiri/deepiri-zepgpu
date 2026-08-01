@@ -27,14 +27,20 @@ describe('RoomConfigPanel', () => {
   })
 
   it('shows config actions when loaded', async () => {
-    renderWithProviders(<RoomConfigPanel roomId={fixtureRoom.id} />)
+    renderWithProviders(
+      <RoomConfigPanel roomId={fixtureRoom.id} transportMode="wireguard" />,
+    )
     expect(await screen.findByRole('button', { name: /copy config/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /download/i })).toBeInTheDocument()
+    expect(screen.getByText(/Transport mode:/i)).toBeInTheDocument()
+    expect(screen.getByText('wireguard')).toBeInTheDocument()
   })
 
   it('copies config to clipboard', async () => {
     const user = userEvent.setup()
-    renderWithProviders(<RoomConfigPanel roomId={fixtureRoom.id} />)
+    renderWithProviders(
+      <RoomConfigPanel roomId={fixtureRoom.id} transportMode="wireguard" />,
+    )
     await screen.findByRole('button', { name: /copy config/i })
 
     await user.click(screen.getByRole('button', { name: /copy config/i }))
@@ -47,10 +53,27 @@ describe('RoomConfigPanel', () => {
   it('shows not-available message on 403', async () => {
     getRoomConfigMock.mockRejectedValue(new RoomApiError(403, 'Room config is not available yet'))
 
-    renderWithProviders(<RoomConfigPanel roomId={fixtureRoom.id} />)
+    renderWithProviders(
+      <RoomConfigPanel roomId={fixtureRoom.id} transportMode="wireguard" />,
+    )
 
     expect(
       await screen.findByText(/Connection config is not available yet/i),
     ).toBeInTheDocument()
+  })
+
+  it('shows dial-out guidance without fetching WireGuard config', async () => {
+    getRoomConfigMock.mockClear()
+    renderWithProviders(
+      <RoomConfigPanel
+        roomId={fixtureRoom.id}
+        transportMode="dialout"
+        requiresWireguardUdp={false}
+      />,
+    )
+
+    expect(await screen.findByText(/No inbound UDP 51820 is required/i)).toBeInTheDocument()
+    expect(screen.getByText(/WireGuard config download/i)).toBeInTheDocument()
+    expect(getRoomConfigMock).not.toHaveBeenCalled()
   })
 })

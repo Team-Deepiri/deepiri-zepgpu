@@ -14,6 +14,9 @@ export const fixtureRoom: Room = {
   description: 'Test room',
   host_id: '11111111-1111-4111-8111-111111111111',
   status: 'active',
+  transport_mode: 'dialout',
+  transport_experimental: false,
+  requires_wireguard_udp: false,
   created_at: '2026-06-01T12:00:00.000Z',
   updated_at: null,
 }
@@ -57,6 +60,9 @@ export const fixtureInvite: RoomInvite = {
   use_count: 1,
   is_revoked: false,
   created_at: '2026-06-01T12:10:00.000Z',
+  coordinator_url: 'https://coordinator.example',
+  join_command:
+    'zepgpu-node join --invite TEAMALPHA --coordinator https://coordinator.example',
 }
 
 export const fixtureConfig: RoomConnectionConfig = {
@@ -64,6 +70,8 @@ export const fixtureConfig: RoomConnectionConfig = {
   peer_id: '33333333-3333-4333-8333-333333333333',
   filename: 'room-test.conf',
   config: '[Interface]\nPrivateKey = TEST\n',
+  transport_mode: 'wireguard',
+  requires_wireguard_udp: true,
 }
 
 export const fixtureRoomNode: RoomNode = {
@@ -80,6 +88,22 @@ export const fixtureRoomNode: RoomNode = {
   available_gpu_count: 1,
   total_memory_mb: 49152,
   available_memory_mb: 24576,
+  health_state: 'healthy',
+  health_reason: 'Provider is online with fresh heartbeat',
+  capabilities: {
+    gpu_count: 2,
+    cuda_version: '12.4',
+    pytorch_version: '2.4.0',
+    driver_version: '550.54.15',
+  },
+  path: {
+    path_type: 'direct',
+    path_class: 'wan',
+    coordinator_rtt_ms: 42.5,
+    measurement_kind: 'measured',
+    freshness_at: '2026-06-01T12:30:00.000Z',
+    is_measured: true,
+  },
 }
 
 export const fixtureRoomNodeAwol: RoomNode = {

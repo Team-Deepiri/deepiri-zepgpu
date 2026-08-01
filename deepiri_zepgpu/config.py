@@ -120,6 +120,18 @@ class VPNSettings(BaseSettings):
     invite_code_length: int = Field(default=8)
     invite_expiry_days: int = Field(default=7)
     invite_max_uses: int = Field(default=10)
+    provider_token_expire_days: int = Field(default=90)
+    default_provider_mode: str = Field(default="dialout")
+    # New cloud rooms default to dial-out; existing DB rows stay wireguard via migration.
+    default_transport_mode: str = Field(default="dialout")
+    # Soft minimum agent version for "incompatible" health (empty = skip check).
+    min_compatible_agent_version: str = Field(default="")
+    # Phase 13 assignment lease / timeout controls (seconds).
+    assignment_lease_seconds: int = Field(default=300, ge=30)
+    accepted_start_timeout_seconds: int = Field(default=120, ge=10)
+    # When None, running timeout falls back to the parent task.timeout_seconds.
+    running_timeout_seconds: int | None = Field(default=None)
+    assignment_sweep_interval_seconds: int = Field(default=30, ge=5)
 
 
 class LedgerSettings(BaseSettings):

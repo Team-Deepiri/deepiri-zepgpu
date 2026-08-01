@@ -1,16 +1,29 @@
-"""CLI entry point for the room node agent."""
+"""CLI for provider join, serve, status, and credential reset."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
 import signal
+from datetime import datetime
 from typing import Any
 
 import click
+import httpx
 
-from deepiri_zepgpu.node_agent.config import NodeAgentConfig, build_config
+from deepiri_zepgpu.node_agent.config import (
+    AGENT_VERSION,
+    NodeAgentConfig,
+    build_config,
+    clear_agent_identity,
+    default_agent_path,
+    identity_status_dict,
+    load_agent_identity,
+    save_agent_identity,
+    validate_coordinator_url,
+)
 from deepiri_zepgpu.node_agent.heartbeat import send_heartbeat
+from deepiri_zepgpu.node_agent.provider_ws import ProviderAssignmentSocket
 from deepiri_zepgpu.node_agent.task_client import NodeTaskClient
 from deepiri_zepgpu.node_agent.task_worker import NodeTaskWorker
 
@@ -43,15 +56,9 @@ def _cli_overrides(
     endpoint: str | None,
     simulate: bool,
     enable_task_worker: bool,
+    node_name: str | None = None,
+    provider_mode: str | None = None,
 ) -> dict[str, Any]:
-    """Build the config override dict from CLI flags.
-
-    Optional value-bearing flags (None means "not passed") are collapsed
-    into a single filter instead of one `if ... is not None` branch per
-    flag, to keep this from growing a branch every time a new CLI option
-    is added. The two boolean flags stay as explicit checks since `False`
-    is a valid "don't set" value for them, not an override.
-    """
     optional_values: dict[str, Any] = {
         "api_base_url": api_base_url,
         "room_id": room_id,
@@ -61,6 +68,8 @@ def _cli_overrides(
         "task_poll_interval_seconds": task_poll_interval_seconds,
         "task_poll_limit": task_poll_limit,
         "endpoint": endpoint,
+        "node_name": node_name,
+        "provider_mode": provider_mode,
     }
     overrides: dict[str, Any] = {
         key: value for key, value in optional_values.items() if value is not None
@@ -88,35 +97,40 @@ def build_task_worker(config: NodeAgentConfig) -> NodeTaskWorker:
 
 
 async def _run_task_worker_once_async(config: NodeAgentConfig) -> int:
-    """Run one async task polling iteration and close the HTTP client."""
     worker = build_task_worker(config)
     try:
+        await worker.reconcile_on_startup()
         return await worker.run_once()
     finally:
         await worker.client.close()
 
 
 def run_task_worker_once(config: NodeAgentConfig) -> int:
-    """Run one task polling iteration from the sync node-agent loop.
-
-    Used by the single-pass (`--once` / `--dry-run`) path only. The
-    continuous loop below (`_run_agent_forever_async`) does NOT call this
-    -- it reuses one event loop for the process lifetime instead of
-    spinning one up via asyncio.run() on every heartbeat tick.
-    """
     return asyncio.run(_run_task_worker_once_async(config))
 
 
 async def _run_agent_forever_async(config: NodeAgentConfig) -> None:
-    """Continuous heartbeat + task-poll loop under a single event loop.
-
-    Builds the task worker (and its HTTP client) once and reuses it for
-    the life of the process, instead of the previous pattern of calling
-    asyncio.run() -- which creates and tears down a whole new event loop
-    -- on every heartbeat tick.
-    """
     worker = build_task_worker(config) if config.enable_task_worker else None
+    provider_ws: ProviderAssignmentSocket | None = None
     try:
+        if worker is not None:
+            await worker.reconcile_on_startup()
+            provider_ws = ProviderAssignmentSocket(
+                base_url=config.api_base_url,
+                room_id=config.room_id,
+                peer_id=config.peer_id,
+                token=config.auth_token,
+                on_message=worker.handle_provider_message,
+            )
+            try:
+                await provider_ws.start()
+            except Exception:
+                logger.warning(
+                    "Provider WSS unavailable; continuing with HTTPS poll fallback",
+                    exc_info=True,
+                )
+                provider_ws = None
+
         while True:
             await asyncio.to_thread(send_heartbeat, config, dry_run=False)
 
@@ -130,6 +144,8 @@ async def _run_agent_forever_async(config: NodeAgentConfig) -> None:
 
             await asyncio.sleep(config.heartbeat_interval_seconds)
     finally:
+        if provider_ws is not None:
+            await provider_ws.stop()
         if worker is not None:
             await worker.client.close()
 
@@ -139,11 +155,6 @@ def run_agent(config: NodeAgentConfig, *, once: bool = False, dry_run: bool = Fa
     _shutdown = False
 
     if once or dry_run:
-        # Single pass: exactly the original synchronous behavior. Kept
-        # separate from the continuous loop so `--once`/`--dry-run`
-        # invocations don't need a long-lived event loop, and so the
-        # existing agent tests (which patch run_task_worker_once and only
-        # ever call run_agent with once=True) keep passing unchanged.
         send_heartbeat(config, dry_run=dry_run)
         if config.enable_task_worker and not dry_run:
             processed = run_task_worker_once(config)
@@ -156,6 +167,332 @@ def run_agent(config: NodeAgentConfig, *, once: bool = False, dry_run: bool = Fa
     asyncio.run(_run_agent_forever_async(config))
 
 
+def _login_human(
+    client: httpx.Client,
+    *,
+    coordinator: str,
+    username: str,
+    password: str,
+) -> str:
+    response = client.post(
+        f"{coordinator}/api/v1/users/login",
+        json={"username": username, "password": password},
+    )
+    if response.status_code >= 400:
+        detail = response.json().get("detail", response.text) if response.content else response.text
+        raise click.ClickException(f"Login failed: {detail}")
+    token = response.json().get("access_token")
+    if not token:
+        raise click.ClickException("Login response missing access_token")
+    return str(token)
+
+
+def join_room(
+    *,
+    invite: str,
+    coordinator: str,
+    username: str | None = None,
+    password: str | None = None,
+    human_token: str | None = None,
+    node_name: str | None = None,
+    provider_mode: str = "dialout",
+    identity_path: str | None = None,
+) -> NodeAgentConfig:
+    """Authenticate as a human, redeem invite, persist provider identity."""
+
+    coordinator = validate_coordinator_url(coordinator)
+    with httpx.Client(timeout=30.0) as client:
+        if human_token:
+            access_token = human_token
+        else:
+            if not username or not password:
+                raise click.UsageError(
+                    "Provide --username/--password or --token for human authentication"
+                )
+            access_token = _login_human(
+                client,
+                coordinator=coordinator,
+                username=username,
+                password=password,
+            )
+
+        headers = {"Authorization": f"Bearer {access_token}"}
+        join_body: dict[str, Any] = {
+            "invite_code": invite,
+            "provider_mode": provider_mode,
+        }
+        if node_name:
+            join_body["node_name"] = node_name
+
+        response = client.post(
+            f"{coordinator}/api/v1/rooms/join",
+            headers=headers,
+            json=join_body,
+        )
+        if response.status_code >= 400:
+            detail = (
+                response.json().get("detail", response.text) if response.content else response.text
+            )
+            raise click.ClickException(f"Join failed ({response.status_code}): {detail}")
+
+        payload = response.json()
+        room = payload.get("room") or {}
+        member = payload.get("member") or {}
+        auth_token = payload.get("auth_token")
+        if not auth_token:
+            # Fallback for older coordinators: fetch from config endpoint.
+            room_id = str(room.get("id"))
+            config_resp = client.get(
+                f"{coordinator}/api/v1/rooms/{room_id}/config",
+                headers=headers,
+            )
+            config_resp.raise_for_status()
+            auth_token = config_resp.json().get("auth_token")
+        if not auth_token:
+            raise click.ClickException("Join succeeded but no provider token was issued")
+
+        expires = payload.get("token_expires_at")
+        if isinstance(expires, str):
+            token_expires_at = expires
+        elif expires is not None:
+            token_expires_at = str(expires)
+        else:
+            token_expires_at = None
+
+        config = NodeAgentConfig(
+            api_base_url=coordinator,
+            room_id=str(room["id"]),
+            peer_id=str(member["id"]),
+            auth_token=str(auth_token),
+            heartbeat_interval_seconds=int(
+                payload.get("heartbeat_interval_seconds") or 30
+            ),
+            enable_task_worker=True,
+            node_name=node_name,
+            provider_mode=provider_mode,
+            agent_version=AGENT_VERSION,
+            token_expires_at=token_expires_at,
+        )
+        path = save_agent_identity(config, path=identity_path)
+        logger.info(
+            "Joined room %s as provider %s; identity saved to %s",
+            config.room_id,
+            config.peer_id,
+            path,
+        )
+        return config
+
+
+@click.group()
+@click.option("--verbose", is_flag=True, help="Debug logging")
+@click.pass_context
+def cli(ctx: click.Context, verbose: bool) -> None:
+    """ZepGPU provider node agent (NAT-friendly dial-out)."""
+    _configure_logging(verbose)
+    ctx.ensure_object(dict)
+    ctx.obj["verbose"] = verbose
+
+
+@cli.command("join")
+@click.option("--invite", required=True, help="Room invite code")
+@click.option("--coordinator", required=True, help="Coordinator base URL (HTTPS)")
+@click.option("--username", default=None, help="Human account username")
+@click.option("--password", default=None, help="Human account password")
+@click.option("--token", "human_token", default=None, help="Human JWT (alternative to password)")
+@click.option("--node-name", default=None, help="Optional provider node display name")
+@click.option("--provider-mode", default="dialout", show_default=True)
+@click.option(
+    "--identity",
+    "identity_path",
+    default=None,
+    type=click.Path(dir_okay=False),
+    help="Override ~/.zepgpu/agent.json path",
+)
+def join_cmd(
+    invite: str,
+    coordinator: str,
+    username: str | None,
+    password: str | None,
+    human_token: str | None,
+    node_name: str | None,
+    provider_mode: str,
+    identity_path: str | None,
+) -> None:
+    """Join a room with a human JWT, then persist the provider token locally."""
+    try:
+        config = join_room(
+            invite=invite,
+            coordinator=coordinator,
+            username=username,
+            password=password,
+            human_token=human_token,
+            node_name=node_name,
+            provider_mode=provider_mode,
+            identity_path=identity_path,
+        )
+    except Exception as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    click.echo(
+        f"Joined room {config.room_id} as provider {config.peer_id}. "
+        f"Identity saved (token redacted). Run `zepgpu-node serve` next."
+    )
+
+
+@cli.command("serve")
+@click.option(
+    "--config",
+    "config_path",
+    type=click.Path(exists=True, dir_okay=False),
+    default=None,
+    help="JSON config (defaults to ~/.zepgpu/agent.json)",
+)
+@click.option("--api-base-url", default=None, help="Relay API base URL")
+@click.option("--room-id", default=None, help="Room UUID")
+@click.option("--peer-id", default=None, help="Peer UUID")
+@click.option("--auth-token", default=None, help="Bearer auth token")
+@click.option("--heartbeat-interval-seconds", default=None, type=int)
+@click.option("--task-poll-interval-seconds", default=None, type=int)
+@click.option("--task-poll-limit", default=None, type=int)
+@click.option("--endpoint", default=None)
+@click.option("--once", is_flag=True, help="Send one heartbeat and exit")
+@click.option("--simulate", is_flag=True, help="Use simulated GPU metrics")
+@click.option("--enable-task-worker", is_flag=True, help="Enable task polling worker")
+@click.option("--dry-run", is_flag=True, help="Print heartbeat payload without sending")
+@click.option("--node-name", default=None)
+@click.option("--provider-mode", default=None)
+def serve_cmd(
+    config_path: str | None,
+    api_base_url: str | None,
+    room_id: str | None,
+    peer_id: str | None,
+    auth_token: str | None,
+    heartbeat_interval_seconds: int | None,
+    task_poll_interval_seconds: int | None,
+    task_poll_limit: int | None,
+    endpoint: str | None,
+    once: bool,
+    simulate: bool,
+    enable_task_worker: bool,
+    dry_run: bool,
+    node_name: str | None,
+    provider_mode: str | None,
+) -> None:
+    """Load identity and run heartbeat (+ optional task worker)."""
+    resolved_path = config_path
+    if resolved_path is None and not all([api_base_url, room_id, peer_id, auth_token]):
+        resolved_path = str(default_agent_path())
+        if not default_agent_path().exists():
+            raise click.UsageError(
+                "Provide --config / CLI credentials, or run `zepgpu-node join` first"
+            )
+
+    try:
+        overrides = _cli_overrides(
+            api_base_url,
+            room_id,
+            peer_id,
+            auth_token,
+            heartbeat_interval_seconds,
+            task_poll_interval_seconds,
+            task_poll_limit,
+            endpoint,
+            simulate,
+            enable_task_worker,
+            node_name=node_name,
+            provider_mode=provider_mode,
+        )
+        # Default: enable task worker when serving from persisted identity.
+        if resolved_path and not enable_task_worker and "enable_task_worker" not in overrides:
+            overrides.setdefault("enable_task_worker", True)
+        config = build_config(config_path=resolved_path, overrides=overrides)
+    except Exception as exc:
+        logger.error("Invalid configuration: %s", exc)
+        raise SystemExit(1) from exc
+
+    logger.info("Starting node agent for room %s peer %s", config.room_id, config.peer_id)
+    logger.debug("Config: %s", config)
+
+    try:
+        run_agent(config, once=once or dry_run, dry_run=dry_run)
+    except Exception as exc:
+        logger.error("Node agent failed: %s", exc)
+        raise SystemExit(1) from exc
+
+
+@cli.command("status")
+@click.option(
+    "--identity",
+    "identity_path",
+    default=None,
+    type=click.Path(dir_okay=False),
+    help="Override ~/.zepgpu/agent.json path",
+)
+@click.option("--probe", is_flag=True, help="Probe coordinator health with provider token")
+def status_cmd(identity_path: str | None, probe: bool) -> None:
+    """Show redacted local identity and optional coordinator probe."""
+    try:
+        config = load_agent_identity(identity_path)
+    except FileNotFoundError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    probe_result: dict[str, Any] | None = None
+    if probe:
+        try:
+            with httpx.Client(timeout=10.0) as client:
+                health = client.get(f"{config.api_base_url}/api/v1/health")
+                hb = client.post(
+                    f"{config.api_base_url}/api/v1/rooms/{config.room_id}"
+                    f"/nodes/{config.peer_id}/heartbeat",
+                    headers={"Authorization": f"Bearer {config.auth_token}"},
+                    json={
+                        "is_online": True,
+                        "agent_version": config.agent_version,
+                        "node_name": config.node_name,
+                        "provider_mode": config.provider_mode,
+                        "gpu_status": [],
+                    },
+                )
+                probe_result = {
+                    "health_status": health.status_code,
+                    "heartbeat_status": hb.status_code,
+                    "checked_at": datetime.now().isoformat(),
+                }
+                if hb.status_code >= 400:
+                    # Never echo response bodies that may contain tokens.
+                    probe_result["heartbeat_ok"] = False
+                else:
+                    probe_result["heartbeat_ok"] = True
+        except httpx.HTTPError as exc:
+            probe_result = {"error": str(exc)}
+
+    click.echo(identity_status_dict(config, probe=probe_result))
+
+
+@cli.command("logout")
+@click.option(
+    "--identity",
+    "identity_path",
+    default=None,
+    type=click.Path(dir_okay=False),
+)
+def logout_cmd(identity_path: str | None) -> None:
+    """Clear local provider credentials."""
+    removed = clear_agent_identity(identity_path)
+    if removed:
+        click.echo("Local provider credentials cleared.")
+    else:
+        click.echo("No local provider credentials found.")
+
+
+@cli.command("reset")
+@click.pass_context
+def reset_cmd(ctx: click.Context) -> None:
+    """Alias for logout."""
+    ctx.invoke(logout_cmd)
+
+
+# Backwards-compatible single-command entry used by older docs/tests.
 @click.command()
 @click.option(
     "--config", "config_path", type=click.Path(exists=True, dir_okay=False), help="JSON config file"
@@ -194,13 +531,17 @@ def main(
     dry_run: bool,
     verbose: bool,
 ) -> None:
-    """Run the ZepGPU room node agent heartbeat loop."""
+    """Run the ZepGPU room node agent heartbeat loop (legacy entrypoint)."""
     _configure_logging(verbose)
 
     if config_path is None and not all([api_base_url, room_id, peer_id, auth_token]):
-        raise click.UsageError(
-            "Provide --config or all of --api-base-url, --room-id, --peer-id, --auth-token"
-        )
+        # Prefer persisted identity when no explicit flags are given.
+        if default_agent_path().exists():
+            config_path = str(default_agent_path())
+        else:
+            raise click.UsageError(
+                "Provide --config or all of --api-base-url, --room-id, --peer-id, --auth-token"
+            )
 
     try:
         config = build_config(
@@ -233,4 +574,4 @@ def main(
 
 
 if __name__ == "__main__":
-    main()
+    cli()

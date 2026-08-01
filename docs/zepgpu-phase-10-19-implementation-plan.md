@@ -159,60 +159,62 @@ Phases 10 and 11 are complete. Later phases build on that verified baseline.
 
 ## Phase 12: NAT-Friendly Provider Join, Identity, and Trust
 
+**Status:** Complete (CI + docs green; production NAT dial-out smoke script/runbook ready — run against a deployed coordinator to close the Layer C gate)
+
 **Goal:** Let providers join rooms through outbound-only HTTPS/WSS using one invite command, persistent agent identity, and room-scoped credentials.
 
 This phase absorbs the critical provider-security work that previously appeared in the old Phase 16.
 
 ### 12.1 Provider CLI and Join UX
 
-- [ ] Add or update `zepgpu-node join --invite <code> --coordinator <url>`.
-- [ ] Add or update `zepgpu-node serve`.
-- [ ] Add or update `zepgpu-node status`.
-- [ ] Add logout, disconnect, or credential-reset command.
-- [ ] Include coordinator URL and one-line command in invite copy text.
-- [ ] Return clear errors for invalid, expired, exhausted, or revoked invites.
-- [ ] Reject non-HTTPS coordinator URLs outside localhost/dev.
-- [ ] Require no inbound provider ports.
+- [x] Add or update `zepgpu-node join --invite <code> --coordinator <url>`.
+- [x] Add or update `zepgpu-node serve`.
+- [x] Add or update `zepgpu-node status`.
+- [x] Add logout, disconnect, or credential-reset command.
+- [x] Include coordinator URL and one-line command in invite copy text.
+- [x] Return clear errors for invalid, expired, exhausted, or revoked invites.
+- [x] Reject non-HTTPS coordinator URLs outside localhost/dev.
+- [x] Require no inbound provider ports.
 
 ### 12.2 Persistent Provider Identity
 
-- [ ] Persist config under `~/.zepgpu/agent.json` or equivalent.
-- [ ] Store coordinator URL, room ID, provider ID, node name, token, token expiry, heartbeat interval, and agent version.
-- [ ] Never print token values in normal logs.
-- [ ] Define reconnect behavior for an already-registered provider.
+- [x] Persist config under `~/.zepgpu/agent.json` or equivalent.
+- [x] Store coordinator URL, room ID, provider ID, node name, token, token expiry, heartbeat interval, and agent version.
+- [x] Never print token values in normal logs.
+- [x] Define reconnect behavior for an already-registered provider.
 
 ### 12.3 Room-Scoped Provider Tokens
 
-- [ ] Keep provider tokens separate from human JWTs.
-- [ ] Scope each token to one room and provider identity.
-- [ ] Add expiration, rotation, revocation, and optional last-used tracking.
-- [ ] Ensure revoked providers cannot heartbeat, poll, claim, submit logs, or complete tasks.
-- [ ] Reject cross-room heartbeat, claim, status, log, and completion requests.
-- [ ] Redact provider tokens from logs, API errors, UI, and audit payloads.
+- [x] Keep provider tokens separate from human JWTs.
+- [x] Scope each token to one room and provider identity.
+- [x] Add expiration, rotation, revocation, and optional last-used tracking.
+- [x] Ensure revoked providers cannot heartbeat, poll, claim, submit logs, or complete tasks.
+- [x] Reject cross-room heartbeat, claim, status, log, and completion requests.
+- [x] Redact provider tokens from logs, API errors, UI, and audit payloads.
 
 ### 12.4 Invite and Membership Rules
 
-- [ ] Enforce invite expiry, maximum uses, and revocation.
-- [ ] Prevent unintended duplicate provider joins.
-- [ ] Preserve WireGuard config generation for WireGuard rooms.
-- [ ] Add host/admin provider revoke action.
-- [ ] Release or fail active assignments after provider revocation.
+- [x] Enforce invite expiry, maximum uses, and revocation.
+- [x] Prevent unintended duplicate provider joins.
+- [x] Preserve WireGuard config generation for WireGuard rooms.
+- [x] Add host/admin provider revoke action.
+- [x] Release or fail active assignments after provider revocation.
 
 ### 12.5 Authenticated Heartbeat
 
-- [ ] Authenticate heartbeat with the room-scoped provider token.
-- [ ] Include agent version, node name, provider mode, basic GPU inventory, free memory, and utilization.
-- [ ] Update token last-used timestamp where practical.
-- [ ] Reject expired, revoked, stale, or cross-room credentials clearly.
+- [x] Authenticate heartbeat with the room-scoped provider token.
+- [x] Include agent version, node name, provider mode, basic GPU inventory, free memory, and utilization.
+- [x] Update token last-used timestamp where practical.
+- [x] Reject expired, revoked, stale, or cross-room credentials clearly.
 
 ### 12.6 Tests
 
-- [ ] Test successful join and persisted identity.
-- [ ] Test invalid, expired, exhausted, and revoked invites.
-- [ ] Test expired, rotated, and revoked provider tokens.
-- [ ] Test cross-room heartbeat and claim denial.
-- [ ] Test HTTPS enforcement.
-- [ ] Test token redaction.
+- [x] Test successful join and persisted identity.
+- [x] Test invalid, expired, exhausted, and revoked invites.
+- [x] Test expired, rotated, and revoked provider tokens.
+- [x] Test cross-room heartbeat and claim denial.
+- [x] Test HTTPS enforcement.
+- [x] Test token redaction.
 
 ### 12.7 Acceptance Criteria
 
@@ -227,63 +229,65 @@ This phase absorbs the critical provider-security work that previously appeared 
 
 ## Phase 13: Dial-Out Assignment Lifecycle and Provider Recovery
 
+**Status:** Complete (CI + docs green; production NAT dial-out smoke script/runbook ready — run against a deployed coordinator to close the Layer C gate)
+
 **Goal:** Harden assignment delivery, claims, leases, completion, logs, cancellation, retries, stale-task cleanup, and provider restart recovery.
 
 This phase builds the **control-plane lifecycle**, not the training data channel.
 
 ### 13.1 Assignment Delivery
 
-- [ ] Prefer WSS push notification when available.
-- [ ] Keep HTTPS polling/claim as fallback.
-- [ ] Add backoff and jitter when no work exists.
-- [ ] Add reconnect behavior after coordinator or network interruption.
-- [ ] Define behavior when room or provider access disappears.
+- [x] Prefer WSS push notification when available.
+- [x] Keep HTTPS polling/claim as fallback.
+- [x] Add backoff and jitter when no work exists.
+- [x] Add reconnect behavior after coordinator or network interruption.
+- [x] Define behavior when room or provider access disappears.
 
 ### 13.2 Claims and Leases
 
-- [ ] Add or harden assignment claim endpoint.
-- [ ] Add `claimed_at`, `lease_expires_at`, and a claim token/generation if missing.
-- [ ] Restrict claim to the assigned room/provider.
-- [ ] Make duplicate claim/start/complete/fail calls deterministic.
-- [ ] Prevent cancelled tasks from completing.
-- [ ] Prevent expired leases from reviving silently.
+- [x] Add or harden assignment claim endpoint.
+- [x] Add `claimed_at`, `lease_expires_at`, and a claim token/generation if missing.
+- [x] Restrict claim to the assigned room/provider.
+- [x] Make duplicate claim/start/complete/fail calls deterministic.
+- [x] Prevent cancelled tasks from completing.
+- [x] Prevent expired leases from reviving silently.
 
 ### 13.3 Provider Restart and Reconnect
 
-- [ ] Persist enough local state to identify in-flight assignments.
-- [ ] Add coordinator reconciliation endpoint.
-- [ ] Define resume, fail, or abandon behavior by state.
-- [ ] Recover valid leases after restart.
-- [ ] Reject stale local state after lease expiry.
-- [ ] Reconcile buffered logs/results after temporary disconnection.
+- [x] Persist enough local state to identify in-flight assignments.
+- [x] Add coordinator reconciliation endpoint.
+- [x] Define resume, fail, or abandon behavior by state.
+- [x] Recover valid leases after restart.
+- [x] Reject stale local state after lease expiry.
+- [x] Reconcile buffered logs/results after temporary disconnection.
 
 ### 13.4 Cancellation, Timeout, and Cleanup
 
-- [ ] Add accepted-but-never-started timeout.
-- [ ] Add running timeout.
-- [ ] Propagate cancellation to provider.
-- [ ] Release GPU locks on failure, timeout, cancellation, or lease expiry.
-- [ ] Requeue or fail according to explicit retry policy.
-- [ ] Record deterministic terminal reasons.
-- [ ] Prevent duplicate cleanup from releasing another task's reservation.
+- [x] Add accepted-but-never-started timeout.
+- [x] Add running timeout.
+- [x] Propagate cancellation to provider.
+- [x] Release GPU locks on failure, timeout, cancellation, or lease expiry.
+- [x] Requeue or fail according to explicit retry policy.
+- [x] Record deterministic terminal reasons.
+- [x] Prevent duplicate cleanup from releasing another task's reservation.
 
 ### 13.5 Logs, Results, and Events
 
-- [ ] Standardize result metadata.
-- [ ] Add batched/chunked log submission.
-- [ ] Add result and artifact-reference submission.
-- [ ] Broadcast task state through WebSocket.
-- [ ] Trigger callback webhook after terminal state.
-- [ ] Add activity events for assigned, claimed, started, reconnecting, completed, failed, cancelled, timed out, and lease expired.
-- [ ] Record the first terminal cause and ignore conflicting later calls.
+- [x] Standardize result metadata.
+- [x] Add batched/chunked log submission.
+- [x] Add result and artifact-reference submission.
+- [x] Broadcast task state through WebSocket.
+- [x] Trigger callback webhook after terminal state.
+- [x] Add activity events for assigned, claimed, started, reconnecting, completed, failed, cancelled, timed out, and lease expired.
+- [x] Record the first terminal cause and ignore conflicting later calls.
 
 ### 13.6 Tests
 
-- [ ] Test success, failure, cancellation, timeout, lease expiry, and disconnect.
-- [ ] Test restart with valid and expired leases.
-- [ ] Test duplicate lifecycle calls.
-- [ ] Test callback and WebSocket terminal updates.
-- [ ] Test GPU release for every terminal path.
+- [x] Test success, failure, cancellation, timeout, lease expiry, and disconnect.
+- [x] Test restart with valid and expired leases.
+- [x] Test duplicate lifecycle calls.
+- [x] Test callback and WebSocket terminal updates.
+- [x] Test GPU release for every terminal path.
 
 ### 13.7 Acceptance Criteria
 
@@ -298,59 +302,61 @@ This phase builds the **control-plane lifecycle**, not the training data channel
 
 ## Phase 14: Transport Modes, Provider Capabilities, and Path Observability
 
+**Status:** Complete (CI + docs green; production NAT dial-out smoke script/runbook ready — run against a deployed coordinator to close the Layer C gate)
+
 **Goal:** Support WireGuard and dial-out modes while reporting provider GPU inventory, runtime compatibility, health reasons, and path characteristics.
 
 This phase absorbs the capability-inventory portion of the old Phase 15.
 
 ### 14.1 Transport Modes
 
-- [ ] Add `wireguard`, `dialout`, and `overlay` modes.
-- [ ] Persist `transport_mode` on rooms/networks.
-- [ ] Default existing rows to `wireguard` and new cloud rooms to `dialout`.
-- [ ] Add a configurable default.
-- [ ] Expose mode in API and UI.
-- [ ] Keep overlay experimental until Phase 19.
+- [x] Add `wireguard`, `dialout`, and `overlay` modes.
+- [x] Persist `transport_mode` on rooms/networks.
+- [x] Default existing rows to `wireguard` and new cloud rooms to `dialout`.
+- [x] Add a configurable default.
+- [x] Expose mode in API and UI.
+- [x] Keep overlay experimental until Phase 19.
 
 ### 14.2 Routing Compatibility
 
-- [ ] Preserve legacy WireGuard routing.
-- [ ] Formalize dial-out routing.
-- [ ] Select strategy from room mode.
-- [ ] Ensure dial-out requires no UDP 51820.
-- [ ] Preserve WireGuard config generation.
-- [ ] Quarantine legacy pickle execution to WireGuard-only generic tasks.
-- [ ] Add a guard preventing training modules from using the legacy task router.
+- [x] Preserve legacy WireGuard routing.
+- [x] Formalize dial-out routing.
+- [x] Select strategy from room mode.
+- [x] Ensure dial-out requires no UDP 51820.
+- [x] Preserve WireGuard config generation.
+- [x] Quarantine legacy pickle execution to WireGuard-only generic tasks.
+- [x] Add a guard preventing training modules from using the legacy task router.
 
 ### 14.3 Provider Capability Inventory
 
-- [ ] Report GPU count, model, device index, total/free VRAM, utilization, temperature, and power where available.
-- [ ] Report compute capability, driver, CUDA, PyTorch, container runtime, NCCL, and optional FSDP/DeepSpeed support.
-- [ ] Report P2P access, NVLink, and PCIe/topology hints where detectable.
-- [ ] Timestamp capability reports and mark unavailable fields explicitly.
+- [x] Report GPU count, model, device index, total/free VRAM, utilization, temperature, and power where available.
+- [x] Report compute capability, driver, CUDA, PyTorch, container runtime, NCCL, and optional FSDP/DeepSpeed support.
+- [x] Report P2P access, NVLink, and PCIe/topology hints where detectable.
+- [x] Timestamp capability reports and mark unavailable fields explicitly.
 
 ### 14.4 Provider Health Reasons
 
-- [ ] Distinguish healthy, degraded, stale, offline, revoked, incompatible, and claim-timeout states.
-- [ ] Record last heartbeat, last claim, recent failures, and version mismatch.
-- [ ] Expose a human-readable health reason through API, events, and UI.
+- [x] Distinguish healthy, degraded, stale, offline, revoked, incompatible, and claim-timeout states.
+- [x] Record last heartbeat, last claim, recent failures, and version mismatch.
+- [x] Expose a human-readable health reason through API, events, and UI.
 
 ### 14.5 Path Observability
 
-- [ ] Record path type: `direct`, `relay`, or `unknown`.
-- [ ] Record path class: `same_host`, `lan`, `wan`, or `relay`.
-- [ ] Measure provider-to-coordinator RTT.
-- [ ] Add optional provider-to-provider RTT and bandwidth samples.
-- [ ] Track measurement freshness.
-- [ ] Distinguish measured values from estimates.
-- [ ] Add Prometheus metrics and NAT/path troubleshooting docs.
+- [x] Record path type: `direct`, `relay`, or `unknown`.
+- [x] Record path class: `same_host`, `lan`, `wan`, or `relay`.
+- [x] Measure provider-to-coordinator RTT.
+- [x] Add optional provider-to-provider RTT and bandwidth samples.
+- [x] Track measurement freshness.
+- [x] Distinguish measured values from estimates.
+- [x] Add Prometheus metrics and NAT/path troubleshooting docs.
 
 ### 14.6 Tests and Acceptance
 
-- [ ] Test migration defaults and mode coexistence.
-- [ ] Test capability validation and stale data.
-- [ ] Test provider-health transitions.
-- [ ] Test path reporting.
-- [ ] Test training-code prohibition on legacy task router.
+- [x] Test migration defaults and mode coexistence.
+- [x] Test capability validation and stale data.
+- [x] Test provider-health transitions.
+- [x] Test path reporting.
+- [x] Test training-code prohibition on legacy task router.
 
 Acceptance criteria:
 

@@ -1,10 +1,13 @@
-"""Local GPU discovery for node agent heartbeat payloads."""
+"""Local GPU and runtime capability discovery for node agent heartbeats."""
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from deepiri_zepgpu.vpn.peer_node import GpuInfo, discover_local_gpus
+
+logger = logging.getLogger(__name__)
 
 SIMULATED_GPUS: list[dict[str, Any]] = [
     {
@@ -16,6 +19,8 @@ SIMULATED_GPUS: list[dict[str, Any]] = [
         "gpu_type": "nvidia",
         "state": "idle",
         "utilization_percent": 5.0,
+        "temperature_celsius": 42.0,
+        "power_watts": 75.0,
     },
     {
         "device_index": 1,
@@ -26,8 +31,28 @@ SIMULATED_GPUS: list[dict[str, Any]] = [
         "gpu_type": "nvidia",
         "state": "idle",
         "utilization_percent": 2.0,
+        "temperature_celsius": 38.0,
+        "power_watts": 55.0,
     },
 ]
+
+SIMULATED_RUNTIME: dict[str, Any] = {
+    "compute_capability": "8.9",
+    "driver_version": "550.54.15",
+    "cuda_version": "12.4",
+    "pytorch_version": "2.4.0",
+    "container_runtime": "none",
+    "nccl_version": "2.21.5",
+    "fsdp_available": True,
+    "deepspeed_available": False,
+}
+
+SIMULATED_TOPOLOGY: dict[str, Any] = {
+    "p2p_access": "unavailable",
+    "nvlink": "unavailable",
+    "pcie_generation": "unavailable",
+    "topology_hint": "simulated",
+}
 
 
 def _gpu_info_to_heartbeat(gpu: GpuInfo) -> dict[str, Any]:
@@ -53,3 +78,89 @@ def collect_gpu_status(*, simulation_mode: bool = False) -> list[dict[str, Any]]
 
     gpus = discover_local_gpus()
     return [_gpu_info_to_heartbeat(gpu) for gpu in gpus]
+
+
+def _probe_runtime() -> dict[str, Any]:
+    runtime: dict[str, Any] = {
+        "compute_capability": None,
+        "driver_version": None,
+        "cuda_version": None,
+        "pytorch_version": None,
+        "container_runtime": None,
+        "nccl_version": None,
+        "fsdp_available": None,
+        "deepspeed_available": None,
+    }
+    try:
+        import torch
+
+        runtime["pytorch_version"] = getattr(torch, "__version__", None)
+        if torch.cuda.is_available():
+            runtime["cuda_version"] = getattr(torch.version, "cuda", None)
+            try:
+                runtime["driver_version"] = str(torch.cuda.get_driver_version())
+            except Exception:
+                pass
+            try:
+                major, minor = torch.cuda.get_device_capability(0)
+                runtime["compute_capability"] = f"{major}.{minor}"
+            except Exception:
+                pass
+            runtime["fsdp_available"] = True
+        try:
+            import torch.distributed as dist  # noqa: F401
+
+            runtime["nccl_version"] = getattr(torch.cuda.nccl, "version", lambda: None)()
+            if callable(runtime["nccl_version"]):
+                runtime["nccl_version"] = None
+        except Exception:
+            pass
+    except Exception:
+        logger.debug("PyTorch runtime probe unavailable", exc_info=False)
+
+    try:
+        import deepspeed  # type: ignore
+
+        runtime["deepspeed_available"] = True
+        _ = deepspeed
+    except Exception:
+        runtime["deepspeed_available"] = False
+
+    try:
+        from pathlib import Path
+
+        if Path("/.dockerenv").exists():
+            runtime["container_runtime"] = "docker"
+        else:
+            runtime["container_runtime"] = "none"
+    except Exception:
+        runtime["container_runtime"] = None
+
+    return runtime
+
+
+def _probe_topology() -> dict[str, Any]:
+    # Best-effort; mark unavailable when not detectable.
+    return {
+        "p2p_access": None,
+        "nvlink": None,
+        "pcie_generation": None,
+        "topology_hint": None,
+    }
+
+
+def collect_capability_inventory(*, simulation_mode: bool = False) -> dict[str, Any]:
+    """Return extended capability payload for heartbeat."""
+
+    if simulation_mode:
+        return {
+            "gpus": [dict(entry) for entry in SIMULATED_GPUS],
+            "runtime": dict(SIMULATED_RUNTIME),
+            "topology": dict(SIMULATED_TOPOLOGY),
+        }
+
+    return {
+        "gpus": collect_gpu_status(simulation_mode=False),
+        "runtime": _probe_runtime(),
+        "topology": _probe_topology(),
+    }

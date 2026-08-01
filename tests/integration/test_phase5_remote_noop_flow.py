@@ -114,6 +114,15 @@ class FakeNodeTaskClient:
             for assignment in assignments
         ]
 
+    async def poll(self, *, limit: int = 1) -> dict[str, Any]:
+        return {
+            "assignments": await self.poll_pending(limit=limit),
+            "cancel_requested": [],
+        }
+
+    async def claim(self, assignment_id: str) -> dict[str, str]:
+        return await self.accept(assignment_id)
+
     async def accept(self, assignment_id: str) -> dict[str, str]:
         assignment = await self.repo.mark_accepted(
             assignment_id=assignment_id,
@@ -217,8 +226,8 @@ async def test_phase5_remote_noop_flow_completes_task_and_releases_gpu() -> None
     assert gpu_share.current_task_id is None
 
     assert [event.event_type for event in session.events] == [
-        "assignment_created",
-        "assignment_accepted",
-        "assignment_started",
-        "assignment_completed",
+        "assigned",
+        "claimed",
+        "started",
+        "completed",
     ]

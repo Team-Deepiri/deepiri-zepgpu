@@ -60,16 +60,17 @@ def test_env_overrides(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     assert config.simulation_mode is True
 
 
-def test_rejects_invalid_url() -> None:
-    with pytest.raises(ValueError):
+def test_rejects_remote_http_url() -> None:
+    with pytest.raises(ValueError, match="Non-HTTPS"):
         NodeAgentConfig.model_validate(
             {
-                "api_base_url": "not-a-url",
+                "api_base_url": "http://example.com:8000",
                 "room_id": "22222222-2222-4222-8222-222222222222",
                 "peer_id": "33333333-3333-4333-8333-333333333333",
                 "auth_token": "secret-token",
             }
         )
+
 
 
 def test_repr_and_logs_never_contain_raw_token(caplog: pytest.LogCaptureFixture) -> None:

@@ -85,6 +85,7 @@ pytorch-lightning = ">=2.2.0"
 
 [tool.poetry.scripts]
 deepiri-gpu = "deepiri_zepgpu.cli:main"
+zepgpu-node = "deepiri_zepgpu.node_agent.agent:cli"
 
 [tool.black]
 line-length = 100

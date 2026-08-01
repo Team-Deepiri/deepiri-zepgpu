@@ -31,6 +31,11 @@ def test_builds_gpu_status_not_gpus() -> None:
     assert payload["is_online"] is True
     assert len(payload["gpu_status"]) > 0
     assert payload["gpu_status"][0]["device_index"] == 0
+    assert payload["provider_mode"] == "dialout"
+    assert "agent_version" in payload
+    assert "capabilities" in payload
+    assert "runtime" in payload["capabilities"]
+    assert "topology" in payload["capabilities"]
 
 
 def test_heartbeat_url() -> None:

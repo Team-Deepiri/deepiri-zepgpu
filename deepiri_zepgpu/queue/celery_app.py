@@ -39,6 +39,7 @@ celery_app.conf.update(
         "deepiri_zepgpu.queue.tasks.execute_gang_task": {"queue": "gang"},
         "deepiri_zepgpu.queue.tasks.preempt_task": {"queue": "preemption"},
         "deepiri_zepgpu.queue.tasks.check_and_preempt": {"queue": "preemption"},
+        "deepiri_zepgpu.queue.tasks.sweep_node_assignment_timeouts": {"queue": "schedules"},
     },
     task_annotations={
         "deepiri_zepgpu.queue.tasks.execute_task": {
@@ -49,6 +50,12 @@ celery_app.conf.update(
     beat_schedule_filename="/tmp/celerybeat-schedule",
     beat_schedule_db=beat_schedule_db,
     beat_sync_every=1,
+    beat_schedule={
+        "sweep-node-assignment-timeouts": {
+            "task": "deepiri_zepgpu.queue.tasks.sweep_node_assignment_timeouts",
+            "schedule": 30.0,
+        },
+    },
     redis_socket_timeout=5,
     redis_connection_retry=True,
     redis_connection_retry_delay=10,

@@ -13,8 +13,20 @@ class FakeTaskClient:
     def __init__(self) -> None:
         self.calls: list[str] = []
 
-    async def poll_pending(self, *, limit: int = 1) -> list[dict[str, Any]]:
+    async def poll(self, *, limit: int = 1) -> dict[str, Any]:
         self.calls.append(f"poll:{limit}")
+        return {
+            "assignments": [
+                {
+                    "assignment_id": "assignment-1",
+                    "task_id": "task-1",
+                }
+            ],
+            "cancel_requested": [],
+        }
+
+    async def poll_pending(self, *, limit: int = 1) -> list[dict[str, Any]]:
+        self.calls.append(f"pending:{limit}")
         return [
             {
                 "assignment_id": "assignment-1",
@@ -25,6 +37,15 @@ class FakeTaskClient:
     async def accept(self, assignment_id: str) -> dict[str, Any]:
         self.calls.append(f"accept:{assignment_id}")
         return {"assignment_id": assignment_id, "task_id": "task-1"}
+
+    async def claim(self, assignment_id: str) -> dict[str, Any]:
+        self.calls.append(f"claim:{assignment_id}")
+        return {
+            "assignment_id": assignment_id,
+            "task_id": "task-1",
+            "status": "accepted",
+            "claim_generation": 1,
+        }
 
     async def start(self, assignment_id: str) -> dict[str, Any]:
         self.calls.append(f"start:{assignment_id}")
@@ -75,7 +96,7 @@ async def test_worker_processes_pending_noop_assignment() -> None:
     assert processed == 1
     assert client.calls == [
         "poll:1",
-        "accept:assignment-1",
+        "claim:assignment-1",
         "log:node_task_accepted:assignment-1",
         "start:assignment-1",
         "log:node_task_started:assignment-1",
@@ -102,7 +123,7 @@ async def test_worker_reports_failed_assignment_when_runner_fails() -> None:
 
     assert client.calls == [
         "poll:1",
-        "accept:assignment-1",
+        "claim:assignment-1",
         "log:node_task_accepted:assignment-1",
         "start:assignment-1",
         "log:node_task_started:assignment-1",
@@ -149,8 +170,15 @@ class FakeMultiTaskClient:
         self.poll_calls.append(f"poll:{limit}")
         return list(self._assignments)
 
+    async def poll(self, *, limit: int = 1) -> dict[str, Any]:
+        self.poll_calls.append(f"poll:{limit}")
+        return {"assignments": list(self._assignments), "cancel_requested": []}
+
     async def accept(self, assignment_id: str) -> dict[str, Any]:
         return {"assignment_id": assignment_id}
+
+    async def claim(self, assignment_id: str) -> dict[str, Any]:
+        return {"assignment_id": assignment_id, "status": "accepted", "claim_generation": 1}
 
     async def start(self, assignment_id: str) -> dict[str, Any]:
         return {"assignment_id": assignment_id}

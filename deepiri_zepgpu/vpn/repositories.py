@@ -42,6 +42,7 @@ class VpnNetworkRepository:
         relay_public_key: str | None = None,
         private_key_encrypted: str | None = None,
         host_id: str | None = None,
+        transport_mode: str = "wireguard",
     ) -> VpnNetwork:
         network = VpnNetwork(
             name=name,
@@ -51,6 +52,7 @@ class VpnNetworkRepository:
             relay_public_key=relay_public_key,
             private_key_encrypted=private_key_encrypted,
             host_id=host_id,
+            transport_mode=transport_mode,
         )
         self.db.add(network)
         await self.db.commit()
@@ -221,18 +223,39 @@ class PeerRepository:
         await self.db.commit()
 
     async def get_or_create_auth_token(self, peer: Peer) -> str:
-        """Return the peer's node-task auth token, generating one if missing.
+        """Return the peer's provider auth token, generating one if missing.
 
         Covers both freshly created peers (join/create flows) and peers
-        that existed before per-peer node-task auth was added, so any
+        that existed before per-peer provider auth was added, so any
         call to fetch a peer's config transparently provisions a token.
         """
+        from deepiri_zepgpu.api.server.provider_auth import issue_provider_token
+
+        if peer.revoked_at is not None or peer.token_revoked_at is not None:
+            raise ValueError("Cannot issue credentials for a revoked provider")
+
         existing = await self.get_auth_token(peer)
         if existing:
+            if peer.token_expires_at is None:
+                from datetime import UTC, datetime
+
+                from deepiri_zepgpu.api.server.provider_auth import provider_token_ttl
+
+                peer.token_expires_at = datetime.now(UTC) + provider_token_ttl()
+                await self.db.commit()
             return existing
-        token = secrets.token_urlsafe(32)
-        await self.set_auth_token(peer, token)
-        return token
+        return await issue_provider_token(self, peer)
+
+    async def revoke_provider(self, peer: Peer) -> Peer:
+        """Revoke provider membership and invalidate credentials."""
+        now = datetime.now(UTC)
+        peer.revoked_at = now
+        peer.token_revoked_at = now
+        peer.auth_token_encrypted = None
+        peer.online_status = PeerOnlineStatus.OFFLINE
+        await self.db.commit()
+        await self.db.refresh(peer)
+        return peer
 
     async def get_private_key(self, peer: Peer) -> str | None:
         if peer.wireguard_private_key_encrypted:

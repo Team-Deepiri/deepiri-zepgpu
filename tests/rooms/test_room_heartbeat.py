@@ -15,19 +15,6 @@ from deepiri_zepgpu.api.server.routes import rooms
 from deepiri_zepgpu.rooms.models import RoomNodeHeartbeatRequest
 
 
-class FakeNetworkRepository:
-    def __init__(self, _db: object, room: object | None = None) -> None:
-        self.room = room
-
-    async def get_by_id(self, _room_id: str) -> object | None:
-        return self.room
-
-    async def list_user_networks(self, _user_id: str) -> list[object]:
-        if self.room is None:
-            return []
-        return [self.room]
-
-
 class FakePeerRepository:
     last_instance: FakePeerRepository | None = None
 
@@ -109,10 +96,6 @@ class FakeGpuShareRepository:
         ]
 
 
-def _make_room(room_id: object) -> SimpleNamespace:
-    return SimpleNamespace(id=room_id)
-
-
 def _make_peer(
     *,
     peer_id: object,
@@ -129,23 +112,31 @@ def _make_peer(
         is_gpu_host=False,
         last_seen=datetime.now(UTC),
         gpu_shares=[],
+        agent_version=None,
+        node_name=None,
+        provider_mode=None,
+        revoked_at=None,
+        capabilities_json=None,
+        capabilities_reported_at=None,
+        health_state=None,
+        health_reason=None,
+        path_type=None,
+        path_class=None,
+        coordinator_rtt_ms=None,
+        path_freshness_at=None,
+        path_measurement_kind=None,
+        recent_failures=0,
+        last_claim_at=None,
+        vpn_network=SimpleNamespace(transport_mode="dialout"),
     )
 
 
-def test_room_node_heartbeat_updates_peer_and_upserts_gpu(
+def _patch_heartbeat_deps(
     monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    user_id = uuid4()
-    room_id = uuid4()
-    peer_id = uuid4()
-    room = _make_room(room_id)
-    peer = _make_peer(peer_id=peer_id, room_id=room_id, user_id=user_id)
-
-    monkeypatch.setattr(
-        rooms,
-        "VpnNetworkRepository",
-        lambda db: FakeNetworkRepository(db, room=room),
-    )
+    peer: object,
+) -> AsyncMock:
+    verify = AsyncMock(return_value=peer)
+    monkeypatch.setattr(rooms, "verify_provider_credentials", verify)
     monkeypatch.setattr(
         rooms,
         "PeerRepository",
@@ -156,8 +147,20 @@ def test_room_node_heartbeat_updates_peer_and_upserts_gpu(
         "GpuShareRepository",
         lambda db: FakeGpuShareRepository(db),
     )
+    return verify
+
+
+def test_room_node_heartbeat_updates_peer_and_upserts_gpu(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user_id = uuid4()
+    room_id = uuid4()
+    peer_id = uuid4()
+    peer = _make_peer(peer_id=peer_id, room_id=room_id, user_id=user_id)
+    _patch_heartbeat_deps(monkeypatch, peer)
     emit_event = AsyncMock()
     monkeypatch.setattr(rooms, "emit_room_event", emit_event)
+    db = SimpleNamespace(commit=AsyncMock(), refresh=AsyncMock())
 
     response = asyncio.run(
         rooms.room_node_heartbeat(
@@ -179,8 +182,8 @@ def test_room_node_heartbeat_updates_peer_and_upserts_gpu(
                     }
                 ],
             ),
-            user=SimpleNamespace(id=user_id),
-            db=object(),
+            authorization="Bearer provider-token",
+            db=db,
         )
     )
 
@@ -207,14 +210,18 @@ def test_room_node_heartbeat_updates_peer_and_upserts_gpu(
     assert response.room_id == room_id
     assert response.status == "connected"
     assert response.is_gpu_host is True
+    assert response.health_state is not None
     assert [call.args[1] for call in emit_event.await_args_list] == [
         "room_node_online",
+        "room_node_health",
         "room_gpu_update",
     ]
     assert emit_event.await_args_list[0].args[0] == str(room_id)
     assert emit_event.await_args_list[0].args[2]["id"] == str(peer_id)
     assert emit_event.await_args_list[1].args[2]["peer_id"] == str(peer_id)
-    assert emit_event.await_args_list[1].args[2]["gpus"][0]["available_memory_mb"] == 18000
+    assert emit_event.await_args_list[1].args[2]["health_state"]
+    assert emit_event.await_args_list[2].args[2]["peer_id"] == str(peer_id)
+    assert emit_event.await_args_list[2].args[2]["gpus"][0]["available_memory_mb"] == 18000
 
 
 def test_room_node_heartbeat_emits_offline_transition(
@@ -223,101 +230,44 @@ def test_room_node_heartbeat_emits_offline_transition(
     user_id = uuid4()
     room_id = uuid4()
     peer_id = uuid4()
-    room = _make_room(room_id)
     peer = _make_peer(peer_id=peer_id, room_id=room_id, user_id=user_id)
     peer.online_status = rooms.PeerOnlineStatus.ONLINE
-
-    monkeypatch.setattr(
-        rooms,
-        "VpnNetworkRepository",
-        lambda db: FakeNetworkRepository(db, room=room),
-    )
-    monkeypatch.setattr(
-        rooms,
-        "PeerRepository",
-        lambda db: FakePeerRepository(db, peer=peer),
-    )
-    monkeypatch.setattr(
-        rooms,
-        "GpuShareRepository",
-        lambda db: FakeGpuShareRepository(db),
-    )
+    _patch_heartbeat_deps(monkeypatch, peer)
     emit_event = AsyncMock()
     monkeypatch.setattr(rooms, "emit_room_event", emit_event)
+    db = SimpleNamespace(commit=AsyncMock(), refresh=AsyncMock())
 
     response = asyncio.run(
         rooms.room_node_heartbeat(
             room_id=str(room_id),
             peer_id=str(peer_id),
             data=RoomNodeHeartbeatRequest(is_online=False),
-            user=SimpleNamespace(id=user_id),
-            db=object(),
+            authorization="Bearer provider-token",
+            db=db,
         )
     )
 
     assert response.status == "disconnected"
-    emit_event.assert_awaited_once()
-    assert emit_event.await_args.args[0] == str(room_id)
-    assert emit_event.await_args.args[1] == "room_node_offline"
-    assert emit_event.await_args.args[2]["id"] == str(peer_id)
+    assert emit_event.await_count == 2
+    assert emit_event.await_args_list[0].args[0] == str(room_id)
+    assert emit_event.await_args_list[0].args[1] == "room_node_offline"
+    assert emit_event.await_args_list[0].args[2]["id"] == str(peer_id)
+    assert emit_event.await_args_list[1].args[1] == "room_node_health"
 
 
-def test_room_node_heartbeat_rejects_peer_from_another_room(
+def test_room_node_heartbeat_rejects_cross_room_credentials(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    user_id = uuid4()
     room_id = uuid4()
-    other_room_id = uuid4()
     peer_id = uuid4()
-    room = _make_room(room_id)
-    peer = _make_peer(peer_id=peer_id, room_id=other_room_id, user_id=user_id)
 
-    monkeypatch.setattr(
-        rooms,
-        "VpnNetworkRepository",
-        lambda db: FakeNetworkRepository(db, room=room),
-    )
-    monkeypatch.setattr(
-        rooms,
-        "PeerRepository",
-        lambda db: FakePeerRepository(db, peer=peer),
-    )
-
-    with pytest.raises(HTTPException) as exc_info:
-        asyncio.run(
-            rooms.room_node_heartbeat(
-                room_id=str(room_id),
-                peer_id=str(peer_id),
-                data=RoomNodeHeartbeatRequest(),
-                user=SimpleNamespace(id=user_id),
-                db=object(),
-            )
+    async def _deny(**_kwargs):
+        raise HTTPException(
+            status_code=403,
+            detail="Provider credentials are not valid for this room",
         )
 
-    assert exc_info.value.status_code == 404
-    assert exc_info.value.detail == "Node not found"
-
-
-def test_room_node_heartbeat_rejects_updating_another_users_node(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    user_id = uuid4()
-    other_user_id = uuid4()
-    room_id = uuid4()
-    peer_id = uuid4()
-    room = _make_room(room_id)
-    peer = _make_peer(peer_id=peer_id, room_id=room_id, user_id=other_user_id)
-
-    monkeypatch.setattr(
-        rooms,
-        "VpnNetworkRepository",
-        lambda db: FakeNetworkRepository(db, room=room),
-    )
-    monkeypatch.setattr(
-        rooms,
-        "PeerRepository",
-        lambda db: FakePeerRepository(db, peer=peer),
-    )
+    monkeypatch.setattr(rooms, "verify_provider_credentials", _deny)
 
     with pytest.raises(HTTPException) as exc_info:
         asyncio.run(
@@ -325,14 +275,36 @@ def test_room_node_heartbeat_rejects_updating_another_users_node(
                 room_id=str(room_id),
                 peer_id=str(peer_id),
                 data=RoomNodeHeartbeatRequest(),
-                user=SimpleNamespace(id=user_id),
+                authorization="Bearer provider-token",
                 db=object(),
             )
         )
 
     assert exc_info.value.status_code == 403
-    assert exc_info.value.detail == "You cannot update this node"
+    assert "not valid for this room" in str(exc_info.value.detail)
 
 
-async def list_by_peer(self, peer_id: str):
-    return self.upserted
+def test_room_node_heartbeat_rejects_invalid_provider_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    room_id = uuid4()
+    peer_id = uuid4()
+
+    async def _deny(**_kwargs):
+        raise HTTPException(status_code=401, detail="Invalid provider credentials")
+
+    monkeypatch.setattr(rooms, "verify_provider_credentials", _deny)
+
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(
+            rooms.room_node_heartbeat(
+                room_id=str(room_id),
+                peer_id=str(peer_id),
+                data=RoomNodeHeartbeatRequest(),
+                authorization="Bearer wrong-token",
+                db=object(),
+            )
+        )
+
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail == "Invalid provider credentials"

@@ -95,7 +95,9 @@ def test_terminal_assignment_releases_remote_gpu_lock(monkeypatch: pytest.Monkey
             release(share_id, task_id)
             return True
 
-    monkeypatch.setattr(node_tasks, "RemoteGpuLock", FakeLock)
+    from deepiri_zepgpu.api.server import node_task_lifecycle
+
+    monkeypatch.setattr(node_task_lifecycle, "RemoteGpuLock", FakeLock)
     node_tasks._release_assignment_lock(
         SimpleNamespace(id="assignment-a", gpu_share_id="gpu-a", task_id="task-a")
     )

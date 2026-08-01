@@ -28,9 +28,12 @@ from deepiri_zepgpu.database.models.namespace import (
     TeamRole,
 )
 from deepiri_zepgpu.database.models.node_task_assignment import (
+    ACTIVE_STATUSES,
+    TERMINAL_STATUSES,
     NodeAssignmentStatus,
     NodeTaskAssignment,
     NodeTaskEvent,
+    NodeTerminalReason,
 )
 from deepiri_zepgpu.database.models.pipeline import Pipeline
 from deepiri_zepgpu.database.models.scheduled_task import (
@@ -100,4 +103,7 @@ __all__ = [
     "NodeTaskAssignment",
     "NodeTaskEvent",
     "NodeAssignmentStatus",
+    "NodeTerminalReason",
+    "ACTIVE_STATUSES",
+    "TERMINAL_STATUSES",
 ]
