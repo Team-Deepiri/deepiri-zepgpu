@@ -1,5 +1,17 @@
 # Minimal Postgres for ZepGPU integration tests
 services:
+  zepgpu-test-redis:
+    image: redis:7-alpine
+    container_name: zepgpu-test-redis
+    ports:
+      - "6380:6379"
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+
   zepgpu-test-db:
     image: postgres:15-alpine
     container_name: zepgpu-test-db

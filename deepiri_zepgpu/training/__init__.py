@@ -1,13 +1,19 @@
-"""Training package placeholder (Phase 15+).
+"""Training harness and distributed training data-plane primitives.
 
-This package must never import or invoke the legacy pickle TaskRouter
-(`deepiri_zepgpu.vpn.task_router`). Training workloads use dial-out
-node-task assignment and a future binary data plane.
+This package intentionally does not import the legacy task router or optional ML
+libraries at module import time.
+
+Training workloads must never import or invoke the legacy pickle TaskRouter
+(`deepiri_zepgpu.vpn.task_router`). Use dial-out node-task assignment and the
+binary data plane instead.
 """
 
 from __future__ import annotations
 
-__all__: list[str] = []
+from deepiri_zepgpu.training.config import TrainingRunConfig
+from deepiri_zepgpu.training.metrics import TrainingMetrics
+
+__all__ = ["TrainingMetrics", "TrainingRunConfig"]
 
 
 def _probe_legacy_router_guard() -> None:

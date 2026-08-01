@@ -14,6 +14,7 @@ from deepiri_zepgpu.api.server.routes import (
     rooms,
     schedules,
     tasks,
+    training_runs,
     users,
     vpn,
     websocket,
@@ -36,5 +37,6 @@ api_router.include_router(rooms.router, tags=["GPU Rooms"])
 api_router.include_router(vpn.router, tags=["VPN"])
 api_router.include_router(ledger.router, tags=["Compute Ledger"])
 api_router.include_router(node_tasks.router, tags=["Node Tasks"])
+api_router.include_router(training_runs.router, tags=["Training Runs"])
 
 __all__ = ["api_router"]

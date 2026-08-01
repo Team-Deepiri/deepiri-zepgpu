@@ -30,6 +30,9 @@ class RedisSettings(BaseSettings):
     celery_result_backend: str = Field(
         default_factory=lambda: os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/2")
     )
+    training_relay_ttl_seconds: int = Field(default=300, ge=30, le=86400)
+    training_relay_max_transfer_bytes: int = Field(default=64 * 1024 * 1024, ge=1024)
+    training_relay_max_chunk_bytes: int = Field(default=4 * 1024 * 1024, ge=1024)
 
 
 class S3Settings(BaseSettings):
