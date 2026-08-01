@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+import warnings
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -345,7 +346,15 @@ class NodeTaskRepository:
         assignment_id: str,
         peer_id: str,
     ) -> NodeTaskAssignment | None:
-        """Backwards-compatible accept = claim with default lease."""
+        """Backwards-compatible accept = claim with default lease.
+
+        Deprecated: prefer :meth:`mark_claimed`.
+        """
+        warnings.warn(
+            "mark_accepted is deprecated; use mark_claimed instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return await self.mark_claimed(assignment_id=assignment_id, peer_id=peer_id)
 
     async def mark_running(

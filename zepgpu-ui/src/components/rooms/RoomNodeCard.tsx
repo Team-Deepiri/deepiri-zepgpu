@@ -55,7 +55,7 @@ export default function RoomNodeCard({
   })
 
   const revokeProvider = useMutation({
-    mutationFn: () => roomsApi.revokeRoomProvider(roomId, node.id),
+    mutationFn: () => roomsApi.revokeRoomNode(roomId, node.id),
     onSuccess: () => {
       toast.success('Provider revoked')
       void queryClient.invalidateQueries({ queryKey: ['room-nodes', roomId] })

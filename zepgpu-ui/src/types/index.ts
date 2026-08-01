@@ -641,13 +641,13 @@ export type RoomStatus = 'active' | 'archived'
 
 export type RoomMemberStatus = 'connected' | 'disconnected' | 'pending'
 
+export type RoomTransportMode = 'wireguard' | 'dialout' | 'overlay'
+
 export interface RoomCreateRequest {
   name: string
   description: string | null
-  transport_mode?: string | null
+  transport_mode?: RoomTransportMode | null
 }
-
-export type RoomTransportMode = 'wireguard' | 'dialout' | 'overlay'
 
 export interface Room {
   id: string
@@ -816,7 +816,7 @@ export interface RoomConnectionConfig {
   peer_id: string
   config: string
   filename: string
-  transport_mode?: string
+  transport_mode?: RoomTransportMode
   requires_wireguard_udp?: boolean
   auth_token?: string | null
   token_expires_at?: string | null

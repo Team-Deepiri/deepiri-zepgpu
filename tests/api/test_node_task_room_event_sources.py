@@ -187,7 +187,7 @@ async def test_claim_on_terminal_soft_returns_noop(
         async def mark_claimed(self, **_kwargs: object):
             return mark_lifecycle_noop(assignment)
 
-    monkeypatch.setattr(node_tasks, "NodeTaskRepository", lambda _db: Repo())
+    monkeypatch.setattr(node_tasks, "NodeTaskRepository", Repo)
     response = await node_tasks.claim_node_task("assignment-1", db=db, peer=peer)
     assert response.noop is True
     assert response.status == "failed"

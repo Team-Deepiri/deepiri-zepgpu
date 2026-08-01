@@ -87,7 +87,8 @@ export const roomsApi = {
     await api.delete(`/rooms/${roomId}/invites/${inviteId}`)
   },
 
-  revokeRoomProvider: async (
+  /** Revoke a room node/provider (POST; invites use DELETE). */
+  revokeRoomNode: async (
     roomId: string,
     peerId: string,
   ): Promise<RoomProviderRevokeResponse> => {
@@ -95,6 +96,14 @@ export const roomsApi = {
       `/rooms/${roomId}/nodes/${peerId}/revoke`,
     )
     return data
+  },
+
+  /** @deprecated Prefer revokeRoomNode */
+  revokeRoomProvider: async (
+    roomId: string,
+    peerId: string,
+  ): Promise<RoomProviderRevokeResponse> => {
+    return roomsApi.revokeRoomNode(roomId, peerId)
   },
 
   joinRoom: async (req: RoomJoinRequest): Promise<RoomJoinResponse> => {

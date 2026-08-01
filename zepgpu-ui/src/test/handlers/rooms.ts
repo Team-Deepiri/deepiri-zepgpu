@@ -195,6 +195,8 @@ export const roomHandlers = [
       room_id: params.roomId,
       revoked_at: node.revoked_at,
       failed_assignments: 0,
+      status: node.status,
+      is_online: node.is_online,
     })
   }),
 ]
