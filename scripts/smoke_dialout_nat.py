@@ -23,8 +23,8 @@ from urllib.parse import urlparse
 import httpx
 from utils import auth_headers
 
-from deepiri_zepgpu.node_agent.fake_gpu_metrics import FakeGpuConfig, build_fake_gpu_payload
 from deepiri_zepgpu.node_agent.config import validate_coordinator_url
+from deepiri_zepgpu.node_agent.fake_gpu_metrics import FakeGpuConfig, build_fake_gpu_payload
 
 
 def parse_args() -> argparse.Namespace:
@@ -149,9 +149,7 @@ def heartbeat_payload(*, node_name: str, rtt_ms: float) -> dict[str, Any]:
 
 
 async def smoke(args: argparse.Namespace) -> dict[str, Any]:
-    base_url = assert_coordinator_url(
-        args.base_url, allow_http_localhost=args.allow_http_localhost
-    )
+    base_url = assert_coordinator_url(args.base_url, allow_http_localhost=args.allow_http_localhost)
     suffix = uuid.uuid4().hex[:10]
     password = args.password or f"smoke-{uuid.uuid4().hex}"
     owner_user = f"dialout-host-{suffix}"

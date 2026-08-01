@@ -22,7 +22,10 @@ from deepiri_zepgpu.rooms.health import (
     HEALTH_STALE,
     assess_provider_health,
 )
-from deepiri_zepgpu.rooms.mappers import room_create_to_vpn_network_data, vpn_network_to_room_response
+from deepiri_zepgpu.rooms.mappers import (
+    room_create_to_vpn_network_data,
+    vpn_network_to_room_response,
+)
 from deepiri_zepgpu.rooms.models import RoomCreateRequest
 from deepiri_zepgpu.rooms.path_obs import (
     MEASUREMENT_MEASURED,

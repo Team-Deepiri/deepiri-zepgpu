@@ -253,7 +253,8 @@ async def run_gate(args: argparse.Namespace) -> None:
         claimed = await post_lifecycle(client, peer_auth, peer_id, assignment_id, "claim")
         require(claimed.get("claimed_at") or claimed.get("accepted_at"), "Claim missing timestamps")
         require(
-            claimed.get("lease_expires_at") is not None or claimed.get("claim_generation") is not None,
+            claimed.get("lease_expires_at") is not None
+            or claimed.get("claim_generation") is not None,
             "Claim missing lease/generation fields",
         )
         claimed_retry = await post_lifecycle(client, peer_auth, peer_id, assignment_id, "claim")

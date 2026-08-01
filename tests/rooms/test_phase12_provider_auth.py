@@ -23,6 +23,7 @@ from deepiri_zepgpu.api.server.routes import rooms
 from deepiri_zepgpu.node_agent.config import (
     NodeAgentConfig,
     clear_agent_identity,
+    load_agent_identity,
     save_agent_identity,
     validate_coordinator_url,
 )
@@ -31,7 +32,7 @@ from deepiri_zepgpu.rooms.models import RoomJoinRequest, RoomNodeHeartbeatReques
 
 
 def test_redact_token_text_strips_bearer_and_fields() -> None:
-    text = 'Authorization: Bearer super-secret-token-value auth_token=also-secret-value'
+    text = "Authorization: Bearer super-secret-token-value auth_token=also-secret-value"
     redacted = redact_token_text(text)
     assert "super-secret-token-value" not in redacted
     assert "also-secret-value" not in redacted
@@ -77,10 +78,14 @@ def test_agent_identity_persist_and_redact(tmp_path: Path) -> None:
     )
     save_agent_identity(config, path=path)
     raw = path.read_text(encoding="utf-8")
-    assert "super-secret-provider-token" in raw  # stored locally
+    assert "super-secret-provider-token" not in raw
+    assert "auth_token_encrypted" in raw
+    loaded = load_agent_identity(path)
+    assert loaded.auth_token == "super-secret-provider-token"
     assert "super-secret-provider-token" not in repr(config)
     assert clear_agent_identity(path) is True
     assert not path.exists()
+    assert not (tmp_path / "agent.key").exists()
 
 
 @pytest.mark.asyncio
@@ -106,13 +111,15 @@ async def test_verify_provider_rejects_expired_token() -> None:
         async def get_auth_token(self, _peer: object) -> str:
             return "valid-token"
 
-    with patch.object(provider_auth, "PeerRepository", FakeRepo):
-        with pytest.raises(HTTPException) as exc:
-            await verify_provider_credentials(
-                peer_id=peer_id,
-                authorization="Bearer valid-token",
-                db=MagicMock(),
-            )
+    with (
+        patch.object(provider_auth, "PeerRepository", FakeRepo),
+        pytest.raises(HTTPException) as exc,
+    ):
+        await verify_provider_credentials(
+            peer_id=peer_id,
+            authorization="Bearer valid-token",
+            db=MagicMock(),
+        )
     assert exc.value.status_code == 401
     assert "expired" in str(exc.value.detail).lower()
 
@@ -139,13 +146,15 @@ async def test_verify_provider_rejects_revoked_membership() -> None:
         async def get_auth_token(self, _peer: object) -> str:
             return "valid-token"
 
-    with patch.object(provider_auth, "PeerRepository", FakeRepo):
-        with pytest.raises(HTTPException) as exc:
-            await verify_provider_credentials(
-                peer_id=peer_id,
-                authorization="Bearer valid-token",
-                db=MagicMock(),
-            )
+    with (
+        patch.object(provider_auth, "PeerRepository", FakeRepo),
+        pytest.raises(HTTPException) as exc,
+    ):
+        await verify_provider_credentials(
+            peer_id=peer_id,
+            authorization="Bearer valid-token",
+            db=MagicMock(),
+        )
     assert exc.value.status_code == 403
     assert "revoked" in str(exc.value.detail).lower()
 
@@ -174,14 +183,16 @@ async def test_verify_provider_cross_room_denial() -> None:
         async def get_auth_token(self, _peer: object) -> str:
             return "valid-token"
 
-    with patch.object(provider_auth, "PeerRepository", FakeRepo):
-        with pytest.raises(HTTPException) as exc:
-            await verify_provider_credentials(
-                peer_id=peer_id,
-                authorization="Bearer valid-token",
-                db=MagicMock(),
-                room_id=room_b,
-            )
+    with (
+        patch.object(provider_auth, "PeerRepository", FakeRepo),
+        pytest.raises(HTTPException) as exc,
+    ):
+        await verify_provider_credentials(
+            peer_id=peer_id,
+            authorization="Bearer valid-token",
+            db=MagicMock(),
+            room_id=room_b,
+        )
     assert exc.value.status_code == 403
     assert "not valid for this room" in str(exc.value.detail)
 
@@ -210,13 +221,15 @@ async def test_verify_provider_rejects_rotated_token() -> None:
         async def get_auth_token(self, _peer: object) -> str:
             return "new-rotated-token"
 
-    with patch.object(provider_auth, "PeerRepository", FakeRepo):
-        with pytest.raises(HTTPException) as exc:
-            await verify_provider_credentials(
-                peer_id=peer_id,
-                authorization="Bearer old-token-value",
-                db=MagicMock(),
-            )
+    with (
+        patch.object(provider_auth, "PeerRepository", FakeRepo),
+        pytest.raises(HTTPException) as exc,
+    ):
+        await verify_provider_credentials(
+            peer_id=peer_id,
+            authorization="Bearer old-token-value",
+            db=MagicMock(),
+        )
     assert exc.value.status_code == 401
     assert "Invalid provider credentials" in str(exc.value.detail)
 
@@ -384,7 +397,9 @@ def test_join_room_issues_provider_token(monkeypatch: pytest.MonkeyPatch) -> Non
     )
 
 
-def test_revoke_room_provider_eager_loads_gpu_shares(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_revoke_room_provider_eager_loads_gpu_shares(  # noqa: C901
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Revoke must not touch the dynamic gpu_shares relationship (async MissingGreenlet)."""
     host_id = uuid4()
     room_id = uuid4()

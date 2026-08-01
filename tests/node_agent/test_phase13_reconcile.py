@@ -122,9 +122,7 @@ async def test_worker_handles_wss_cancel(tmp_path: Path) -> None:
     inflight.upsert_inflight("assignment-9", status="running", path=path)
     client = FakeTaskClient()
     worker = NodeTaskWorker(client=client, inflight_path=path)  # type: ignore[arg-type]
-    await worker.handle_provider_message(
-        {"type": "cancel", "assignment_id": "assignment-9"}
-    )
+    await worker.handle_provider_message({"type": "cancel", "assignment_id": "assignment-9"})
     assert "fail:assignment-9" in client.calls
     assert inflight.list_inflight_ids(path) == []
 

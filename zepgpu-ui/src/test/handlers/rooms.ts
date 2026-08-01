@@ -181,6 +181,12 @@ export const roomHandlers = [
     if (!node) {
       return HttpResponse.json({ detail: 'Node not found' }, { status: 404 })
     }
+    if (node.room_id !== params.roomId) {
+      return HttpResponse.json({ detail: 'Node not in room' }, { status: 400 })
+    }
+    if (node.revoked_at) {
+      return HttpResponse.json({ detail: 'Node already revoked' }, { status: 409 })
+    }
     node.revoked_at = new Date().toISOString()
     node.is_online = false
     node.status = 'disconnected'

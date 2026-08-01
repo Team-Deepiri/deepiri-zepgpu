@@ -99,7 +99,9 @@ def _probe_runtime() -> dict[str, Any]:
         if torch.cuda.is_available():
             runtime["cuda_version"] = getattr(torch.version, "cuda", None)
             with contextlib.suppress(Exception):
-                runtime["driver_version"] = str(torch.cuda.get_driver_version())
+                get_driver_version = getattr(torch.cuda, "get_driver_version", None)
+                if callable(get_driver_version):
+                    runtime["driver_version"] = str(get_driver_version())
             try:
                 major, minor = torch.cuda.get_device_capability(0)
                 runtime["compute_capability"] = f"{major}.{minor}"

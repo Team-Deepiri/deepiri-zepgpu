@@ -17,7 +17,6 @@ from starlette.responses import Response
 from deepiri_zepgpu.api.server.routes import api_router, websocket
 from deepiri_zepgpu.api.server.websocket_manager import manager
 from deepiri_zepgpu.config import settings
-from deepiri_zepgpu.config import settings as app_settings
 from deepiri_zepgpu.database import close_db, init_db
 from deepiri_zepgpu.database.session import get_db_context
 from deepiri_zepgpu.queue.redis_queue import queue
@@ -83,7 +82,7 @@ async def _vpn_registry_maintenance_loop(stop: asyncio.Event) -> None:
 
 async def _assignment_sweep_loop(stop: asyncio.Event) -> None:
     """Phase 13: lease expiry / accepted-never-started / running timeout sweep."""
-    interval = max(5, int(app_settings.vpn.assignment_sweep_interval_seconds))
+    interval = max(5, int(settings.vpn.assignment_sweep_interval_seconds))
     while not stop.is_set():
         try:
             await asyncio.wait_for(stop.wait(), timeout=interval)

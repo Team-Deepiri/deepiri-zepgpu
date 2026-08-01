@@ -92,7 +92,7 @@ def _prepare(
     notify = AsyncMock()
 
     monkeypatch.setattr(node_tasks, "NodeTaskRepository", lambda _db: repo)
-    monkeypatch.setattr(node_tasks, "_emit_room_task_event", emit_event)
+    monkeypatch.setattr(node_tasks, "emit_assignment_room_event", emit_event)
     monkeypatch.setattr(node_tasks, "notify_assignment_terminal", notify)
     return assignment, db, peer, emit_event, notify
 

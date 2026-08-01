@@ -91,7 +91,7 @@ async def test_claim_accept_complete_notify_contract(monkeypatch: pytest.MonkeyP
     emit_event = AsyncMock()
     notify = AsyncMock()
     monkeypatch.setattr(node_tasks, "NodeTaskRepository", lambda _db: Repo())
-    monkeypatch.setattr(node_tasks, "_emit_room_task_event", emit_event)
+    monkeypatch.setattr(node_tasks, "emit_assignment_room_event", emit_event)
     monkeypatch.setattr(node_tasks, "notify_assignment_terminal", notify)
 
     peer = SimpleNamespace(id="peer-1")

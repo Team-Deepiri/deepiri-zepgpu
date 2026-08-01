@@ -156,7 +156,7 @@ class GPUContext:
 
     def __init__(self, device_id: int = 0):
         self._device_id = device_id
-        self._previous_device = None
+        self._previous_device: int | None = None
 
     def __enter__(self) -> GPUContext:
         if TORCH_AVAILABLE and torch.cuda.is_available():

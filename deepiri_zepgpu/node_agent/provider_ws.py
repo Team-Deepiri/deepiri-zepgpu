@@ -10,6 +10,11 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 from urllib.parse import urlencode, urlparse, urlunparse
 
+try:
+    import websockets
+except ImportError:  # pragma: no cover - optional until provider WSS is used
+    websockets = None  # type: ignore[assignment]
+
 logger = logging.getLogger(__name__)
 
 MessageHandler = Callable[[dict[str, Any]], Awaitable[None]]
@@ -104,12 +109,10 @@ class ProviderAssignmentSocket:
                 await asyncio.sleep(delay)
 
     async def _connect_once(self) -> None:
-        try:
-            import websockets
-        except ImportError as exc:
+        if websockets is None:
             raise RuntimeError(
                 "websockets package required for provider WSS; HTTPS poll fallback still works"
-            ) from exc
+            )
 
         url = self._ws_url()
         logger.info("Connecting provider WSS for peer %s", self.peer_id)

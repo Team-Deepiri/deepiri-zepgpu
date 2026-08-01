@@ -72,7 +72,6 @@ def test_rejects_remote_http_url() -> None:
         )
 
 
-
 def test_repr_and_logs_never_contain_raw_token(caplog: pytest.LogCaptureFixture) -> None:
     config = NodeAgentConfig(
         api_base_url="http://localhost:8000",
@@ -88,3 +87,38 @@ def test_repr_and_logs_never_contain_raw_token(caplog: pytest.LogCaptureFixture)
     with caplog.at_level(logging.INFO):
         logging.info("Config: %s", config)
     assert "super-secret-token" not in caplog.text
+
+
+def test_save_agent_identity_encrypts_token(tmp_path: Path) -> None:
+    from deepiri_zepgpu.node_agent.config import load_agent_identity, save_agent_identity
+
+    path = tmp_path / "agent.json"
+    config = NodeAgentConfig(
+        api_base_url="http://localhost:8000",
+        room_id="22222222-2222-4222-8222-222222222222",
+        peer_id="33333333-3333-4333-8333-333333333333",
+        auth_token="super-secret-token",
+    )
+    save_agent_identity(config, path=path)
+    on_disk = json.loads(path.read_text(encoding="utf-8"))
+    assert "auth_token" not in on_disk
+    assert "auth_token_encrypted" in on_disk
+    assert "super-secret-token" not in path.read_text(encoding="utf-8")
+    assert load_agent_identity(path).auth_token == "super-secret-token"
+
+
+def test_load_legacy_plaintext_auth_token(tmp_path: Path) -> None:
+    path = tmp_path / "agent.json"
+    path.write_text(
+        json.dumps(
+            {
+                "api_base_url": "http://localhost:8000",
+                "room_id": "22222222-2222-4222-8222-222222222222",
+                "peer_id": "33333333-3333-4333-8333-333333333333",
+                "auth_token": "legacy-plaintext-token",
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = build_config(config_path=path)
+    assert config.auth_token == "legacy-plaintext-token"

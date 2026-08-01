@@ -93,7 +93,7 @@ class Serializer:
     def _serialize_numpy(self, obj: Any) -> bytes:
         """Serialize numpy arrays efficiently."""
         if isinstance(obj, np.ndarray):
-            return obj.tobytes()  # type: ignore[no-any-return]
+            return obj.tobytes()
         return self._serialize_pickle(obj)
 
     def _deserialize_numpy(self, data: bytes) -> Any:

@@ -13,14 +13,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from deepiri_zepgpu.api.server.dependencies import get_db_session, get_required_user
 from deepiri_zepgpu.api.server.node_task_lifecycle import (
+    _task_status,
+    emit_assignment_room_event,
     notify_assignment_terminal,
-    release_assignment_lock,
 )
 from deepiri_zepgpu.api.server.provider_auth import (
     get_verified_provider,
     verify_provider_credentials,
 )
-from deepiri_zepgpu.api.server.room_events import assignment_payload, emit_room_event
 from deepiri_zepgpu.database.models import User
 from deepiri_zepgpu.database.models.node_task_assignment import NodeTaskAssignment
 from deepiri_zepgpu.database.models.task import Task
@@ -38,9 +38,6 @@ router = APIRouter(prefix="/node-tasks", tags=["Node Tasks"])
 
 # Evolve get_verified_peer → shared provider verification (Phase 12).
 get_verified_peer = get_verified_provider
-
-# Backwards-compatible alias used by Phase 10 tests.
-_release_assignment_lock = release_assignment_lock
 
 
 async def _require_room_member_for_result(
@@ -177,50 +174,11 @@ def _assignment_to_response(assignment: NodeTaskAssignment) -> NodeTaskResponse:
     )
 
 
-def _task_status(task: Task) -> str:
-    return task.status.value if hasattr(task.status, "value") else str(task.status)
-
-
 async def _task_for_assignment(
     db: AsyncSession,
     assignment: NodeTaskAssignment,
 ) -> Task | None:
     return await db.get(Task, assignment.task_id)
-
-
-async def _emit_room_task_event(
-    *,
-    event_type: str,
-    task: Task | None,
-    assignment: NodeTaskAssignment,
-) -> None:
-    # Keep emit_room_event/assignment_payload on this module for test patching.
-    status = _task_status(task) if task is not None else "assigned"
-    await emit_room_event(
-        str(assignment.vpn_network_id),
-        event_type,
-        assignment_payload(
-            task_id=str(assignment.task_id),
-            assignment_id=str(assignment.id),
-            peer_id=str(assignment.peer_id) if assignment.peer_id else None,
-            gpu_share_id=str(assignment.gpu_share_id) if assignment.gpu_share_id else None,
-            status=status,
-            assignment_status=(
-                assignment.status.value
-                if hasattr(assignment.status, "value")
-                else str(assignment.status)
-            ),
-            error=assignment.error or (task.error if task is not None else None),
-            terminal_reason=getattr(assignment, "terminal_reason", None),
-            claim_generation=getattr(assignment, "claim_generation", None),
-            lease_expires_at=(
-                assignment.lease_expires_at.isoformat()
-                if getattr(assignment, "lease_expires_at", None) is not None
-                else None
-            ),
-            cancel_requested=bool(getattr(assignment, "cancel_requested_at", None)),
-        ),
-    )
 
 
 @router.get(
@@ -400,7 +358,7 @@ async def claim_node_task(
     if assignment.is_terminal:
         await notify_assignment_terminal(task=task, assignment=assignment)
     else:
-        await _emit_room_task_event(
+        await emit_assignment_room_event(
             event_type="room_task_claimed",
             task=task,
             assignment=assignment,
@@ -437,7 +395,7 @@ async def start_node_task(
     if assignment.is_terminal:
         await notify_assignment_terminal(task=task, assignment=assignment)
     else:
-        await _emit_room_task_event(
+        await emit_assignment_room_event(
             event_type="room_task_started",
             task=task,
             assignment=assignment,
