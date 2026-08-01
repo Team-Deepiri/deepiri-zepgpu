@@ -223,14 +223,6 @@ async def _emit_room_task_event(
     )
 
 
-async def _notify_if_task_exists(
-    *,
-    task: Task | None,
-    assignment: NodeTaskAssignment,
-) -> None:
-    await notify_assignment_terminal(task=task, assignment=assignment)
-
-
 @router.get(
     "/rooms/{room_id}/nodes/{peer_id}/tasks/pending",
     response_model=list[NodeTaskResponse],

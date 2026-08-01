@@ -10,6 +10,7 @@ import pytest
 
 from deepiri_zepgpu.node_agent.config import NodeAgentConfig
 from deepiri_zepgpu.node_agent.heartbeat import (
+    HeartbeatRttTracker,
     build_heartbeat_payload,
     heartbeat_url,
     send_heartbeat,
@@ -45,6 +46,15 @@ def test_heartbeat_url() -> None:
     )
 
 
+def test_rtt_tracker_records_and_clears() -> None:
+    tracker = HeartbeatRttTracker()
+    assert tracker.last_rtt_ms is None
+    tracker.record(12.5)
+    assert tracker.last_rtt_ms == 12.5
+    tracker.clear()
+    assert tracker.last_rtt_ms is None
+
+
 @patch("deepiri_zepgpu.node_agent.heartbeat.httpx.post")
 def test_send_heartbeat_uses_bearer_header(mock_post: MagicMock) -> None:
     mock_response = MagicMock()
@@ -52,12 +62,31 @@ def test_send_heartbeat_uses_bearer_header(mock_post: MagicMock) -> None:
     mock_response.json.return_value = {"status": "connected"}
     mock_post.return_value = mock_response
 
-    send_heartbeat(CONFIG)
+    tracker = HeartbeatRttTracker()
+    send_heartbeat(CONFIG, rtt_tracker=tracker)
 
     mock_post.assert_called_once()
     _, kwargs = mock_post.call_args
     assert kwargs["headers"]["Authorization"] == "Bearer super-secret-token"
     assert "gpu_status" in kwargs["json"]
+    assert tracker.last_rtt_ms is not None
+    assert tracker.last_rtt_ms >= 0
+
+
+@patch("deepiri_zepgpu.node_agent.heartbeat.httpx.post")
+def test_send_heartbeat_reports_prior_rtt(mock_post: MagicMock) -> None:
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"status": "connected"}
+    mock_post.return_value = mock_response
+
+    tracker = HeartbeatRttTracker()
+    tracker.record(42.0)
+    send_heartbeat(CONFIG, rtt_tracker=tracker)
+
+    _, kwargs = mock_post.call_args
+    assert kwargs["json"]["coordinator_rtt_ms"] == 42.0
+    assert kwargs["json"]["path"]["coordinator_rtt_ms"] == 42.0
 
 
 def test_dry_run_does_not_post_and_redacts_token(caplog: pytest.LogCaptureFixture) -> None:
@@ -65,7 +94,7 @@ def test_dry_run_does_not_post_and_redacts_token(caplog: pytest.LogCaptureFixtur
         caplog.at_level(logging.INFO),
         patch("deepiri_zepgpu.node_agent.heartbeat.httpx.post") as mock_post,
     ):
-        result = send_heartbeat(CONFIG, dry_run=True)
+        result = send_heartbeat(CONFIG, dry_run=True, rtt_tracker=HeartbeatRttTracker())
     assert result is None
     mock_post.assert_not_called()
     assert "super-secret-token" not in caplog.text
@@ -88,5 +117,5 @@ def test_retries_transient_503(mock_post: MagicMock) -> None:
 
     mock_post.side_effect = [failing, success]
 
-    send_heartbeat(CONFIG)
+    send_heartbeat(CONFIG, rtt_tracker=HeartbeatRttTracker())
     assert mock_post.call_count == 2

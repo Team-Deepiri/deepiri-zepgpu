@@ -228,18 +228,23 @@ class PeerRepository:
         Covers both freshly created peers (join/create flows) and peers
         that existed before per-peer provider auth was added, so any
         call to fetch a peer's config transparently provisions a token.
+
+        Raises:
+            ProviderRevokedError: if the peer membership or token is revoked.
         """
-        from deepiri_zepgpu.api.server.provider_auth import issue_provider_token
+        from deepiri_zepgpu.rooms.provider_tokens import (
+            ProviderRevokedError,
+            issue_provider_token,
+            provider_token_ttl,
+        )
 
         if peer.revoked_at is not None or peer.token_revoked_at is not None:
-            raise ValueError("Cannot issue credentials for a revoked provider")
+            raise ProviderRevokedError("Cannot issue credentials for a revoked provider")
 
         existing = await self.get_auth_token(peer)
         if existing:
             if peer.token_expires_at is None:
                 from datetime import UTC, datetime
-
-                from deepiri_zepgpu.api.server.provider_auth import provider_token_ttl
 
                 peer.token_expires_at = datetime.now(UTC) + provider_token_ttl()
                 await self.db.commit()

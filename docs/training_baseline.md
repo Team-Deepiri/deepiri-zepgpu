@@ -123,7 +123,7 @@ or optimizer payloads.
 
 ## Validation commands
 
-With PostgreSQL on `127.0.0.1:5433` and Redis on `127.0.0.1:6380` from the test Compose file:
+With PostgreSQL on `127.0.0.1:5444` and Redis on `127.0.0.1:6399` from the test Compose file:
 
 ```console
 poetry run pytest tests/training --collect-only -q

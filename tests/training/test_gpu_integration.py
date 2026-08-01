@@ -1,3 +1,7 @@
+"""CUDA GPU smoke for the tiny LoRA training path (opt-in)."""
+
+from __future__ import annotations
+
 import os
 from pathlib import Path
 
@@ -5,8 +9,9 @@ import pytest
 
 from deepiri_zepgpu.training.config import TrainingRunConfig
 
+pytestmark = pytest.mark.gpu
 
-@pytest.mark.gpu
+
 @pytest.mark.skipif(os.getenv("ZEPGPU_RUN_GPU_TESTS") != "1", reason="optional CUDA test")
 def test_tiny_lora_gpu_smoke(tmp_path: Path) -> None:
     torch = pytest.importorskip("torch")

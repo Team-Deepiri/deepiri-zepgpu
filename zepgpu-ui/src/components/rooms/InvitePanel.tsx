@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { Copy, UserPlus, Ban, Terminal } from 'lucide-react'
@@ -32,6 +32,10 @@ export default function InvitePanel({ roomId }: InvitePanelProps) {
   const [maxUses, setMaxUses] = useState(10)
   const [expiresInDays, setExpiresInDays] = useState(7)
   const [lastCreated, setLastCreated] = useState<RoomInvite | null>(null)
+
+  useEffect(() => {
+    setLastCreated(null)
+  }, [roomId])
 
   const { data: invites, isLoading } = useQuery({
     queryKey: ['room-invites', roomId],
@@ -72,8 +76,12 @@ export default function InvitePanel({ roomId }: InvitePanelProps) {
   })
 
   const copyText = async (text: string, successMessage: string) => {
-    await navigator.clipboard.writeText(text)
-    toast.success(successMessage)
+    try {
+      await navigator.clipboard.writeText(text)
+      toast.success(successMessage)
+    } catch {
+      toast.error('Failed to copy to clipboard')
+    }
   }
 
   return (

@@ -302,6 +302,7 @@ class RedisBinaryRelayStore:
                 b"received_bytes": b"0",
                 b"status": b"uploading",
                 b"round": str(round_number if round_number is not None else -1).encode(),
+                b"created_at": str(time.time()).encode(),
             }
             if existing:
                 comparable = {
@@ -424,8 +425,45 @@ class RedisBinaryRelayStore:
         }
 
     async def cleanup(self, now: float | None = None) -> int:
-        del now
-        return 0
+        """Delete expired relay transfers (safety net when TTLs are missing/stale)."""
+
+        current = time.time() if now is None else float(now)
+        deleted = 0
+        index_pattern = "zepgpu:training:relay:index:*"
+        async for raw_key in self._redis.scan_iter(match=index_pattern, count=500):
+            index_key = raw_key.decode() if isinstance(raw_key, bytes) else str(raw_key)
+            transfer_id = index_key.rsplit(":", 1)[-1]
+            try:
+                room_id, run_id, base = await self._lookup(transfer_id)
+            except EnvelopeError:
+                await self._redis.delete(index_key)
+                deleted += 1
+                continue
+            meta = await self._hgetall(f"{base}:meta")
+            created_raw = meta.get(b"created_at")
+            if created_raw is None:
+                # Legacy entries without created_at: rely on Redis TTL; if none, purge.
+                ttl = await self._redis.ttl(index_key)
+                if int(ttl) != -1:
+                    continue
+                expired = True
+            else:
+                try:
+                    created_at = float(
+                        created_raw.decode() if isinstance(created_raw, bytes) else created_raw
+                    )
+                except (TypeError, ValueError):
+                    created_at = 0.0
+                expired = (current - created_at) >= float(self.ttl_seconds)
+            if not expired:
+                continue
+            keys = [key async for key in self._redis.scan_iter(match=f"{base}:*", count=1000)]
+            if keys:
+                await self._redis.delete(*keys)
+            await self._redis.delete(index_key)
+            deleted += 1
+            del room_id, run_id
+        return deleted
 
     async def abort(self, transfer_id: str) -> bool:
         try:

@@ -28,7 +28,7 @@ from deepiri_zepgpu.database.repositories.node_task_repository import (
     NodeTaskTransitionError,
 )
 from deepiri_zepgpu.rooms.capabilities import normalize_capabilities
-from deepiri_zepgpu.rooms.health import assess_provider_health
+from deepiri_zepgpu.rooms.health import HealthAssessment, assess_provider_health
 from deepiri_zepgpu.rooms.mappers import (
     gpu_share_to_room_node_gpu_response,
     gpu_shares_to_room_pool_summary,
@@ -54,7 +54,7 @@ from deepiri_zepgpu.rooms.models import (
     RoomProviderRevokeResponse,
     RoomResponse,
 )
-from deepiri_zepgpu.rooms.path_obs import build_path_report, record_path_metrics
+from deepiri_zepgpu.rooms.path_obs import PathReport, build_path_report, record_path_metrics
 from deepiri_zepgpu.rooms.transport import InvalidTransportModeError
 from deepiri_zepgpu.vpn.config import vpn_settings
 from deepiri_zepgpu.vpn.crypto import encrypt_value
@@ -325,8 +325,109 @@ async def get_room_node(
     return peer_to_room_node_response(peer)
 
 
+def _apply_heartbeat_identity(peer: Peer, data: RoomNodeHeartbeatRequest) -> None:
+    if data.agent_version is not None:
+        peer.agent_version = data.agent_version
+    if data.node_name is not None:
+        peer.node_name = data.node_name
+    if data.provider_mode is not None:
+        peer.provider_mode = data.provider_mode
+
+
+def _apply_heartbeat_capabilities(
+    peer: Peer, data: RoomNodeHeartbeatRequest, *, now: datetime
+) -> None:
+    caps_payload: dict = {}
+    if data.capabilities is not None:
+        caps_payload = data.capabilities.model_dump(exclude_none=True)
+    if data.gpu_status and "gpus" not in caps_payload:
+        caps_payload["gpus"] = [gpu.model_dump() for gpu in data.gpu_status]
+    if caps_payload or data.gpu_status:
+        normalized = normalize_capabilities(caps_payload, reported_at=now)
+        peer.capabilities_json = normalized
+        peer.capabilities_reported_at = now
+
+
+def _apply_heartbeat_path(
+    peer: Peer, data: RoomNodeHeartbeatRequest, *, now: datetime
+) -> PathReport | None:
+    path_input = data.path
+    rtt_ms = data.coordinator_rtt_ms
+    if path_input is not None and path_input.coordinator_rtt_ms is not None:
+        rtt_ms = path_input.coordinator_rtt_ms
+    if path_input is None and rtt_ms is None:
+        return None
+    report = build_path_report(
+        path_type=path_input.path_type if path_input else None,
+        path_class=path_input.path_class if path_input else None,
+        coordinator_rtt_ms=rtt_ms,
+        measurement_kind=path_input.measurement_kind if path_input else None,
+        p2p_rtt_ms=path_input.p2p_rtt_ms if path_input else None,
+        bandwidth_mbps=path_input.bandwidth_mbps if path_input else None,
+        now=now,
+    )
+    peer.path_type = report.path_type
+    peer.path_class = report.path_class
+    peer.coordinator_rtt_ms = report.coordinator_rtt_ms
+    peer.path_freshness_at = report.freshness_at
+    peer.path_measurement_kind = report.measurement_kind
+    return report
+
+
+async def _resolve_heartbeat_transport_mode(
+    network_repo: VpnNetworkRepository,
+    room_id: str,
+    peer: Peer,
+) -> str:
+    transport_mode = "wireguard"
+    try:
+        room = await network_repo.get_by_id(room_id)
+        if room is not None:
+            transport_mode = getattr(room, "transport_mode", None) or "wireguard"
+    except AttributeError:
+        # Unit tests may inject a non-SQLAlchemy session stub without .execute.
+        linked = getattr(peer, "vpn_network", None)
+        if linked is not None:
+            transport_mode = getattr(linked, "transport_mode", None) or "wireguard"
+    return transport_mode
+
+
+def _apply_heartbeat_health(peer: Peer, *, now: datetime) -> HealthAssessment:
+    min_agent = (settings.vpn.min_compatible_agent_version or "").strip() or None
+    assessment = assess_provider_health(
+        online_status=peer.online_status,
+        last_seen=peer.last_seen,
+        revoked_at=getattr(peer, "revoked_at", None),
+        agent_version=getattr(peer, "agent_version", None),
+        capabilities_reported_at=getattr(peer, "capabilities_reported_at", None),
+        recent_failures=int(getattr(peer, "recent_failures", 0) or 0),
+        last_claim_at=getattr(peer, "last_claim_at", None),
+        min_compatible_agent_version=min_agent,
+        heartbeat_timeout_seconds=vpn_settings.heartbeat_timeout_seconds,
+        now=now,
+    )
+    peer.health_state = assessment.state
+    peer.health_reason = assessment.reason
+    return assessment
+
+
+async def _upsert_heartbeat_gpus(
+    gpu_repo: GpuShareRepository,
+    *,
+    peer_id: str,
+    room_id: str,
+    gpu_status: list,
+) -> None:
+    for gpu in gpu_status:
+        await gpu_repo.upsert(
+            peer_id=peer_id,
+            vpn_network_id=room_id,
+            gpu_data=gpu.model_dump(),
+        )
+
+
 @router.post("/{room_id}/nodes/{peer_id}/heartbeat", response_model=RoomNodeResponse)
-async def room_node_heartbeat(  # noqa: C901
+async def room_node_heartbeat(
     room_id: str,
     peer_id: str,
     data: RoomNodeHeartbeatRequest,
@@ -354,73 +455,15 @@ async def room_node_heartbeat(  # noqa: C901
     if not updated_peer:
         raise HTTPException(status_code=404, detail="Node not found")
 
-    if data.agent_version is not None:
-        updated_peer.agent_version = data.agent_version
-    if data.node_name is not None:
-        updated_peer.node_name = data.node_name
-    if data.provider_mode is not None:
-        updated_peer.provider_mode = data.provider_mode
+    _apply_heartbeat_identity(updated_peer, data)
 
     now = datetime.now(UTC)
-    caps_payload: dict = {}
-    if data.capabilities is not None:
-        caps_payload = data.capabilities.model_dump(exclude_none=True)
-    if data.gpu_status and "gpus" not in caps_payload:
-        caps_payload["gpus"] = [gpu.model_dump() for gpu in data.gpu_status]
-    if caps_payload or data.gpu_status:
-        normalized = normalize_capabilities(caps_payload, reported_at=now)
-        updated_peer.capabilities_json = normalized
-        updated_peer.capabilities_reported_at = now
-
-    path_input = data.path
-    rtt_ms = data.coordinator_rtt_ms
-    if path_input is not None and path_input.coordinator_rtt_ms is not None:
-        rtt_ms = path_input.coordinator_rtt_ms
-    if path_input is not None or rtt_ms is not None:
-        report = build_path_report(
-            path_type=path_input.path_type if path_input else None,
-            path_class=path_input.path_class if path_input else None,
-            coordinator_rtt_ms=rtt_ms,
-            measurement_kind=path_input.measurement_kind if path_input else None,
-            p2p_rtt_ms=path_input.p2p_rtt_ms if path_input else None,
-            bandwidth_mbps=path_input.bandwidth_mbps if path_input else None,
-            now=now,
-        )
-        updated_peer.path_type = report.path_type
-        updated_peer.path_class = report.path_class
-        updated_peer.coordinator_rtt_ms = report.coordinator_rtt_ms
-        updated_peer.path_freshness_at = report.freshness_at
-        updated_peer.path_measurement_kind = report.measurement_kind
-    else:
-        report = None
+    _apply_heartbeat_capabilities(updated_peer, data, now=now)
+    report = _apply_heartbeat_path(updated_peer, data, now=now)
 
     network_repo = VpnNetworkRepository(db)
-    transport_mode = "wireguard"
-    try:
-        room = await network_repo.get_by_id(room_id)
-        if room is not None:
-            transport_mode = getattr(room, "transport_mode", None) or "wireguard"
-    except AttributeError:
-        # Unit tests may inject a non-SQLAlchemy session stub without .execute.
-        linked = getattr(updated_peer, "vpn_network", None)
-        if linked is not None:
-            transport_mode = getattr(linked, "transport_mode", None) or "wireguard"
-
-    min_agent = (settings.vpn.min_compatible_agent_version or "").strip() or None
-    assessment = assess_provider_health(
-        online_status=updated_peer.online_status,
-        last_seen=updated_peer.last_seen,
-        revoked_at=getattr(updated_peer, "revoked_at", None),
-        agent_version=getattr(updated_peer, "agent_version", None),
-        capabilities_reported_at=getattr(updated_peer, "capabilities_reported_at", None),
-        recent_failures=int(getattr(updated_peer, "recent_failures", 0) or 0),
-        last_claim_at=getattr(updated_peer, "last_claim_at", None),
-        min_compatible_agent_version=min_agent,
-        heartbeat_timeout_seconds=vpn_settings.heartbeat_timeout_seconds,
-        now=now,
-    )
-    updated_peer.health_state = assessment.state
-    updated_peer.health_reason = assessment.reason
+    transport_mode = await _resolve_heartbeat_transport_mode(network_repo, room_id, updated_peer)
+    assessment = _apply_heartbeat_health(updated_peer, now=now)
 
     await db.commit()
     await db.refresh(updated_peer)
@@ -435,12 +478,9 @@ async def room_node_heartbeat(  # noqa: C901
         )
 
     gpu_repo = GpuShareRepository(db)
-    for gpu in data.gpu_status:
-        await gpu_repo.upsert(
-            peer_id=peer_id,
-            vpn_network_id=room_id,
-            gpu_data=gpu.model_dump(),
-        )
+    await _upsert_heartbeat_gpus(
+        gpu_repo, peer_id=peer_id, room_id=room_id, gpu_status=data.gpu_status
+    )
 
     refreshed_peer = await peer_repo.get_by_id(peer_id)
     if not refreshed_peer:

@@ -1,4 +1,4 @@
-"""Verify node-task lifecycle endpoints emit the matching room events."""
+"""Tests for node-task lifecycle room events and single terminal notify."""
 
 from __future__ import annotations
 
@@ -74,21 +74,9 @@ class FakeDb:
         return self.task
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("operation", "expected_event"),
-    [
-        ("accept", "room_task_claimed"),
-        ("start", "room_task_started"),
-        ("complete", "room_task_completed"),
-        ("fail", "room_task_failed"),
-    ],
-)
-async def test_node_task_lifecycle_emits_matching_room_event(
+def _prepare(
     monkeypatch: pytest.MonkeyPatch,
-    operation: str,
-    expected_event: str,
-) -> None:
+) -> tuple[SimpleNamespace, FakeDb, SimpleNamespace, AsyncMock, AsyncMock]:
     assignment = _assignment()
     assignment.is_terminal = False
     assignment.terminal_reason = None
@@ -106,12 +94,37 @@ async def test_node_task_lifecycle_emits_matching_room_event(
     monkeypatch.setattr(node_tasks, "NodeTaskRepository", lambda _db: repo)
     monkeypatch.setattr(node_tasks, "_emit_room_task_event", emit_event)
     monkeypatch.setattr(node_tasks, "notify_assignment_terminal", notify)
-    monkeypatch.setattr(node_tasks, "_notify_if_task_exists", notify)
+    return assignment, db, peer, emit_event, notify
 
-    if operation == "accept":
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("operation", "expected_event"),
+    [
+        ("claim", "room_task_claimed"),
+        ("accept", "room_task_claimed"),
+        ("start", "room_task_started"),
+        ("complete", "room_task_completed"),
+        ("fail", "room_task_failed"),
+    ],
+)
+async def test_node_task_lifecycle_emits_matching_room_event(
+    monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+    expected_event: str,
+) -> None:
+    assignment, db, peer, emit_event, notify = _prepare(monkeypatch)
+
+    if operation == "claim":
+        await node_tasks.claim_node_task("assignment-1", db=db, peer=peer)
+        emit_event.assert_awaited_once()
+        assert emit_event.await_args.kwargs["event_type"] == expected_event
+        notify.assert_not_awaited()
+    elif operation == "accept":
         await node_tasks.accept_node_task("assignment-1", db=db, peer=peer)
         emit_event.assert_awaited_once()
         assert emit_event.await_args.kwargs["event_type"] == expected_event
+        notify.assert_not_awaited()
     elif operation == "start":
         await node_tasks.start_node_task("assignment-1", db=db, peer=peer)
         emit_event.assert_awaited_once()
@@ -124,7 +137,8 @@ async def test_node_task_lifecycle_emits_matching_room_event(
             db=db,
             peer=peer,
         )
-        notify.assert_awaited()
+        notify.assert_awaited_once()
+        emit_event.assert_not_awaited()
     else:
         assignment.is_terminal = True
         await node_tasks.fail_node_task(
@@ -133,4 +147,38 @@ async def test_node_task_lifecycle_emits_matching_room_event(
             db=db,
             peer=peer,
         )
-        notify.assert_awaited()
+        notify.assert_awaited_once()
+        emit_event.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_claim_and_accept_share_room_event_type(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, db, peer, emit_event, _notify = _prepare(monkeypatch)
+    await node_tasks.claim_node_task("assignment-1", db=db, peer=peer)
+    claim_event = emit_event.await_args.kwargs["event_type"]
+
+    emit_event.reset_mock()
+    assignment2, db2, peer2, emit_event2, _ = _prepare(monkeypatch)
+    del assignment2
+    await node_tasks.accept_node_task("assignment-1", db=db2, peer=peer2)
+    accept_event = emit_event2.await_args.kwargs["event_type"]
+
+    assert claim_event == accept_event == "room_task_claimed"
+
+
+@pytest.mark.asyncio
+async def test_complete_notifies_assignment_terminal_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assignment, db, peer, emit_event, notify = _prepare(monkeypatch)
+    assignment.is_terminal = True
+    await node_tasks.complete_node_task(
+        "assignment-1",
+        node_tasks.CompleteNodeTaskRequest(result_metadata={"ok": True}),
+        db=db,
+        peer=peer,
+    )
+    notify.assert_awaited_once()
+    emit_event.assert_not_awaited()

@@ -78,7 +78,8 @@ class GPUSettings(BaseSettings):
 class AuthSettings(BaseSettings):
     """Authentication configuration."""
 
-    secret_key: str = Field(default="changeme-in-production")
+    # ≥32 bytes so HS256 (PyJWT) does not warn; override in every real deployment.
+    secret_key: str = Field(default="changeme-in-production-use-a-real-secret")
     algorithm: str = Field(default="HS256")
     access_token_expire_minutes: int = Field(default=1440)
     refresh_token_expire_days: int = Field(default=7)

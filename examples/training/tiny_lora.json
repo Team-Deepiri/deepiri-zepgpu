@@ -13,5 +13,11 @@
   "gradient_checkpointing": true,
   "seed": 42,
   "output_dir": "artifacts/training/tiny-lora-smoke",
-  "smoke_run": true
+  "smoke_run": true,
+  "lora": {
+    "rank": 8,
+    "alpha": 16,
+    "dropout": 0.05,
+    "fan_in_fan_out": true
+  }
 }

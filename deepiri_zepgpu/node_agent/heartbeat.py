@@ -25,8 +25,26 @@ logger = logging.getLogger(__name__)
 
 _TRANSIENT_ERRORS = (httpx.TimeoutException, httpx.NetworkError, httpx.HTTPStatusError)
 
-# Last measured provider↔coordinator RTT (ms), reported on the subsequent heartbeat.
-_last_coordinator_rtt_ms: float | None = None
+
+class HeartbeatRttTracker:
+    """Tracks the last measured provider↔coordinator RTT for the next heartbeat."""
+
+    def __init__(self) -> None:
+        self._last_rtt_ms: float | None = None
+
+    @property
+    def last_rtt_ms(self) -> float | None:
+        return self._last_rtt_ms
+
+    def record(self, rtt_ms: float) -> None:
+        self._last_rtt_ms = float(rtt_ms)
+
+    def clear(self) -> None:
+        self._last_rtt_ms = None
+
+
+# Module-level singleton used by send_heartbeat (encapsulated; not a bare global).
+_rtt_tracker = HeartbeatRttTracker()
 
 
 def build_heartbeat_payload(
@@ -114,14 +132,15 @@ def send_heartbeat(
     dry_run: bool = False,
     gpu_status: list[dict[str, Any]] | None = None,
     is_online: bool = True,
+    rtt_tracker: HeartbeatRttTracker | None = None,
 ) -> dict[str, Any] | None:
-    global _last_coordinator_rtt_ms
+    tracker = rtt_tracker if rtt_tracker is not None else _rtt_tracker
 
     payload = build_heartbeat_payload(
         config,
         gpu_status=gpu_status,
         is_online=is_online,
-        coordinator_rtt_ms=_last_coordinator_rtt_ms,
+        coordinator_rtt_ms=tracker.last_rtt_ms,
     )
 
     if dry_run:
@@ -136,7 +155,7 @@ def send_heartbeat(
         logger.error("Heartbeat failed: %s", exc)
         raise
 
-    _last_coordinator_rtt_ms = (time.perf_counter() - started) * 1000.0
+    tracker.record((time.perf_counter() - started) * 1000.0)
 
     if response.status_code >= 400:
         detail = response.text

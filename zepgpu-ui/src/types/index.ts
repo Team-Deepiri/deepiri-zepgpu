@@ -655,7 +655,7 @@ export interface Room {
   description: string | null
   host_id: string | null
   status: RoomStatus
-  transport_mode?: RoomTransportMode | string
+  transport_mode?: RoomTransportMode
   transport_experimental?: boolean
   requires_wireguard_udp?: boolean
   created_at: string
@@ -709,7 +709,9 @@ export interface RoomNodeCapabilities {
   cuda_version?: string | null
   pytorch_version?: string | null
   driver_version?: string | null
+  /** Agent-reported runtime inventory; shape varies by agent version. */
   runtime?: Record<string, unknown>
+  /** Agent-reported topology inventory; shape varies by agent version. */
   topology?: Record<string, unknown>
 }
 
@@ -733,7 +735,7 @@ export interface RoomNode {
   agent_version?: string | null
   provider_mode?: string | null
   revoked_at?: string | null
-  health_state?: RoomNodeHealthState | string | null
+  health_state?: RoomNodeHealthState | null
   health_reason?: string | null
   last_claim_at?: string | null
   recent_failures?: number
