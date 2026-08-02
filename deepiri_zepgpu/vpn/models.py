@@ -6,6 +6,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from deepiri_zepgpu.vpn.peer_protocol import ExecuteTaskMessage, TaskResultMessage
+
 
 class PeerBase(BaseModel):
     wireguard_public_key: str
@@ -153,20 +155,9 @@ class FriendListResponse(BaseModel):
     sent_requests: list[FriendResponse]
 
 
-class TaskExecutionRequest(BaseModel):
-    task_id: str
-    func_encoded: str
-    args_encoded: str
-    kwargs_encoded: str
-    gpu_device_id: int
-    gpu_memory_mb: int
-    timeout_seconds: int = 3600
+class TaskExecutionRequest(ExecuteTaskMessage):
+    """Compatibility name for the safe versioned peer request schema."""
 
 
-class TaskExecutionResponse(BaseModel):
-    task_id: str
-    success: bool
-    result_encoded: str | None = None
-    error: str | None = None
-    traceback: str | None = None
-    execution_time: float = 0.0
+class TaskExecutionResponse(TaskResultMessage):
+    """Compatibility name for the safe primitive peer result schema."""
