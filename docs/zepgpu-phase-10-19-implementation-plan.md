@@ -319,12 +319,12 @@ This phase absorbs the capability-inventory portion of the old Phase 15.
 
 ### 14.2 Routing Compatibility
 
-- [x] Preserve legacy WireGuard routing.
+- [x] Preserve legacy WireGuard configuration and supported routing.
 - [x] Formalize dial-out routing.
 - [x] Select strategy from room mode.
 - [x] Ensure dial-out requires no UDP 51820.
 - [x] Preserve WireGuard config generation.
-- [x] Quarantine legacy pickle execution to WireGuard-only generic tasks.
+- [x] Keep the legacy arbitrary-callable route disabled and fail-closed; use authenticated room node-task dispatch for generic tasks.
 - [x] Add a guard preventing training modules from using the legacy task router.
 
 ### 14.3 Provider Capability Inventory
