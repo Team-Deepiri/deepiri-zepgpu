@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { UserPlus } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { roomsApi } from '@/api/rooms'

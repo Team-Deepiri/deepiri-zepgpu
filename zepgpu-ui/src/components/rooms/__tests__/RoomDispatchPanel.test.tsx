@@ -49,10 +49,9 @@ describe('RoomDispatchPanel', () => {
 
     expect(screen.getByRole('heading', { name: /Dispatch task/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Auto-select GPU/i })).toBeInTheDocument()
-    expect(screen.getByLabelText(/Function/i)).toHaveValue('')
-    expect(screen.getByLabelText(/Function/i)).toHaveAttribute(
-      'placeholder',
-      'package.module.function',
+    expect(screen.getByLabelText(/Operation/i)).toHaveValue('')
+    expect(screen.getByLabelText(/Operation/i)).toHaveDisplayValue(
+      'Select an allowlisted operation',
     )
   })
 
@@ -62,7 +61,7 @@ describe('RoomDispatchPanel', () => {
       <RoomDispatchPanel roomId={fixtureRoom.id} onTaskDispatched={onTaskDispatched} />,
     )
 
-    await user.type(screen.getByLabelText(/Function/i), 'random.seed')
+    await user.selectOptions(screen.getByLabelText(/Operation/i), 'math.sqrt')
     await user.click(screen.getByRole('button', { name: /Dispatch to room/i }))
 
     await waitFor(() => {
@@ -70,7 +69,8 @@ describe('RoomDispatchPanel', () => {
         expect.objectContaining({
           room_id: fixtureRoom.id,
           dispatch_mode: 'room_auto',
-          func_name: 'random.seed',
+          func_name: 'math.sqrt',
+          args: [0],
         }),
       )
     })
@@ -112,17 +112,17 @@ describe('RoomDispatchPanel', () => {
     })
   })
 
-  it('shows required-field feedback for an empty function on blur', async () => {
+  it('shows required-field feedback for an empty operation on blur', async () => {
     const user = userEvent.setup()
     renderWithProviders(
       <RoomDispatchPanel roomId={fixtureRoom.id} onTaskDispatched={onTaskDispatched} />,
     )
 
-    const funcInput = screen.getByLabelText(/Function/i)
+    const funcInput = screen.getByLabelText(/Operation/i)
     await user.click(funcInput)
     await user.tab()
 
-    expect(await screen.findByText(/Function is required\./i)).toBeInTheDocument()
+    expect(await screen.findByText(/Operation is required\./i)).toBeInTheDocument()
     expect(funcInput).toHaveAttribute('aria-invalid', 'true')
   })
 

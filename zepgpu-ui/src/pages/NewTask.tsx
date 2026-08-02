@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { useMutation } from '@tanstack/react-query'
 import { tasksApi } from '@/api/client'
 import { DEFAULT_GPU_MEMORY_MB } from '@/constants/tasks'
@@ -33,6 +33,7 @@ export default function NewTask() {
     createMutation.mutate({
       name: formData.name || undefined,
       func_name: formData.func_name || undefined,
+      args: formData.func_name === 'math.sqrt' ? [0] : undefined,
       priority: formData.priority,
       gpu_memory_mb: formData.gpu_memory_mb,
       timeout_seconds: formData.timeout_seconds,
@@ -60,15 +61,16 @@ export default function NewTask() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">Function Name</label>
-            <input
-              type="text"
+            <label className="block text-sm font-medium text-slate-300 mb-2">Operation</label>
+            <select
               value={formData.func_name}
               onChange={(e) => setFormData({ ...formData, func_name: e.target.value })}
-              placeholder="my_module.my_function"
               required
               className="w-full px-4 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-zepgpu-500"
-            />
+            >
+              <option value="">Select an allowlisted operation</option>
+              <option value="math.sqrt">Square root</option>
+            </select>
           </div>
 
           <div className="grid grid-cols-2 gap-6">
