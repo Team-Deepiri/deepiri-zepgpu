@@ -133,33 +133,21 @@ async def test_emit_remote_task_update_logs_and_swallows_manager_errors(
 
 
 @pytest.mark.asyncio
-async def test_send_remote_task_callback_posts_payload(
+async def test_send_remote_task_callback_uses_safe_delivery(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls: list[tuple[str, dict[str, Any]]] = []
 
-    class FakeResponse:
-        def raise_for_status(self) -> None:
-            return None
-
-    class FakeAsyncClient:
-        def __init__(self, *, timeout: float) -> None:
-            self.timeout = timeout
-
-        async def __aenter__(self) -> FakeAsyncClient:
-            return self
-
-        async def __aexit__(self, *_args: Any) -> None:
-            return None
-
-        async def post(self, url: str, *, json: dict[str, Any]) -> FakeResponse:
-            calls.append((url, json))
-            return FakeResponse()
+    async def fake_deliver_callback(
+        url: str,
+        payload: dict[str, Any],
+    ) -> None:
+        calls.append((url, payload))
 
     monkeypatch.setattr(
-        remote_task_events.httpx,
-        "AsyncClient",
-        FakeAsyncClient,
+        remote_task_events,
+        "deliver_callback",
+        fake_deliver_callback,
     )
 
     await remote_task_events.send_remote_task_callback(
@@ -167,9 +155,32 @@ async def test_send_remote_task_callback_posts_payload(
         assignment=FakeAssignment(),  # type: ignore[arg-type]
     )
 
+    assert len(calls) == 1
     assert calls[0][0] == "http://callback.local/task"
     assert calls[0][1]["type"] == "task_update"
     assert calls[0][1]["task_id"] == "task-1"
+
+
+@pytest.mark.asyncio
+async def test_send_remote_task_callback_swallows_delivery_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def failing_deliver_callback(
+        _url: str,
+        _payload: dict[str, Any],
+    ) -> None:
+        raise RuntimeError("blocked callback")
+
+    monkeypatch.setattr(
+        remote_task_events,
+        "deliver_callback",
+        failing_deliver_callback,
+    )
+
+    await remote_task_events.send_remote_task_callback(
+        task=FakeTask(),  # type: ignore[arg-type]
+        assignment=FakeAssignment(),  # type: ignore[arg-type]
+    )
 
 
 @pytest.mark.asyncio

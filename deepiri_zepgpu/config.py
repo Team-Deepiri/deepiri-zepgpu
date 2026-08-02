@@ -185,6 +185,19 @@ class Settings(BaseSettings):
     default_timeout_seconds: int = Field(default=3600)
     default_gpu_memory_mb: int = Field(default=1024)
 
+    task_callback_allowed_hosts: str = Field(default="")
+    task_callback_allow_localhost: bool = Field(default=False)
+    task_callback_connect_timeout_seconds: float = Field(default=2.0, ge=0.1, le=10.0)
+    task_callback_read_timeout_seconds: float = Field(default=5.0, ge=0.1, le=15.0)
+    task_callback_write_timeout_seconds: float = Field(default=5.0, ge=0.1, le=15.0)
+    task_callback_pool_timeout_seconds: float = Field(default=2.0, ge=0.1, le=10.0)
+
+    def parsed_task_callback_allowed_hosts(self) -> tuple[str, ...]:
+        """Return the configured exact or wildcard callback host allowlist."""
+        return tuple(
+            host.strip() for host in self.task_callback_allowed_hosts.split(",") if host.strip()
+        )
+
 
 @lru_cache
 def get_settings() -> Settings:
