@@ -62,6 +62,9 @@ class CreateTrainingRunRequest(BaseModel):
         if len(self.provider_ids) != len(set(self.provider_ids)):
             raise ValueError("provider_ids must be unique")
         if self.config.distributed.enabled:
+            # Phase 17 contract is exactly two workers. Later phases should relax
+            # this via schema_version / phase-specific validation, not by widening
+            # this gate silently.
             if self.config.distributed.worker_count != 2:
                 raise ValueError("Phase 17 distributed runs require worker_count=2")
             if len(self.provider_ids) != 2:
@@ -270,7 +273,7 @@ async def create_training_run(
     run = await TrainingRunRepository(db).create(
         room_id=room_id,
         user_id=str(user.id),
-        config=request.config.model_dump(mode="json"),
+        config=request.config.to_public_dict(),
         provider_ids=provider_ids,
     )
     return _response(run)

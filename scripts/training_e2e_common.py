@@ -126,3 +126,11 @@ def smoke_training_config(
             overlap_mode=OverlapMode(overlap),
         ),
     )
+
+
+def run_reached_success(body: dict[str, Any]) -> bool:
+    """True when coordinator completed, or all workers completed (pre-reconcile heal)."""
+    if body.get("state") == "completed":
+        return True
+    workers = body.get("workers") or []
+    return bool(workers) and all(item.get("state") == "completed" for item in workers)

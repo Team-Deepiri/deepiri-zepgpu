@@ -472,6 +472,8 @@ This phase starts real training earlier. Full multi-GPU scheduling and reservati
 
 ## Phase 17: Two-Node WAN LoRA with Compressed Updates
 
+**Status:** Implemented for local/CI and same-host two-process/Docker e2e; cross-NAT Layer E remains a manual acceptance gate
+
 **Goal:** Run real two-node LoRA fine-tuning over consumer internet using compressed updates, communication overlap, and measured efficiency improvements.
 
 Container execution is supporting infrastructure; the main outcome is real WAN training.
@@ -518,9 +520,9 @@ Container execution is supporting infrastructure; the main outcome is real WAN t
 
 ### 17.6 Acceptance Criteria
 
-- Two NAT-friendly providers complete a short LoRA fine-tune.
+- Two NAT-friendly providers complete a short LoRA fine-tune. *(manual Layer E gate)*
 - Training uses binary compressed updates.
-- Direct and relay paths both work.
+- Direct and relay paths both work for in-process LAN channels; process/Docker e2e workers use HTTP relay (direct requires an injected LAN channel).
 - Bytes per round are below the documented naive baseline.
 - Communication-to-compute ratio is measured.
 - Quality remains within an agreed tolerance of Phase 15.

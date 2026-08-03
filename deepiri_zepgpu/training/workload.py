@@ -34,6 +34,9 @@ class TrainingWorkloadSpec(BaseModel):
     read_only_rootfs: bool = True
     # host:ip or host:host-gateway pairs passed as docker --add-host
     extra_hosts: list[str] = Field(default_factory=list)
+    # Optional docker --user value, e.g. "1000:1000". Prefer host uid:gid for
+    # bind mounts instead of world-writable chmod workarounds.
+    user: str | None = Field(default=None, max_length=64)
     work_dir: Path = Path("/workspace/run")
     checkpoint_mount: Path = Path("/workspace/checkpoints")
     artifact_mount: Path = Path("/workspace/artifacts")
@@ -51,12 +54,25 @@ class TrainingWorkloadSpec(BaseModel):
             raise ValueError("privileged training containers are not allowed")
         if not self.command:
             raise ValueError("command cannot be empty")
-        for host in (
+        if self.user is not None:
+            cleaned = self.user.strip()
+            # docker --user accepts uid, uid:gid, or user names; reject flags / blanks.
+            if not cleaned or cleaned.startswith("-") or any(ch.isspace() for ch in cleaned):
+                raise ValueError("user must be a docker --user spec like uid:gid")
+            if ":" in cleaned:
+                left, right = cleaned.split(":", 1)
+                if not left or not right or "/" in cleaned:
+                    raise ValueError("user must be a docker --user spec like uid:gid")
+            self.user = cleaned
+        host_mounts = (
             self.host_work_dir,
             self.host_checkpoint_dir,
             self.host_artifact_dir,
             self.host_log_dir,
-        ):
+        )
+        if any(host is not None for host in host_mounts) and self.user is None:
+            raise ValueError("user (docker --user) is required when host mounts are set")
+        for host in host_mounts:
             if host is not None:
                 self._assert_safe_host_mount(host)
         return self

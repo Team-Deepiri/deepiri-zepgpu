@@ -42,7 +42,7 @@ class TrainingRuntime:
         docker_bin: str = "docker",
         trust_policy: ImageTrustPolicy | None = None,
         allowlist_path: Path | None = None,
-        allow_missing_allowlist: bool | None = None,
+        allow_missing_allowlist: bool = False,
     ) -> None:
         self.docker_bin = docker_bin
         path = allowlist_path or DEFAULT_ALLOWLIST_PATH
@@ -51,16 +51,12 @@ class TrainingRuntime:
         elif path.exists():
             self.trust_policy = ImageTrustPolicy.from_file(path)
         else:
-            # Fail closed outside explicit local/dev override.
-            allow_missing = (
-                allow_missing_allowlist
-                if allow_missing_allowlist is not None
-                else os.getenv("ZEPGPU_TRAINING_DEV", "").strip() in {"1", "true", "yes"}
-            )
-            if not allow_missing:
+            # Fail closed by default. Callers may pass allow_missing_allowlist=True
+            # only for explicit local experiments (never the secure default).
+            if not allow_missing_allowlist:
                 raise TrainingRuntimeError(
                     f"training image allowlist missing at {path}; "
-                    "refusing to start (set ZEPGPU_TRAINING_DEV=1 only for local experiments)"
+                    "refusing to start (pass allow_missing_allowlist=True only for local experiments)"
                 )
             self.trust_policy = ImageTrustPolicy({"zepgpu-training:local"})
         self._handles: dict[str, RuntimeHandle] = {}
@@ -83,6 +79,8 @@ class TrainingRuntime:
             str(spec.cpu_limit),
         ]
         # Explicitly never pass --privileged.
+        if spec.user:
+            cmd.extend(["--user", spec.user])
         if spec.read_only_rootfs:
             cmd.append("--read-only")
             cmd.extend(["--tmpfs", "/tmp:rw,noexec,nosuid,size=512m"])

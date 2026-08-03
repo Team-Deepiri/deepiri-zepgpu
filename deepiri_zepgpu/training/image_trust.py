@@ -25,17 +25,13 @@ class ImageTrustPolicy:
             if not stripped or stripped.startswith("#"):
                 continue
             allowed.add(stripped)
+        if not allowed:
+            raise ImageTrustError(f"image allowlist is empty: {path}")
         return cls(allowed)
 
     def is_trusted(self, image: str) -> bool:
-        image = image.strip()
-        if image in self.allowed:
-            return True
-        # Digest form repo@sha256:... or tag form.
-        if "@" in image:
-            return image in self.allowed
-        # Allow exact tag matches only; no prefix wildcards in MVP.
-        return False
+        # Exact tag or digest matches only; no prefix wildcards in MVP.
+        return image.strip() in self.allowed
 
     def assert_trusted(self, image: str) -> None:
         if not self.is_trusted(image):

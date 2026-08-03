@@ -55,6 +55,9 @@ env/
 .env
 .env.local
 .env.*.local
+.env.prod
+docker/.env.prod
+**/.env.prod
 
 # OS
 .DS_Store

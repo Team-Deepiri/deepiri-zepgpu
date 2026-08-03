@@ -7,6 +7,7 @@ import time
 import uuid
 from contextlib import suppress
 from datetime import UTC, datetime
+from functools import lru_cache
 from importlib import import_module
 from typing import Any
 
@@ -37,6 +38,7 @@ def _restore_rng_state(torch: Any, state: dict[str, Any]) -> None:
         torch.cuda.set_rng_state_all([item.cpu() for item in state["cuda_rng_states"]])
 
 
+@lru_cache(maxsize=1)
 def _imports() -> tuple[Any, Any, Any]:
     try:
         import peft
