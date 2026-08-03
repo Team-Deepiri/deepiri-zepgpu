@@ -801,3 +801,71 @@ async def test_redis_backend_idempotency_corruption_limits_and_ttl() -> None:
 
 def test_relay_routes_use_native_async_io() -> None:
     assert not hasattr(training_routes, "run_in_threadpool")
+
+
+@pytest.mark.asyncio
+async def test_phase17_http_relay_sync_orchestrator_roundtrip(training_context) -> None:
+    """Two SyncOrchestrators exchange compressed deltas via coordinator HTTP relay."""
+    import numpy as np
+
+    from deepiri_zepgpu.training.config import CompressionConfig, CompressorBackend
+    from deepiri_zepgpu.training.sync import InMemoryTransferIdBus, SyncOrchestrator
+    from deepiri_zepgpu.training.transport import (
+        HttpRelayChannel,
+        PcclDirectChannel,
+        TransferManager,
+    )
+
+    context = training_context
+    run = await create_run(context)
+    workers, credentials = await issue_credentials(context, run)
+    peer0, peer1 = context.peer_ids
+    w0, w1 = workers[peer0], workers[peer1]
+    bus = InMemoryTransferIdBus()
+    compression = CompressionConfig(backend=CompressorBackend.ZEP, top_k=8, chunk_size=32)
+
+    left_relay = HttpRelayChannel(
+        base_url="http://test",
+        peer_id=peer0,
+        credential=credentials[peer0],
+        chunk_size=64,
+        client=context.client,
+    )
+    right_relay = HttpRelayChannel(
+        base_url="http://test",
+        peer_id=peer1,
+        credential=credentials[peer1],
+        chunk_size=64,
+        client=context.client,
+    )
+    left = SyncOrchestrator.from_compression_config(
+        room_id=context.room_id,
+        run_id=run["id"],
+        worker_id=w0,
+        peer_worker_id=w1,
+        transfer_manager=TransferManager(
+            direct=PcclDirectChannel(sender=None), relay=left_relay, max_retries=0
+        ),
+        compression=compression,
+        transfer_bus=bus,
+    )
+    right = SyncOrchestrator.from_compression_config(
+        room_id=context.room_id,
+        run_id=run["id"],
+        worker_id=w1,
+        peer_worker_id=w0,
+        transfer_manager=TransferManager(
+            direct=PcclDirectChannel(sender=None), relay=right_relay, max_retries=0
+        ),
+        compression=compression,
+        transfer_bus=bus,
+    )
+    d0 = {"a": np.ones(64, dtype=np.float32)}
+    d1 = {"a": np.full(64, 5.0, dtype=np.float32)}
+    r0, r1 = await asyncio.gather(
+        left.sync_round(1, d0, prefer_relay_download=True),
+        right.sync_round(1, d1, prefer_relay_download=True),
+    )
+    assert r0.path == "relay"
+    assert r1.path == "relay"
+    assert np.allclose(r0.averaged["a"], r1.averaged["a"])

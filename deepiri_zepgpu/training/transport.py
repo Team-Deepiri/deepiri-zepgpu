@@ -48,8 +48,25 @@ class InMemoryDirectChannel:
         await receiver(encoded)
 
 
+class DelayedDirectChannel:
+    """Test double that adds send latency so overlap metrics can be asserted."""
+
+    def __init__(self, inner: InMemoryDirectChannel, *, delay_seconds: float) -> None:
+        if delay_seconds < 0:
+            raise ValueError("delay_seconds cannot be negative")
+        self.inner = inner
+        self.delay_seconds = delay_seconds
+
+    def register(self, worker_id: str, receiver: Callable[[bytes], Awaitable[None]]) -> None:
+        self.inner.register(worker_id, receiver)
+
+    async def send(self, target_worker_id: str, encoded: bytes) -> None:
+        await asyncio.sleep(self.delay_seconds)
+        await self.inner.send(target_worker_id, encoded)
+
+
 class PcclDirectChannel:
-    """Phase 16 adapter boundary for a future asynchronous PCCL sender.
+    """Optional PCCL direct backend (Phase 16 adapter, Phase 17 first-class switch).
 
     ``sender`` must be an async callable accepting the assigned target worker ID and the
     unmodified ``BinaryEnvelope.encode()`` bytes. The envelope carries the room, run,
@@ -62,21 +79,45 @@ class PcclDirectChannel:
     ``DirectUnavailable`` when the direct path cannot be established. Only those two failures are
     retried and may fall back to the coordinator relay. Other failures propagate without fallback.
     Direct delivery acknowledgement, if the eventual PCCL protocol requires one, is the sender's
-    responsibility before this coroutine returns; there is no separate Phase 16 PCCL ack API.
+    responsibility before this coroutine returns.
 
-    ``TransferManager`` records path, byte, duration, and retry metrics, while a concrete sender is
-    responsible for any PCCL-specific metrics. The callable must remain non-blocking/async; any
-    blocking PCCL binding must manage its own thread boundary. Phase 16 does not bundle or claim a
-    PCCL networking implementation.
+    Configure via ``direct_backend=pccl`` and inject a real PCCL sender when available. Tests may
+    pass an in-process sender. ZepGPU does not bundle a full PCCL networking stack.
     """
 
-    def __init__(self, sender: Callable[[str, bytes], Awaitable[None]] | None = None) -> None:
+    def __init__(
+        self,
+        sender: Callable[[str, bytes], Awaitable[None]] | None = None,
+        *,
+        enabled: bool = True,
+    ) -> None:
         self.sender = sender
+        self.enabled = enabled
 
     async def send(self, target_worker_id: str, encoded: bytes) -> None:
+        if not self.enabled:
+            raise DirectUnavailable("PCCL direct channel is disabled")
         if self.sender is None:
             raise DirectUnavailable("PCCL direct channel is not configured")
         await self.sender(target_worker_id, encoded)
+
+
+def try_import_pccl_sender() -> Callable[[str, bytes], Awaitable[None]] | None:
+    """Return a PCCL sender if an optional ``pccl`` module exposes ``send_envelope``."""
+    try:
+        import pccl
+    except ImportError:
+        return None
+    sender = getattr(pccl, "send_envelope", None)
+    if sender is None or not callable(sender):
+        return None
+
+    async def _send(target_worker_id: str, encoded: bytes) -> None:
+        result = sender(target_worker_id, encoded)
+        if asyncio.iscoroutine(result):
+            await result
+
+    return _send
 
 
 class InMemoryRelayChannel:
@@ -104,7 +145,31 @@ class InMemoryRelayChannel:
                 envelope.transfer_id, index, encoded[start : start + self.chunk_size]
             )
         self.store.complete(envelope.transfer_id)
-        return self.store.receive(envelope.transfer_id, target_worker_id)
+        # Do not consume here — the target worker downloads explicitly so both
+        # in-memory and HTTP relay share the same send/download protocol.
+        _ = target_worker_id
+        return None
+
+    async def download(
+        self,
+        transfer_id: str,
+        *,
+        room_id: str,
+        run_id: str,
+        source_worker_id: str,
+        round_number: int,
+        target_worker_id: str | None = None,
+    ) -> BinaryEnvelope:
+        if not target_worker_id:
+            raise ValueError("InMemoryRelayChannel.download requires target_worker_id")
+        envelope = self.store.receive(transfer_id, target_worker_id)
+        if envelope.room_id != room_id or envelope.run_id != run_id:
+            raise EnvelopeError("relay download scope mismatch")
+        if envelope.worker_id != source_worker_id:
+            raise EnvelopeError("relay download source worker mismatch")
+        if envelope.round != round_number:
+            raise EnvelopeError("relay download round mismatch")
+        return envelope
 
 
 class HttpRelayChannel:
@@ -202,7 +267,9 @@ class HttpRelayChannel:
         run_id: str,
         source_worker_id: str,
         round_number: int,
+        target_worker_id: str | None = None,
     ) -> BinaryEnvelope:
+        _ = target_worker_id  # Authorized via peer credential on the coordinator.
         headers = {"ZepGPU-Room-ID": room_id}
         response = await self._request("GET", self._url(transfer_id, "/payload"), headers=headers)
         envelope = BinaryEnvelope.decode(

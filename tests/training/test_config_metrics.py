@@ -24,8 +24,9 @@ def test_config_validation_and_qlora_defaults() -> None:
         TrainingRunConfig(load_in_4bit=True)
     with pytest.raises(ValidationError):
         TrainingRunConfig(sequence_length=2)
+    assert TrainingRunConfig.model_validate({"schema_version": 2}).schema_version == 2
     with pytest.raises(ValidationError):
-        TrainingRunConfig.model_validate({"schema_version": 2})
+        TrainingRunConfig.model_validate({"schema_version": 3})
     with pytest.raises(ValidationError):
         DatasetConfig(texts=[])
     with pytest.raises(ValidationError):
@@ -81,6 +82,7 @@ def test_ratio_math_and_single_node_metrics() -> None:
     assert metrics.tokens_per_second == 50
     assert metrics.samples_per_second == 1
     assert metrics.sync_seconds == 0
+    assert metrics.blocked_sync_seconds == 0
     assert metrics.bytes_sent == 0
     assert metrics.bytes_received == 0
     assert metrics.communication_compute_ratio == 0

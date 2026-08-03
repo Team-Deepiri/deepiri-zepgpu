@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "kind": "phase17_wan_smoke_recorded",
+  "notes": "In-process two-worker CPU smoke with ZepCompressor (backend=zep). Loss is recorded for comparison only; no relative Phase 15 hard gate.",
+  "quality_policy": "Record comparison only. Fail only on non-finite loss, non-completion, or toy compressor non-convergence.",
+  "config": {
+    "model": "hf-internal-testing/tiny-random-gpt2",
+    "device": "cpu",
+    "precision": "fp32",
+    "worker_count": 2,
+    "local_steps_per_round": 1,
+    "max_rounds": 2,
+    "compressor": "zep",
+    "direct_backend": "memory"
+  },
+  "naive_baseline_ref": "docs/baselines/phase17_naive_fp_bytes.json",
+  "phase15_baseline_ref": "docs/baselines/phase15_tiny_lora_rtx4050.json"
+}

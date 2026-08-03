@@ -11,7 +11,10 @@ def test_training_package_isolated_from_pickle_task_router() -> None:
         "deepiri_zepgpu.queue.tasks",
     }
     violations: list[str] = []
-    for path in package.glob("*.py"):
+    for path in package.rglob("*.py"):
+        if "vendor" in path.parts:
+            # Vendored upstream reference may mention dist APIs; still ban pickle router.
+            pass
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
