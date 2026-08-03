@@ -7,7 +7,7 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Protocol, cast
 
 import numpy as np
 
@@ -263,14 +263,14 @@ class SyncOrchestrator:
             raise SyncError("transfer bus is required for relay download sync")
         relay = self.transfer_manager.relay
         download = getattr(relay, "download", None)
-        if download is None:
+        if not callable(download):
             raise SyncError("relay channel does not support download()")
         peer_transfer_id = await self.transfer_bus.wait(
             round_number,
             self.peer_worker_id,
             timeout_seconds=self.peer_wait_timeout_seconds,
         )
-        return await download(
+        envelope = await cast(Callable[..., Awaitable[BinaryEnvelope]], download)(
             peer_transfer_id,
             room_id=self.room_id,
             run_id=self.run_id,
@@ -278,14 +278,17 @@ class SyncOrchestrator:
             round_number=round_number,
             target_worker_id=self.worker_id,
         )
+        return envelope
 
     async def _run_overlap_work(self, overlap_work: OverlapWork | None) -> float:
         if self.overlap_mode != OverlapMode.EAGER or overlap_work is None:
             return 0.0
         started = time.perf_counter()
         result = overlap_work()
-        if asyncio.iscoroutine(result) or asyncio.isfuture(result):
-            await result  # type: ignore[misc]
+        if asyncio.iscoroutine(result):
+            await result
+        elif asyncio.isfuture(result):
+            await cast(Awaitable[None], result)
         return time.perf_counter() - started
 
     async def sync_round(

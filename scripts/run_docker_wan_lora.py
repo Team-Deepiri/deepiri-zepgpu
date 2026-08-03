@@ -102,7 +102,7 @@ async def wait_run_state(
             f"/api/v1/training-runs/{run_id}", headers=auth_headers(owner_token)
         )
         inspect.raise_for_status()
-        body = inspect.json()
+        body = dict(inspect.json())
         state = str(body.get("state"))
         if state in wanted:
             return body
@@ -118,9 +118,11 @@ async def main_async(args: argparse.Namespace) -> int:
     suffix = uuid.uuid4().hex[:8]
     password = args.password
     runtime = TrainingRuntime(
-        trust_policy=ImageTrustPolicy.from_file(args.allowlist)
-        if args.allowlist.exists()
-        else ImageTrustPolicy({args.image}),
+        trust_policy=(
+            ImageTrustPolicy.from_file(args.allowlist)
+            if args.allowlist.exists()
+            else ImageTrustPolicy({args.image})
+        ),
         allow_missing_allowlist=True,
     )
     handles: list[Any] = []
@@ -256,9 +258,7 @@ async def main_async(args: argparse.Namespace) -> int:
                         inspect.raise_for_status()
                         body = inspect.json()
                         worker0 = next(
-                            item
-                            for item in body["workers"]
-                            if item["peer_id"] == peer_ids[0]
+                            item for item in body["workers"] if item["peer_id"] == peer_ids[0]
                         )
                         if worker0.get("ready_at"):
                             break

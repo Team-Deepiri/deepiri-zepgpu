@@ -56,6 +56,21 @@ def test_secret_filter_is_recursive() -> None:
     }
 
 
+def test_public_config_dict_redacts_secrets_and_runtime_env() -> None:
+    config = TrainingRunConfig(
+        distributed={
+            "enabled": True,
+            "runtime": {"environment": {"HF_TOKEN": "hf_secret", "SAFE": "1"}},
+        }
+    )
+    public = config.to_public_dict()
+    assert public["distributed"]["runtime"]["environment"] == {}
+    # Credential-like keys elsewhere are still redacted.
+    leaked = filter_secrets({"run_credential": "abc", "ok": 1})
+    assert leaked["run_credential"] == "[REDACTED]"
+    assert leaked["ok"] == 1
+
+
 def test_ratio_math_and_single_node_metrics() -> None:
     now = datetime.now(UTC)
     metrics = TrainingMetrics(

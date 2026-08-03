@@ -307,11 +307,13 @@ async def run_two_worker_training_async(
                 raise DistributedAbortError("training aborted before round start")
             before = [_adapter_state_dict(model) for model in models]
             # Concurrent local steps on CPU; keep CUDA sequential for device safety.
+            rank_steps: list[list[StepMetric]]
             if device.type == "cpu":
-                rank_steps = await asyncio.gather(
+                left_steps, right_steps = await asyncio.gather(
                     asyncio.to_thread(_train_rank, 0, round_number),
                     asyncio.to_thread(_train_rank, 1, round_number),
                 )
+                rank_steps = [left_steps, right_steps]
             else:
                 rank_steps = [_train_rank(0, round_number), _train_rank(1, round_number)]
             for rank, steps in enumerate(rank_steps):
@@ -491,11 +493,14 @@ async def run_two_worker_training_async(
         "naive": naive,
         "latest_checkpoints": latest_checkpoints,
         "worker_metrics": [metrics.model_dump(mode="json") for metrics in metrics_pair],
-        "config": filter_secrets(config.model_dump(mode="json")),
+        "config": config.to_public_dict(),
+        "config_redacted": True,
         "runner": "in_process_memory",
         "direct_backend_actual": actual_direct_backend,
     }
+    # Persist only the already-redacted public view (never raw TrainingRunConfig).
+    public_bundle = filter_secrets(bundle)
     (Path(config.output_dir) / "comparison_bundle.json").write_text(
-        json.dumps(bundle, indent=2), encoding="utf-8"
+        json.dumps(public_bundle, indent=2), encoding="utf-8"
     )
-    return metrics_pair[0], metrics_pair[1], bundle
+    return metrics_pair[0], metrics_pair[1], public_bundle

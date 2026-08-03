@@ -306,14 +306,16 @@ async def run_worker(work_dir: Path, *, base_url: str) -> TrainingMetrics:
                     }
                 )
 
-                async def _ckpt() -> None:
+                async def _ckpt(
+                    checkpoint_round: int = round_number,
+                ) -> None:
                     _checkpoint(
                         torch=torch,
                         model=model,
                         optimizer=optimizer,
                         config=config,
                         run_id=run_id,
-                        step=round_number * config.distributed.local_steps_per_round,
+                        step=checkpoint_round * config.distributed.local_steps_per_round,
                     )
 
                 if (
@@ -359,7 +361,9 @@ async def run_worker(work_dir: Path, *, base_url: str) -> TrainingMetrics:
             )
             assert_catastrophic_quality(metrics)
             metrics.write_json(config.output_dir / "metrics.json")
-            (config.output_dir / "summary.txt").write_text(metrics.summary() + "\n", encoding="utf-8")
+            (config.output_dir / "summary.txt").write_text(
+                metrics.summary() + "\n", encoding="utf-8"
+            )
             await worker.complete({"artifact_ref": str(final_dir)})
             return metrics
         finally:

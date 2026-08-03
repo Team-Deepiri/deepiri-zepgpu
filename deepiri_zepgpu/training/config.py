@@ -184,8 +184,19 @@ class TrainingRunConfig(BaseModel):
 
     def write_json(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        serialized = filter_secrets(self.model_dump(mode="json"))
-        path.write_text(json.dumps(serialized, indent=2), encoding="utf-8")
+        path.write_text(json.dumps(self.to_public_dict(), indent=2), encoding="utf-8")
+
+    def to_public_dict(self) -> dict[str, Any]:
+        """Serialize config for disk/logs with credentials and runtime env removed."""
+        payload = filter_secrets(self.model_dump(mode="json"))
+        assert isinstance(payload, dict)
+        distributed = payload.get("distributed")
+        if isinstance(distributed, dict):
+            runtime = distributed.get("runtime")
+            if isinstance(runtime, dict):
+                # Env may hold opaque secrets under non-matching key names.
+                runtime["environment"] = {}
+        return payload
 
     def codec_id(self) -> str:
         backend = self.distributed.compression.backend
