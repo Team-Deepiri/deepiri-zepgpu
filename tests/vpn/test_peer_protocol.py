@@ -173,6 +173,28 @@ def test_rejects_unsupported_version_and_unknown_kind(
     assert response.json()["detail"] == expected_detail
 
 
+@pytest.mark.parametrize("kind", [{}, []])
+def test_rejects_non_string_message_kind(
+    client: TestClient,
+    kind: object,
+) -> None:
+    response = _post(
+        client,
+        _mutated_bytes(_request_message(), kind=kind),
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Peer message kind must be a string"
+
+
+def test_rejects_deeply_nested_json_without_recursion_error() -> None:
+    depth = 2000
+    raw = b'{"version":1,"kind":' + (b"[" * depth) + b"0" + (b"]" * depth) + b"}"
+    assert len(raw) < MAX_ENCODED_MESSAGE_SIZE
+
+    with pytest.raises(ProtocolError, match="nesting depth"):
+        decode_message(raw, secret=TOKEN)
+
+
 def test_rejects_missing_required_field(client: TestClient) -> None:
     payload = _request_message().model_dump(mode="json")
     payload.pop("task_id")

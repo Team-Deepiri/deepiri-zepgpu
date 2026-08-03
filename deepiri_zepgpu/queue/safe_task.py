@@ -10,6 +10,7 @@ from typing import Any
 
 MAX_TASK_ARGUMENT_BYTES = 64 * 1024
 MAX_TASK_RESULT_BYTES = 1024 * 1024
+MAX_JSON_NESTING_DEPTH = 100
 
 
 class UnsafeTaskPayloadError(ValueError):
@@ -28,11 +29,14 @@ def allowed_operation_names() -> tuple[str, ...]:
     return tuple(_OPERATIONS)
 
 
-def validate_operation(func_name: str | None, serialized_func: str | bytes | None = None) -> str:
+def validate_operation(
+    func_name: str | None,
+    serialized_func: str | bytes | None = None,
+) -> str:
     """Validate an allowlisted operation and reject executable-object payloads."""
     if serialized_func:
         raise UnsafeTaskPayloadError(
-            "Serialized Python callables are no longer accepted; use an allowlisted operation"
+            "Serialized Python callables are no longer accepted; " "use an allowlisted operation"
         )
     if func_name not in _OPERATIONS:
         allowed = ", ".join(allowed_operation_names())
@@ -75,11 +79,51 @@ def _encode_json(value: Any, *, maximum: int, label: str) -> bytes:
     return encoded
 
 
+def _validate_json_nesting(
+    text: str,
+    *,
+    maximum_depth: int,
+    label: str,
+) -> None:
+    """Reject excessively nested JSON before invoking the platform decoder."""
+    depth = 0
+    in_string = False
+    escaped = False
+
+    for character in text:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                in_string = False
+            continue
+
+        if character == '"':
+            in_string = True
+            continue
+
+        depth = _advance_json_depth(
+            character,
+            depth=depth,
+            maximum_depth=maximum_depth,
+            label=label,
+        )
+        if depth < 0:
+            return
+
+
 def _decode_json(data: bytes, *, maximum: int, label: str) -> Any:
     if len(data) > maximum:
         raise UnsafeTaskPayloadError(f"{label} exceeds the {maximum}-byte limit")
     try:
         text = data.decode("utf-8", errors="strict")
+        _validate_json_nesting(
+            text,
+            maximum_depth=MAX_JSON_NESTING_DEPTH,
+            label=label,
+        )
         return json.loads(
             text,
             object_pairs_hook=_object_from_pairs,
@@ -87,7 +131,12 @@ def _decode_json(data: bytes, *, maximum: int, label: str) -> Any:
         )
     except UnsafeTaskPayloadError:
         raise
-    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+    except (
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        ValueError,
+        RecursionError,
+    ) as exc:
         raise UnsafeTaskPayloadError(f"{label} is not valid strict JSON") from exc
 
 
@@ -97,8 +146,16 @@ def encode_task_arguments(
 ) -> tuple[bytes, bytes]:
     """Encode primitive task inputs for database persistence."""
     return (
-        _encode_json(list(args or ()), maximum=MAX_TASK_ARGUMENT_BYTES, label="Task arguments"),
-        _encode_json(dict(kwargs or {}), maximum=MAX_TASK_ARGUMENT_BYTES, label="Task keywords"),
+        _encode_json(
+            list(args or ()),
+            maximum=MAX_TASK_ARGUMENT_BYTES,
+            label="Task arguments",
+        ),
+        _encode_json(
+            dict(kwargs or {}),
+            maximum=MAX_TASK_ARGUMENT_BYTES,
+            label="Task keywords",
+        ),
     )
 
 
@@ -108,10 +165,14 @@ def decode_task_arguments(
 ) -> tuple[list[Any], dict[str, Any]]:
     """Decode persisted primitive task inputs without object construction hooks."""
     decoded_args = _decode_json(
-        args or b"[]", maximum=MAX_TASK_ARGUMENT_BYTES, label="Task arguments"
+        args or b"[]",
+        maximum=MAX_TASK_ARGUMENT_BYTES,
+        label="Task arguments",
     )
     decoded_kwargs = _decode_json(
-        kwargs or b"{}", maximum=MAX_TASK_ARGUMENT_BYTES, label="Task keywords"
+        kwargs or b"{}",
+        maximum=MAX_TASK_ARGUMENT_BYTES,
+        label="Task keywords",
     )
     if not isinstance(decoded_args, list) or not isinstance(decoded_kwargs, dict):
         raise UnsafeTaskPayloadError("Task arguments must be a list and keywords must be an object")
@@ -120,9 +181,33 @@ def decode_task_arguments(
 
 def encode_task_result(result: Any) -> bytes:
     """Encode a worker result as bounded JSON primitives."""
-    return _encode_json(result, maximum=MAX_TASK_RESULT_BYTES, label="Task result")
+    return _encode_json(
+        result,
+        maximum=MAX_TASK_RESULT_BYTES,
+        label="Task result",
+    )
 
 
 def decode_task_result(data: bytes) -> Any:
     """Decode a bounded primitive task result for the API response."""
-    return _decode_json(data, maximum=MAX_TASK_RESULT_BYTES, label="Task result")
+    return _decode_json(
+        data,
+        maximum=MAX_TASK_RESULT_BYTES,
+        label="Task result",
+    )
+
+
+def _advance_json_depth(
+    character: str,
+    *,
+    depth: int,
+    maximum_depth: int,
+    label: str,
+) -> int:
+    if character in "[{":
+        depth += 1
+        if depth > maximum_depth:
+            raise UnsafeTaskPayloadError(f"{label} exceeds the maximum JSON nesting depth")
+    elif character in "]}":
+        depth -= 1
+    return depth

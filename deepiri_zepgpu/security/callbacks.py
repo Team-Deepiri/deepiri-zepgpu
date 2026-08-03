@@ -16,6 +16,7 @@ from deepiri_zepgpu.config import settings
 
 IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
 _HOST_LABEL = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+_NAT64_WELL_KNOWN_PREFIX = ipaddress.ip_network("64:ff9b::/96")
 
 
 class CallbackURLValidationError(ValueError):
@@ -63,8 +64,24 @@ def _allowed_host(hostname: str, allowed_hosts: Iterable[str]) -> bool:
     return False
 
 
+def _embedded_ipv4(address: ipaddress.IPv6Address) -> ipaddress.IPv4Address | None:
+    """Extract IPv4 addresses embedded in supported IPv6 representations."""
+    if address.ipv4_mapped is not None:
+        return address.ipv4_mapped
+
+    if address in _NAT64_WELL_KNOWN_PREFIX:
+        return ipaddress.IPv4Address(int(address) & 0xFFFFFFFF)
+
+    return None
+
+
 def _blocked_address_reason(address: IPAddress) -> str | None:
-    candidate: IPAddress = address.ipv4_mapped or address if address.version == 6 else address
+    candidate: IPAddress = address
+    if isinstance(candidate, ipaddress.IPv6Address):
+        embedded = _embedded_ipv4(candidate)
+        if embedded is not None:
+            candidate = embedded
+
     if candidate.is_loopback:
         return "loopback"
     if candidate.is_private:
@@ -213,7 +230,7 @@ async def deliver_callback(callback_url: str, payload: Mapping[str, Any]) -> Non
             ) as client,
             client.stream("POST", validated_url, json=dict(payload)) as response,
         ):
-            if response.is_redirect:
+            if 300 <= response.status_code < 400:
                 raise CallbackDeliveryError(
                     "callback returned a redirect; redirects are not followed"
                 )

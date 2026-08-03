@@ -19,6 +19,7 @@ MAX_GPU_MEMORY_MB = 1024 * 1024
 MAX_TIMEOUT_SECONDS = 24 * 60 * 60
 MESSAGE_MAX_AGE_SECONDS = 5 * 60
 MESSAGE_FUTURE_SKEW_SECONDS = 30
+MAX_JSON_NESTING_DEPTH = 100
 
 _UUID_PATTERN = r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-" r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 _SHA256_PATTERN = r"^[0-9a-f]{64}$"
@@ -263,7 +264,34 @@ def _decode_utf8(raw: bytes) -> str:
     return text
 
 
+def _validate_json_nesting(text: str) -> None:
+    """Reject excessively nested JSON before invoking the platform decoder."""
+    depth = 0
+    in_string = False
+    escaped = False
+
+    for character in text:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                in_string = False
+            continue
+
+        if character == '"':
+            in_string = True
+            continue
+
+        depth = _advance_json_depth(character, depth=depth)
+        if depth < 0:
+            return
+
+
 def _parse_json_object(text: str) -> dict[str, Any]:
+    _validate_json_nesting(text)
+
     decoder = json.JSONDecoder(
         object_pairs_hook=_object_from_pairs,
         parse_constant=_reject_constant,
@@ -272,7 +300,7 @@ def _parse_json_object(text: str) -> dict[str, Any]:
         payload, end = decoder.raw_decode(text)
     except ProtocolError:
         raise
-    except (json.JSONDecodeError, ValueError) as exc:
+    except (json.JSONDecodeError, ValueError, RecursionError) as exc:
         raise ProtocolError("Peer message is malformed JSON") from exc
     if end != len(text):
         raise ProtocolError("Trailing bytes are not permitted")
@@ -289,6 +317,8 @@ def _select_message_model(
     if version != PROTOCOL_VERSION or isinstance(version, bool):
         raise ProtocolError("Unsupported peer protocol version")
     kind = payload.get("kind")
+    if not isinstance(kind, str):
+        raise ProtocolError("Peer message kind must be a string")
     if kind not in _MESSAGE_MODELS:
         raise ProtocolError("Unknown peer message kind")
     if expected_kind is not None and kind != expected_kind:
@@ -322,3 +352,13 @@ def decode_message(
     payload = _parse_json_object(_decode_utf8(raw))
     model = _select_message_model(payload, expected_kind)
     return _validate_message(payload, model, secret)
+
+
+def _advance_json_depth(character: str, *, depth: int) -> int:
+    if character in "[{":
+        depth += 1
+        if depth > MAX_JSON_NESTING_DEPTH:
+            raise ProtocolError("Peer message exceeds the maximum JSON nesting depth")
+    elif character in "]}":
+        depth -= 1
+    return depth

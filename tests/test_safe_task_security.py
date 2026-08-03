@@ -38,7 +38,14 @@ class _MaliciousReduce:
 
 
 def _user(role: str) -> SimpleNamespace:
-    return SimpleNamespace(id="11111111-1111-4111-8111-111111111111", role=role)
+    return SimpleNamespace(
+        id="11111111-1111-4111-8111-111111111111",
+        role=role,
+    )
+
+
+def _deeply_nested_json(depth: int = 2000) -> bytes:
+    return (b"[" * depth) + b"0" + (b"]" * depth)
 
 
 def test_allowlisted_operation_and_json_arguments_round_trip() -> None:
@@ -49,14 +56,20 @@ def test_allowlisted_operation_and_json_arguments_round_trip() -> None:
 
 
 def test_unknown_operation_fails_closed() -> None:
-    with pytest.raises(UnsafeTaskPayloadError, match="Unsupported task operation"):
+    with pytest.raises(
+        UnsafeTaskPayloadError,
+        match="Unsupported task operation",
+    ):
         resolve_operation("os.system")
 
 
 def test_process_global_random_operations_are_not_exposed() -> None:
     before = random.getstate()
     assert allowed_operation_names() == ("math.sqrt",)
-    with pytest.raises(UnsafeTaskPayloadError, match="Unsupported task operation"):
+    with pytest.raises(
+        UnsafeTaskPayloadError,
+        match="Unsupported task operation",
+    ):
         resolve_operation("random.seed")
     assert random.getstate() == before
 
@@ -64,7 +77,10 @@ def test_process_global_random_operations_are_not_exposed() -> None:
 def test_legacy_callable_payload_cannot_execute_reduce(tmp_path: Path) -> None:
     marker = tmp_path / "task-pickle-executed.txt"
     malicious = pickle.dumps(_MaliciousReduce(marker)).decode("latin1")
-    with pytest.raises(UnsafeTaskPayloadError, match="Serialized Python callables"):
+    with pytest.raises(
+        UnsafeTaskPayloadError,
+        match="Serialized Python callables",
+    ):
         validate_operation(None, malicious)
     assert not marker.exists()
 
@@ -109,16 +125,46 @@ def test_api_rejects_legacy_executable_payload_with_gone() -> None:
 def test_task_payload_limits_and_strict_json() -> None:
     with pytest.raises(UnsafeTaskPayloadError, match="exceeds"):
         encode_task_arguments(["x" * MAX_TASK_ARGUMENT_BYTES], {})
-    with pytest.raises(UnsafeTaskPayloadError, match="Invalid JSON constant"):
+    with pytest.raises(
+        UnsafeTaskPayloadError,
+        match="Invalid JSON constant",
+    ):
         decode_task_arguments(b"[NaN]", b"{}")
     with pytest.raises(UnsafeTaskPayloadError, match="Duplicate"):
         decode_task_arguments(b"[]", b'{"key":1,"key":2}')
 
 
+def test_deeply_nested_task_arguments_fail_closed() -> None:
+    payload = _deeply_nested_json()
+    assert len(payload) < MAX_TASK_ARGUMENT_BYTES
+
+    with pytest.raises(
+        UnsafeTaskPayloadError,
+        match="nesting depth",
+    ):
+        decode_task_arguments(payload, b"{}")
+
+
+def test_deeply_nested_task_result_fails_closed() -> None:
+    payload = _deeply_nested_json()
+
+    with pytest.raises(
+        UnsafeTaskPayloadError,
+        match="nesting depth",
+    ):
+        decode_task_result(payload)
+
+
 def test_result_payload_is_json_not_executable_objects() -> None:
     encoded = encode_task_result({"value": 3, "items": [True, None]})
-    assert decode_task_result(encoded) == {"value": 3, "items": [True, None]}
-    with pytest.raises(UnsafeTaskPayloadError, match="JSON primitives"):
+    assert decode_task_result(encoded) == {
+        "value": 3,
+        "items": [True, None],
+    }
+    with pytest.raises(
+        UnsafeTaskPayloadError,
+        match="JSON primitives",
+    ):
         encode_task_result(object())
 
 
@@ -132,7 +178,10 @@ def test_api_and_worker_modules_have_no_executable_decoder() -> None:
     forbidden_modules = {"pickle", "cloudpickle", "dill", "marshal"}
     violations: list[str] = []
     for path in paths:
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        tree = ast.parse(
+            path.read_text(encoding="utf-8"),
+            filename=str(path),
+        )
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 names = {alias.name for alias in node.names}

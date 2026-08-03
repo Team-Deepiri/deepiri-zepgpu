@@ -29,7 +29,9 @@ def _set_dns(monkeypatch: pytest.MonkeyPatch, *addresses: str) -> AsyncMock:
 
 
 @pytest.mark.asyncio
-async def test_valid_allowlisted_https_callback(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_valid_allowlisted_https_callback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     resolver = _set_dns(monkeypatch, str(PUBLIC_ADDRESS))
 
     result = await validate_callback_url(
@@ -63,7 +65,10 @@ async def test_unsupported_scheme_and_embedded_credentials_are_rejected() -> Non
     with pytest.raises(CallbackURLValidationError, match="scheme"):
         await validate_callback_url("ftp://example.com/hook", allowed_hosts=())
     with pytest.raises(CallbackURLValidationError, match="credentials"):
-        await validate_callback_url("https://user:secret@example.com/hook", allowed_hosts=())
+        await validate_callback_url(
+            "https://user:secret@example.com/hook",
+            allowed_hosts=(),
+        )
 
 
 @pytest.mark.asyncio
@@ -79,6 +84,9 @@ async def test_unsupported_scheme_and_embedded_credentials_are_rejected() -> Non
         "http://[fd00::1]/hook",
         "http://[fe80::1]/hook",
         "http://[::ffff:192.168.1.2]/hook",
+        "http://[64:ff9b::a9fe:a9fe]/latest/meta-data",
+        "http://[64:ff9b::7f00:1]/hook",
+        "http://[64:ff9b::a00:1]/hook",
         "http://0.0.0.0/hook",
         "http://224.0.0.1/hook",
         "http://240.0.0.1/hook",
@@ -122,11 +130,30 @@ async def test_dns_private_and_mixed_answers_are_rejected(
 ) -> None:
     _set_dns(monkeypatch, "10.0.0.4")
     with pytest.raises(CallbackURLValidationError, match="private"):
-        await validate_callback_url("https://callbacks.example.com", allowed_hosts=())
+        await validate_callback_url(
+            "https://callbacks.example.com",
+            allowed_hosts=(),
+        )
 
     _set_dns(monkeypatch, str(PUBLIC_ADDRESS), "192.168.1.7")
     with pytest.raises(CallbackURLValidationError, match="private"):
-        await validate_callback_url("https://callbacks.example.com", allowed_hosts=())
+        await validate_callback_url(
+            "https://callbacks.example.com",
+            allowed_hosts=(),
+        )
+
+
+@pytest.mark.asyncio
+async def test_dns_nat64_embedded_link_local_answer_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_dns(monkeypatch, "64:ff9b::a9fe:a9fe")
+
+    with pytest.raises(CallbackURLValidationError, match="prohibited"):
+        await validate_callback_url(
+            "https://callbacks.example.com/hook",
+            allowed_hosts=(),
+        )
 
 
 @pytest.mark.asyncio
@@ -134,7 +161,10 @@ async def test_callback_allowlist_rejects_unlisted_host(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     resolver = _set_dns(monkeypatch, str(PUBLIC_ADDRESS))
-    with pytest.raises(CallbackURLValidationError, match="TASK_CALLBACK_ALLOWED_HOSTS"):
+    with pytest.raises(
+        CallbackURLValidationError,
+        match="TASK_CALLBACK_ALLOWED_HOSTS",
+    ):
         await validate_callback_url(
             "https://unlisted.example.com/hook",
             allowed_hosts=("callbacks.example.com",),
@@ -143,7 +173,9 @@ async def test_callback_allowlist_rejects_unlisted_host(
 
 
 @pytest.mark.asyncio
-async def test_production_callbacks_require_https(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_production_callbacks_require_https(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     resolver = _set_dns(monkeypatch, str(PUBLIC_ADDRESS))
     with pytest.raises(CallbackURLValidationError, match="https"):
         await validate_callback_url(
@@ -155,16 +187,19 @@ async def test_production_callbacks_require_https(monkeypatch: pytest.MonkeyPatc
 
 
 @pytest.mark.asyncio
-async def test_redirect_is_not_followed(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_any_3xx_response_is_rejected_without_location(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     _set_dns(monkeypatch, str(PUBLIC_ADDRESS))
     client_options: dict[str, object] = {}
     requests: list[tuple[str, str, dict[str, object]]] = []
 
     class FakeResponse:
-        is_redirect = True
+        status_code = 302
+        is_redirect = False
 
         def raise_for_status(self) -> None:
-            raise AssertionError("redirect response must be rejected first")
+            raise AssertionError("3xx response must be rejected first")
 
     class FakeStream:
         async def __aenter__(self) -> FakeResponse:
@@ -183,19 +218,31 @@ async def test_redirect_is_not_followed(monkeypatch: pytest.MonkeyPatch) -> None
         async def __aexit__(self, *_args: object) -> None:
             return None
 
-        def stream(self, method: str, url: str, **kwargs: object) -> FakeStream:
+        def stream(
+            self,
+            method: str,
+            url: str,
+            **kwargs: object,
+        ) -> FakeStream:
             requests.append((method, url, kwargs))
             return FakeStream()
 
     monkeypatch.setattr(callbacks.httpx, "AsyncClient", FakeClient)
 
     with pytest.raises(CallbackDeliveryError, match="redirect"):
-        await deliver_callback("https://callbacks.example.com/hook", {"task_id": "task-1"})
+        await deliver_callback(
+            "https://callbacks.example.com/hook",
+            {"task_id": "task-1"},
+        )
 
     assert client_options["follow_redirects"] is False
     assert client_options["trust_env"] is False
     assert requests == [
-        ("POST", "https://callbacks.example.com/hook", {"json": {"task_id": "task-1"}})
+        (
+            "POST",
+            "https://callbacks.example.com/hook",
+            {"json": {"task_id": "task-1"}},
+        )
     ]
 
 
@@ -213,9 +260,15 @@ async def test_delivery_revalidates_dns_and_blocks_rebinding(
     client = AsyncMock()
     monkeypatch.setattr(callbacks.httpx, "AsyncClient", client)
 
-    await validate_callback_url("https://callbacks.example.com/hook", allowed_hosts=())
+    await validate_callback_url(
+        "https://callbacks.example.com/hook",
+        allowed_hosts=(),
+    )
     with pytest.raises(CallbackURLValidationError, match="loopback"):
-        await deliver_callback("https://callbacks.example.com/hook", {"task_id": "task-1"})
+        await deliver_callback(
+            "https://callbacks.example.com/hook",
+            {"task_id": "task-1"},
+        )
 
     assert resolver.await_count == 2
     client.assert_not_called()
