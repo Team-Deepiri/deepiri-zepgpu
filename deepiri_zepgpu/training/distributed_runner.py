@@ -17,7 +17,6 @@ from deepiri_zepgpu.training.config import (
     DirectBackend,
     RuntimeMode,
     TrainingRunConfig,
-    filter_secrets,
 )
 from deepiri_zepgpu.training.example import EXAMPLE_TEXTS
 from deepiri_zepgpu.training.metrics import (
@@ -486,6 +485,22 @@ async def run_two_worker_training_async(
     Path(config.output_dir).mkdir(parents=True, exist_ok=True)
     naive_path = Path(config.output_dir) / "naive_fp_bytes.json"
     naive_path.write_text(json.dumps(naive, indent=2), encoding="utf-8")
+    # Allowlisted non-secret knobs only — never persist full TrainingRunConfig /
+    # runtime.environment (CodeQL clear-text storage).
+    config_summary = {
+        "schema_version": int(config.schema_version),
+        "run_name": str(config.run_name),
+        "model_name": str(config.model_name),
+        "adapter_mode": str(config.adapter_mode.value),
+        "precision": str(config.precision.value),
+        "device": str(config.device),
+        "smoke_run": bool(config.smoke_run),
+        "compressor_backend": str(config.distributed.compression.backend.value),
+        "overlap_mode": str(config.distributed.overlap_mode.value),
+        "direct_backend": str(config.distributed.direct_backend.value),
+        "max_rounds": int(config.distributed.max_rounds),
+        "local_steps_per_round": int(config.distributed.local_steps_per_round),
+    }
     bundle = {
         "room_id": room,
         "run_id": run,
@@ -493,14 +508,11 @@ async def run_two_worker_training_async(
         "naive": naive,
         "latest_checkpoints": latest_checkpoints,
         "worker_metrics": [metrics.model_dump(mode="json") for metrics in metrics_pair],
-        "config": config.to_public_dict(),
-        "config_redacted": True,
+        "config_summary": config_summary,
         "runner": "in_process_memory",
         "direct_backend_actual": actual_direct_backend,
     }
-    # Persist only the already-redacted public view (never raw TrainingRunConfig).
-    public_bundle = filter_secrets(bundle)
     (Path(config.output_dir) / "comparison_bundle.json").write_text(
-        json.dumps(public_bundle, indent=2), encoding="utf-8"
+        json.dumps(bundle, indent=2), encoding="utf-8"
     )
-    return metrics_pair[0], metrics_pair[1], public_bundle
+    return metrics_pair[0], metrics_pair[1], bundle
