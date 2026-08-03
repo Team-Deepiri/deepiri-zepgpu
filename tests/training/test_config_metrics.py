@@ -24,8 +24,9 @@ def test_config_validation_and_qlora_defaults() -> None:
         TrainingRunConfig(load_in_4bit=True)
     with pytest.raises(ValidationError):
         TrainingRunConfig(sequence_length=2)
+    assert TrainingRunConfig.model_validate({"schema_version": 2}).schema_version == 2
     with pytest.raises(ValidationError):
-        TrainingRunConfig.model_validate({"schema_version": 2})
+        TrainingRunConfig.model_validate({"schema_version": 3})
     with pytest.raises(ValidationError):
         DatasetConfig(texts=[])
     with pytest.raises(ValidationError):
@@ -55,6 +56,21 @@ def test_secret_filter_is_recursive() -> None:
     }
 
 
+def test_public_config_dict_redacts_secrets_and_runtime_env() -> None:
+    config = TrainingRunConfig(
+        distributed={
+            "enabled": True,
+            "runtime": {"environment": {"HF_TOKEN": "hf_secret", "SAFE": "1"}},
+        }
+    )
+    public = config.to_public_dict()
+    assert public["distributed"]["runtime"]["environment"] == {}
+    # Credential-like keys elsewhere are still redacted.
+    leaked = filter_secrets({"run_credential": "abc", "ok": 1})
+    assert leaked["run_credential"] == "[REDACTED]"
+    assert leaked["ok"] == 1
+
+
 def test_ratio_math_and_single_node_metrics() -> None:
     now = datetime.now(UTC)
     metrics = TrainingMetrics(
@@ -81,6 +97,7 @@ def test_ratio_math_and_single_node_metrics() -> None:
     assert metrics.tokens_per_second == 50
     assert metrics.samples_per_second == 1
     assert metrics.sync_seconds == 0
+    assert metrics.blocked_sync_seconds == 0
     assert metrics.bytes_sent == 0
     assert metrics.bytes_received == 0
     assert metrics.communication_compute_ratio == 0

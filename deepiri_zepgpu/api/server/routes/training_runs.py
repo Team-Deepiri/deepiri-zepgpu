@@ -61,6 +61,13 @@ class CreateTrainingRunRequest(BaseModel):
     def validate_unique_providers(self) -> CreateTrainingRunRequest:
         if len(self.provider_ids) != len(set(self.provider_ids)):
             raise ValueError("provider_ids must be unique")
+        if self.config.distributed.enabled:
+            if self.config.distributed.worker_count != 2:
+                raise ValueError("Phase 17 distributed runs require worker_count=2")
+            if len(self.provider_ids) != 2:
+                raise ValueError("Phase 17 distributed runs require exactly two provider_ids")
+            if self.config.distributed.runtime.privileged:
+                raise ValueError("privileged training containers are not allowed")
         return self
 
 

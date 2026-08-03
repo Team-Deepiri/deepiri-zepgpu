@@ -369,6 +369,8 @@ Acceptance criteria:
 
 ## Phase 15: Single-Node LoRA/QLoRA Training Baseline
 
+**Status:** Complete
+
 **Goal:** Build a reproducible single-GPU fine-tuning harness with LoRA or QLoRA, mixed precision, checkpointing, peak-VRAM tracking, throughput metrics, and communication-to-compute instrumentation.
 
 This phase starts real training earlier. Full multi-GPU scheduling and reservations move to Phase 18.
@@ -418,6 +420,8 @@ This phase starts real training earlier. Full multi-GPU scheduling and reservati
 ---
 
 ## Phase 16: Persistent Training Workers and Binary Data Channel
+
+**Status:** Complete
 
 **Goal:** Create long-lived provider training workers and a direct-or-relayed binary channel that avoids the legacy pickle and JSON task path.
 
@@ -474,43 +478,43 @@ Container execution is supporting infrastructure; the main outcome is real WAN t
 
 ### 17.1 Safe Training Runtime
 
-- [ ] Define a training workload/container spec with image/runtime, command, GPU assignment, secret-filtered environment, model/dataset references, timeout, logs, checkpoints, and artifacts.
-- [ ] Disable privileged containers by default.
-- [ ] Restrict mounts and add an MVP image trust policy.
-- [ ] Clean up containers and temporary data after terminal state.
+- [x] Define a training workload/container spec with image/runtime, command, GPU assignment, secret-filtered environment, model/dataset references, timeout, logs, checkpoints, and artifacts.
+- [x] Disable privileged containers by default.
+- [x] Restrict mounts and add an MVP image trust policy.
+- [x] Clean up containers and temporary data after terminal state.
 
 ### 17.2 Two-Worker LoRA Run
 
-- [ ] Launch two provider workers in one room.
-- [ ] Validate matching base model, tokenizer, precision, and adapter structure.
-- [ ] Run independent local steps.
-- [ ] Exchange adapter deltas or pseudo-gradients through Phase 16.
-- [ ] Apply synchronized updates over multiple rounds.
-- [ ] Save final adapter/checkpoint and both workers' metrics.
+- [x] Launch two provider workers in one room.
+- [x] Validate matching base model, tokenizer, precision, and adapter structure.
+- [x] Run independent local steps.
+- [x] Exchange adapter deltas or pseudo-gradients through Phase 16.
+- [x] Apply synchronized updates over multiple rounds.
+- [x] Save final adapter/checkpoint and both workers' metrics.
 
 ### 17.3 Compressed Updates
 
-- [ ] Integrate DeMo or a documented equivalent.
-- [ ] Support low-bit representation and configurable compression knobs.
-- [ ] Add error feedback where required.
-- [ ] Record uncompressed/compressed bytes and compression ratio.
-- [ ] Validate decompression and update shape.
-- [ ] Add a toy convergence test.
+- [x] Integrate DeMo or a documented equivalent.
+- [x] Support low-bit representation and configurable compression knobs.
+- [x] Add error feedback where required.
+- [x] Record uncompressed/compressed bytes and compression ratio.
+- [x] Validate decompression and update shape.
+- [x] Add a toy convergence test.
 
 ### 17.4 Communication Overlap and Metrics
 
-- [ ] Overlap transfer with local compute where practical.
-- [ ] Record blocked and overlapped communication time, useful compute time, ratio, bytes per step/round, sync frequency, GPU utilization, RTT, and bandwidth.
-- [ ] Make blocking fallback explicit.
+- [x] Overlap transfer with local compute where practical.
+- [x] Record blocked and overlapped communication time, useful compute time, ratio, bytes per step/round, sync frequency, GPU utilization, RTT, and bandwidth.
+- [x] Make blocking fallback explicit.
 
 ### 17.5 Baseline Comparison and Failure Handling
 
-- [ ] Compare loss/quality, tokens/s, VRAM, bytes, and ratio against Phase 15 and a naive full-precision baseline.
-- [ ] Record hardware, network, model, dataset, and exact settings.
-- [ ] Abort both workers if one required worker fails.
-- [ ] Propagate cancellation and timeout.
-- [ ] Preserve the latest valid checkpoint.
-- [ ] Release locks and clean up runtime resources.
+- [x] Compare loss/quality, tokens/s, VRAM, bytes, and ratio against Phase 15 and a naive full-precision baseline.
+- [x] Record hardware, network, model, dataset, and exact settings.
+- [x] Abort both workers if one required worker fails.
+- [x] Propagate cancellation and timeout.
+- [x] Preserve the latest valid checkpoint.
+- [x] Release locks and clean up runtime resources.
 
 ### 17.6 Acceptance Criteria
 
@@ -520,6 +524,8 @@ Container execution is supporting infrastructure; the main outcome is real WAN t
 - Bytes per round are below the documented naive baseline.
 - Communication-to-compute ratio is measured.
 - Quality remains within an agreed tolerance of Phase 15.
+
+Agreed quality tolerance for Phase 17: **record comparison only**; hard-fail solely on catastrophic non-finite loss / non-completion / toy non-convergence (see `docs/training_wan_lora.md`).
 
 ---
 

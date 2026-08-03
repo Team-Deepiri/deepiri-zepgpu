@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "kind": "naive_full_precision_bytes",
+  "compression": "none",
+  "tensor_count": 2,
+  "bytes_per_tensor": [
+    1024,
+    1024
+  ],
+  "bytes_per_round": 2048,
+  "notes": "Naive baseline assumes each adapter-delta tensor is sent uncompressed at full precision once per sync round (no DCT/top-k/low-bit).",
+  "example_compressed": {
+    "zep_v1_bytes": 490,
+    "demo_v1_bytes": 880,
+    "zep_ratio": 0.2392578125,
+    "demo_ratio": 0.4296875
+  }
+}

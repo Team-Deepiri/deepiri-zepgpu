@@ -46,13 +46,21 @@ async def test_direct_exchange_and_relay_fallback_metrics() -> None:
     assert metric.path == "direct"
     assert metric.bytes > len(item.payload)
 
-    fallback = TransferManager(
-        direct=PcclDirectChannel(), relay=BinaryRelayStore(), chunk_size=7, max_retries=1
+    store = BinaryRelayStore()
+    fallback = TransferManager(direct=PcclDirectChannel(), relay=store, chunk_size=7, max_retries=1)
+    target_worker = str(uuid.uuid4())
+    relayed, metric = await fallback.send(item, target_worker)
+    assert relayed is None
+    downloaded = await fallback.relay.download(  # type: ignore[attr-defined]
+        item.transfer_id,
+        room_id=item.room_id,
+        run_id=item.run_id,
+        source_worker_id=item.worker_id,
+        round_number=item.round,
+        target_worker_id=target_worker,
     )
-    relayed, metric = await fallback.send(item, str(uuid.uuid4()))
-    assert relayed == item
     target_inbox = BinaryInbox(room_id=item.room_id, run_id=item.run_id)
-    assert target_inbox.receive(relayed.encode()) == item
+    assert target_inbox.receive(downloaded.encode()) == item
     assert metric.path == "relay"
     assert metric.retries == 1
     assert metric.duration_seconds >= 0

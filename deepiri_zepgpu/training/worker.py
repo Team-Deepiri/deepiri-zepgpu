@@ -293,6 +293,16 @@ class PersistentTrainingWorker:
         if not await self._emit("reconnected", {"round": self.round}):
             self.state = WorkerState.RECONNECTING
 
+    async def complete(self, payload: dict[str, Any] | None = None) -> None:
+        """Mark this worker finished so the run can reach completed when both workers do."""
+        if self.state in {WorkerState.STOPPED, WorkerState.ABORTED}:
+            return
+        if self._operation_task:
+            await self._round_done.wait()
+        self.state = WorkerState.STOPPING
+        await self._emit("completed", {"round": self.round, **(payload or {})})
+        self.state = WorkerState.STOPPED
+
     async def shutdown(self, *, force: bool = False) -> None:
         if force:
             self._abort.set()

@@ -1,0 +1,46 @@
+{
+  "schema_version": 2,
+  "run_name": "tiny-wan-lora-smoke",
+  "model_name": "hf-internal-testing/tiny-random-gpt2",
+  "adapter_mode": "lora",
+  "precision": "fp32",
+  "device": "cpu",
+  "sequence_length": 64,
+  "batch_size": 1,
+  "gradient_accumulation_steps": 1,
+  "max_steps": 2,
+  "checkpoint_every_steps": 1,
+  "gradient_checkpointing": false,
+  "seed": 42,
+  "output_dir": "artifacts/training/tiny-wan-lora-smoke",
+  "smoke_run": true,
+  "lora": {
+    "rank": 4,
+    "alpha": 8,
+    "dropout": 0.0,
+    "fan_in_fan_out": true
+  },
+  "distributed": {
+    "enabled": true,
+    "worker_count": 2,
+    "local_steps_per_round": 1,
+    "max_rounds": 2,
+    "compression": {
+      "backend": "zep",
+      "top_k": 16,
+      "chunk_size": 32,
+      "quant_bits": 4,
+      "error_feedback": true
+    },
+    "direct_backend": "memory",
+    "overlap_mode": "blocking",
+    "runtime": {
+      "mode": "process",
+      "image": "zepgpu-training:local",
+      "privileged": false,
+      "network_enabled": true,
+      "timeout_seconds": 600
+    },
+    "worker_seed_offset": 1
+  }
+}

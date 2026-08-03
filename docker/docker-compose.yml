@@ -18,6 +18,10 @@ services:
     ports:
       - "8000:8000"
       - "8765:8765"
+    networks:
+      default:
+        aliases:
+          - api
     volumes:
       - zepgpu-data:/root/.zepgpu
       - zepgpu-models:/root/.cache/zepgpu/models

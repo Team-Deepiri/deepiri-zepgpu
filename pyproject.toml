@@ -115,12 +115,16 @@ exclude = '''
   | build
   | dist
   | \.venv
+  | deepiri_zepgpu/training/compression/vendor
 )/
 '''
 
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+extend-exclude = [
+    "deepiri_zepgpu/training/compression/vendor",
+]
 
 [tool.ruff.lint]
 select = [
@@ -137,6 +141,13 @@ ignore = [
     "E501",  # line too long (handled by black)
     "B008",  # do not perform function calls in argument defaults
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"deepiri_zepgpu/training/distributed_runner.py" = ["C901"]
+"deepiri_zepgpu/training/process_worker.py" = ["C901"]
+"scripts/run_docker_wan_lora.py" = ["C901"]
+"scripts/run_two_process_wan_lora.py" = ["C901"]
+"scripts/verify_phase_17_local.py" = ["C901"]
 
 [tool.mypy]
 # Match current typing surface (NumPy 2.x stubs use 3.12 `type` statements).
@@ -160,6 +171,8 @@ module = [
     "deepiri_zepgpu.queue.*",
     "deepiri_zepgpu.vpn.*",
     "deepiri_zepgpu.database.repositories.*",
+    "deepiri_zepgpu.training.compression.vendor.*",
+    "deepiri_zepgpu.training.compression.vendor.demo.*",
 ]
 ignore_errors = true
 

@@ -1,0 +1,4 @@
+# MVP allowlist for Phase 17 training worker images.
+# Exact tag or digest references only (no wildcards).
+zepgpu-training:local
+zepgpu-training:phase17

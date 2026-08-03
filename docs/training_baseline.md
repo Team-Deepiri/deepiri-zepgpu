@@ -145,10 +145,11 @@ In PowerShell, use `$env:ZEPGPU_RUN_GPU_TESTS = "1"` before the pytest command.
 
 ## MVP limitations
 
-- This phase is a single-GPU training baseline; it does not schedule or reserve multiple GPUs.
-- Direct transport is an interface plus PCCL adapter boundary. Deployments must provide the actual
-  PCCL/collective sender or use the coordinator relay.
-- It does not implement production DiLoCo, compressed WAN optimization, FSDP islands, mixed-hardware
-  planning, or overlay networking; those belong to later phases.
-- Progress buffering is bounded in worker memory and targets short coordinator outages, not durable
-  offline execution across process loss.
+- Phase 15 is a single-GPU training baseline; multi-worker WAN sync is Phase 17
+  (`docs/training_wan_lora.md`).
+- Direct transport includes memory, LAN, and an optional PCCL adapter. Deployments must
+  provide a PCCL sender or use LAN/memory direct plus coordinator relay.
+- DiLoCo outer loops, FSDP islands, mixed-hardware planning, and overlay networking belong
+  to later phases.
+- Progress buffering is bounded in worker memory and targets short coordinator outages, not
+  durable offline execution across process loss.

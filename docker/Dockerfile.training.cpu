@@ -1,0 +1,42 @@
+# CPU-local training worker image (allowlisted as zepgpu-training:local).
+# Prefer this for supervised Docker e2e; use Dockerfile.training for CUDA workers.
+FROM python:3.11-slim-bookworm
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV POETRY_VIRTUALENVS_CREATE=false
+ENV HF_HOME=/workspace/run/hf-cache
+ENV TRANSFORMERS_CACHE=/workspace/run/hf-cache
+ENV TORCH_HOME=/workspace/run/torch-cache
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    git \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python -m pip install --upgrade pip && \
+    python -m pip install poetry
+
+WORKDIR /app
+
+COPY pyproject.toml poetry.lock* ./
+RUN poetry config virtualenvs.create false && \
+    poetry install --no-root --no-interaction --with training --without gpu && \
+    python -m pip install --force-reinstall --index-url https://download.pytorch.org/whl/cpu \
+      "torch>=2.2.0"
+
+COPY . .
+RUN poetry install --only-root --no-interaction
+
+RUN groupadd -r zepgpu && \
+    useradd -r -g zepgpu -d /app -s /bin/bash zepgpu && \
+    mkdir -p /workspace/run /workspace/checkpoints /workspace/artifacts /workspace/logs && \
+    chown -R zepgpu:zepgpu /app /workspace
+
+USER zepgpu
+
+# Default when someone runs the image ad-hoc. TrainingRuntime clears ENTRYPOINT
+# and always supplies an explicit `command` (typically process_worker with
+# --work-dir / --base-url), so this CMD is only a fallback default.
+CMD ["python", "-m", "deepiri_zepgpu.training.process_worker"]

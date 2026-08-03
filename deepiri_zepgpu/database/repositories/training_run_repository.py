@@ -122,6 +122,15 @@ class TrainingRunRepository:
         run = result.scalar_one_or_none()
         if run is not None:
             await self.enforce_startup_deadline(run)
+            await self.reconcile_completed_workers(run)
+        return run
+
+    async def reconcile_completed_workers(self, run: TrainingRun) -> TrainingRun:
+        """Heal runs stuck after concurrent checkpoint/complete races."""
+        if run.state in TERMINAL_STATES or not run.workers:
+            return run
+        if all(item.state == TrainingWorkerState.COMPLETED for item in run.workers):
+            await self.transition(run, TrainingRunState.COMPLETED)
         return run
 
     async def get_worker(self, run_id: str, worker_id: str) -> TrainingWorker | None:
@@ -245,6 +254,19 @@ class TrainingRunRepository:
             await self.session.flush()
         return run
 
+    async def _lock_run(self, run_id: uuid.UUID | str) -> TrainingRun:
+        """Serialize collective worker transitions (ready / round / complete)."""
+        result = await self.session.execute(
+            select(TrainingRun)
+            .options(selectinload(TrainingRun.workers))
+            .where(TrainingRun.id == run_id)
+            .with_for_update()
+        )
+        locked = result.scalar_one_or_none()
+        if locked is None:
+            raise TrainingRunTransitionError("training run not found while locking")
+        return locked
+
     async def record_worker_event(
         self,
         run: TrainingRun,
@@ -269,20 +291,44 @@ class TrainingRunRepository:
             ):
                 raise TrainingWorkerEventConflict("conflicting duplicate worker event")
             return False
-        if run.state in TERMINAL_STATES or worker.state in TERMINAL_WORKER_STATES:
+        # Lock after the idempotency check so concurrent ready/complete events serialize.
+        locked_run = await self._lock_run(run.id)
+        locked_worker = next(
+            (item for item in locked_run.workers if str(item.id) == str(worker.id)), None
+        )
+        if locked_worker is None:
+            raise TrainingRunTransitionError("worker is not assigned to this run")
+        if locked_run.state in TERMINAL_STATES or locked_worker.state in TERMINAL_WORKER_STATES:
             raise TrainingRunTransitionError("terminal training state is immutable")
         event = TrainingWorkerEvent(
             id=uuid.uuid4(),
-            run_id=run.id,
-            worker_id=worker.id,
+            run_id=locked_run.id,
+            worker_id=locked_worker.id,
             event_id=uuid.UUID(event_id),
             kind=kind,
             occurred_at=occurred_at,
             payload=clean_payload,
         )
         self.session.add(event)
-        await self._apply_worker_event(run, worker, kind, clean_payload)
+        await self._apply_worker_event(locked_run, locked_worker, kind, clean_payload)
         await self.session.flush()
+        # Keep the caller's instances coherent for the HTTP response mapper.
+        run.state = locked_run.state
+        run.error = locked_run.error
+        run.updated_at = locked_run.updated_at
+        run.started_at = locked_run.started_at
+        run.completed_at = locked_run.completed_at
+        run.startup_deadline_at = locked_run.startup_deadline_at
+        worker.state = locked_worker.state
+        worker.current_round = locked_worker.current_round
+        worker.progress = locked_worker.progress
+        worker.last_heartbeat_at = locked_worker.last_heartbeat_at
+        worker.ready_at = locked_worker.ready_at
+        worker.stopped_at = locked_worker.stopped_at
+        worker.restart_count = locked_worker.restart_count
+        worker.error = locked_worker.error
+        # Refresh relationship view used by _response(run).
+        run.workers = locked_run.workers
         return True
 
     async def _apply_worker_event(
@@ -445,8 +491,18 @@ class TrainingRunRepository:
         if worker.state != TrainingWorkerState.CHECKPOINTING:
             raise TrainingRunTransitionError("worker is not checkpointing")
         worker.state = TrainingWorkerState.RUNNING
-        if all(item.state == TrainingWorkerState.RUNNING for item in run.workers):
-            await self.transition(run, TrainingRunState.RUNNING)
+        # Peers may already be COMPLETED if they finished the final checkpoint+complete
+        # race; treat them as done so the run can leave CHECKPOINTING.
+        done_or_running = {
+            TrainingWorkerState.RUNNING,
+            TrainingWorkerState.COMPLETED,
+            TrainingWorkerState.STOPPED,
+        }
+        if all(item.state in done_or_running for item in run.workers):
+            if all(item.state == TrainingWorkerState.COMPLETED for item in run.workers):
+                await self.transition(run, TrainingRunState.COMPLETED)
+            elif run.state == TrainingRunState.CHECKPOINTING:
+                await self.transition(run, TrainingRunState.RUNNING)
 
     @staticmethod
     async def _handle_reconnect_event(
