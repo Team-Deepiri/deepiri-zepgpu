@@ -37,8 +37,20 @@ class TaskRouter:
         peer_id: str | None = None,
         network_id: str | None = None,
         consumer_account: str | None = None,
+        transport_mode: str | None = "wireguard",
     ) -> dict:
-        """Execute a function on a remote peer via its VPN IP."""
+        """Execute a function on a remote peer via its VPN IP.
+
+        Quarantined to WireGuard rooms only; training callers are rejected.
+        """
+        from deepiri_zepgpu.vpn.legacy_router_guard import (
+            assert_legacy_pickle_router_allowed,
+            assert_not_called_from_training,
+        )
+
+        assert_not_called_from_training()
+        assert_legacy_pickle_router_allowed(transport_mode)
+
         func_encoded = base64.b64encode(pickle.dumps(func)).decode()
         args_encoded = base64.b64encode(pickle.dumps(args)).decode()
         kwargs_encoded = base64.b64encode(pickle.dumps(kwargs)).decode()

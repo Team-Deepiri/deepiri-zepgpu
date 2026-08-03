@@ -35,6 +35,7 @@ def build_remote_task_update_payload(
             if hasattr(assignment.status, "value")
             else str(assignment.status)
         ),
+        "terminal_reason": getattr(assignment, "terminal_reason", None),
         "result_ref": task.result_ref,
         "result_size_bytes": task.result_size_bytes,
         "remote_result": metadata.get("remote_result"),

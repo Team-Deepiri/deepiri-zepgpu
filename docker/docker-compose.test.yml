@@ -4,7 +4,7 @@ services:
     image: redis:7-alpine
     container_name: zepgpu-test-redis
     ports:
-      - "6380:6379"
+      - "6399:6379"
     command: ["redis-server", "--save", "", "--appendonly", "no"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -20,7 +20,7 @@ services:
       POSTGRES_PASSWORD: zepgpu
       POSTGRES_DB: zepgpu_test
     ports:
-      - "5433:5432"
+      - "5444:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U zepgpu -d zepgpu_test"]
       interval: 2s

@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from deepiri_zepgpu.api.server.node_task_lifecycle import emit_assignment_room_event
 from deepiri_zepgpu.api.server.room_events import assignment_payload, emit_room_event
-from deepiri_zepgpu.api.server.routes.node_tasks import _emit_room_task_event
 
 
 @pytest.mark.asyncio
@@ -66,7 +66,7 @@ def test_assignment_payload() -> None:
         "room_task_failed",
     ],
 )
-async def test_emit_room_task_event_includes_invalidation_ids(event_type: str) -> None:
+async def test_emit_assignment_room_event_includes_invalidation_ids(event_type: str) -> None:
     assignment = SimpleNamespace(
         id="assignment-1",
         task_id="task-1",
@@ -75,14 +75,18 @@ async def test_emit_room_task_event_includes_invalidation_ids(event_type: str) -
         gpu_share_id="gpu-1",
         status=SimpleNamespace(value="running"),
         error=None,
+        terminal_reason=None,
+        claim_generation=1,
+        lease_expires_at=None,
+        cancel_requested_at=None,
     )
     task = SimpleNamespace(status=SimpleNamespace(value="running"), error=None)
 
     with patch(
-        "deepiri_zepgpu.api.server.routes.node_tasks.emit_room_event",
+        "deepiri_zepgpu.api.server.node_task_lifecycle.emit_room_event",
         new_callable=AsyncMock,
     ) as mock_emit:
-        await _emit_room_task_event(
+        await emit_assignment_room_event(
             event_type=event_type,
             task=task,
             assignment=assignment,

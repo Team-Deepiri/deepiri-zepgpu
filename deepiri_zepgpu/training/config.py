@@ -44,6 +44,8 @@ class LoraConfig(BaseModel):
     alpha: int = Field(default=16, ge=1)
     dropout: float = Field(default=0.05, ge=0, lt=1)
     target_modules: list[str] | None = None
+    # Required True for GPT-2 / Conv1D targets; leave False for standard Linear modules.
+    fan_in_fan_out: bool = False
 
 
 class TrainingRunConfig(BaseModel):
@@ -85,6 +87,9 @@ class TrainingRunConfig(BaseModel):
             self.max_steps = min(self.max_steps, 2)
             self.checkpoint_every_steps = min(self.checkpoint_every_steps, self.max_steps)
             self.sequence_length = min(self.sequence_length, 64)
+            # Default smoke model is GPT-2-style Conv1D; peft warns unless this is True.
+            if "gpt2" in self.model_name.lower():
+                self.lora.fan_in_fan_out = True
         return self
 
     @classmethod

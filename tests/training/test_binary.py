@@ -1,5 +1,6 @@
 import time
 import uuid
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -11,7 +12,11 @@ from deepiri_zepgpu.training.binary import (
     EnvelopeError,
     ScopeError,
 )
-from deepiri_zepgpu.training.relay import BinaryRelayStore, TransferConflictError
+from deepiri_zepgpu.training.relay import (
+    BinaryRelayStore,
+    RedisBinaryRelayStore,
+    TransferConflictError,
+)
 
 
 def make_envelope(payload: bytes = b"weights") -> BinaryEnvelope:
@@ -71,6 +76,52 @@ def test_relay_idempotency_conflict_completion_and_cleanup() -> None:
     stale = make_envelope()
     relay.begin(stale.transfer_id, stale.room_id, stale.run_id, 1)
     assert relay.cleanup(now=time.monotonic() + 2) == 2
+
+
+def test_checksum_reject_on_corrupted_envelope() -> None:
+    encoded = bytearray(make_envelope(b"checksum-payload").encode())
+    encoded[-1] ^= 0x5A
+    with pytest.raises(ChecksumError):
+        BinaryEnvelope.decode(bytes(encoded))
+
+
+@pytest.mark.asyncio
+async def test_redis_cleanup_deletes_expired_transfers() -> None:
+    """Redis cleanup removes transfers whose created_at exceeds ttl_seconds."""
+
+    transfer_id = str(uuid.uuid4())
+    room_id = str(uuid.uuid4())
+    run_id = str(uuid.uuid4())
+    index_key = f"zepgpu:training:relay:index:{transfer_id}"
+    base = f"zepgpu:training:relay:{room_id}:{run_id}:{transfer_id}"
+    meta_key = f"{base}:meta"
+    client = AsyncMock()
+
+    async def scan_iter(*, match: str | None = None, count: int = 500):
+        del count
+        if match and match.startswith("zepgpu:training:relay:index"):
+            yield index_key
+        elif match and match.startswith(base):
+            yield meta_key
+
+    client.scan_iter = scan_iter
+    client.get = AsyncMock(return_value=f"{room_id}:{run_id}".encode())
+    client.hgetall = AsyncMock(
+        return_value={
+            b"created_at": str(time.time() - 120).encode(),
+            b"status": b"uploading",
+        }
+    )
+    client.delete = AsyncMock(return_value=1)
+    client.ttl = AsyncMock(return_value=-1)
+
+    store = RedisBinaryRelayStore(
+        "redis://unused",
+        client=client,
+        ttl_seconds=30,
+    )
+    assert await store.cleanup() >= 1
+    assert client.delete.await_count >= 1
 
 
 def test_cross_room_relay_denied() -> None:

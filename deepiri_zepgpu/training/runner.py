@@ -235,6 +235,7 @@ def _load_model(
                 lora_alpha=config.lora.alpha,
                 lora_dropout=config.lora.dropout,
                 target_modules=config.lora.target_modules or "all-linear",
+                fan_in_fan_out=config.lora.fan_in_fan_out,
                 task_type=peft.TaskType.CAUSAL_LM,
             ),
         )

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import time
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -38,7 +40,7 @@ from deepiri_zepgpu.vpn.repositories import VpnNetworkRepository
 
 pytestmark = pytest.mark.integration
 
-REDIS_URL = "redis://127.0.0.1:6380/0"
+REDIS_URL = os.getenv("TEST_REDIS_URL", "redis://127.0.0.1:6399/0")
 
 
 @dataclass(slots=True)
@@ -652,6 +654,12 @@ async def test_two_persistent_workers_use_coordinator_across_rounds(training_con
 @pytest.mark.asyncio
 async def test_redis_backend_idempotency_corruption_limits_and_ttl() -> None:
     redis_client = Redis.from_url(REDIS_URL)
+    try:
+        await redis_client.ping()
+    except Exception as exc:
+        await redis_client.aclose()
+        pytest.skip(f"Redis not reachable at {REDIS_URL}: {exc}")
+
     await redis_client.flushdb()
     source = RedisBinaryRelayStore(
         REDIS_URL, max_transfer_bytes=4096, max_chunk_bytes=2048, ttl_seconds=1
@@ -775,11 +783,15 @@ async def test_redis_backend_idempotency_corruption_limits_and_ttl() -> None:
 
     abandoned = str(uuid.uuid4())
     await source.begin(abandoned, room_id, run_id, 1, round_number=1)
-    await asyncio.sleep(1.1)
+    # Force logical expiry while Redis keys are still present (created_at-based cleanup).
+    assert await source.cleanup(now=time.time() + source.ttl_seconds + 1) >= 1
     with pytest.raises(ValueError, match="unknown transfer"):
         await second_process.scope(abandoned)
+
+    await asyncio.sleep(1.1)
     with pytest.raises(ValueError, match="unknown transfer"):
         await second_process.scope(envelope.transfer_id)
+    # Redis TTL already purged remaining keys; cleanup is a no-op safety net.
     assert await source.cleanup() == 0
     await redis_client.flushdb()
     await source.close()

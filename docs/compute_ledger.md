@@ -30,7 +30,7 @@ This is the bar above happy-path tests: cryptographic golden vectors, adversaria
 deepiri-gpu ledger revolution-audit --offline
 
 # Full audit against Postgres
-export DATABASE__URL=postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5433/zepgpu_test
+export DATABASE__URL=postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5444/zepgpu_test
 deepiri-gpu ledger revolution-audit \
   --json-out artifacts/revolution-audit.json \
   --md-out artifacts/revolution-audit.md
@@ -91,11 +91,11 @@ LEDGER__ISOLATE_VPN_NETWORKS=true
 Ledger service + HTTP API tests run against real Postgres (Alembic migrations; not `create_all`).
 
 ```bash
-# Start test DB (host port 5433)
+# Start test DB (host port 5444)
 docker compose -f docker/docker-compose.test.yml up -d
 
 # Apply migrations + run ITs
-export TEST_DATABASE_URL=postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5433/zepgpu_test
+export TEST_DATABASE_URL=postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5444/zepgpu_test
 export DATABASE__URL="$TEST_DATABASE_URL"
 export PYTHONPATH=.
 poetry run pytest tests/integration/ -m integration -v

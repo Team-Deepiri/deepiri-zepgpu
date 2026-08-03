@@ -186,6 +186,12 @@ export default function RoomDetail() {
               >
                 {room.status}
               </span>
+              {room.transport_mode && (
+                <span className="text-xs px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 font-medium">
+                  {room.transport_mode}
+                  {room.transport_experimental ? ' · experimental' : ''}
+                </span>
+              )}
             </div>
             {room.description && (
               <p className="text-slate-400 mt-1">{room.description}</p>
@@ -194,6 +200,12 @@ export default function RoomDetail() {
               Host <span className="font-mono text-slate-400">{room.host_id}</span>
               {' · '}
               Created {format(new Date(room.created_at), 'MMM d, yyyy')}
+              {room.requires_wireguard_udp === false && (
+                <>
+                  {' · '}
+                  <span className="text-slate-400">No inbound UDP required</span>
+                </>
+              )}
               {' · '}
               <span
                 className={clsx(
@@ -258,7 +270,11 @@ export default function RoomDetail() {
         </section>
       </div>
 
-      <RoomNodeList roomId={roomId} enablePolling={enablePolling} />
+      <RoomNodeList
+        roomId={roomId}
+        enablePolling={enablePolling}
+        canRevokeProviders={!!currentUser && currentUser.id === room.host_id}
+      />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="rounded-xl border border-slate-700/80 bg-slate-800/40 p-5">
@@ -274,7 +290,11 @@ export default function RoomDetail() {
             <Shield className="w-4 h-4 text-cyan-400" />
             Connection config
           </h2>
-          <RoomConfigPanel roomId={roomId} />
+          <RoomConfigPanel
+            roomId={roomId}
+            transportMode={room.transport_mode}
+            requiresWireguardUdp={room.requires_wireguard_udp}
+          />
         </section>
       </div>
     </div>

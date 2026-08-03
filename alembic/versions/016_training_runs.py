@@ -1,7 +1,7 @@
 """First-class training run and worker tables.
 
-Revision ID: 013_training_runs
-Revises: 012_fix_phase4_schema_drift
+Revision ID: 016_training_runs
+Revises: 015_transport_mode_observability
 Create Date: 2026-07-30
 """
 
@@ -12,8 +12,8 @@ from sqlalchemy.dialects import postgresql
 
 from alembic import op
 
-revision: str = "013_training_runs"
-down_revision: str | None = "012_fix_phase4_schema_drift"
+revision: str = "016_training_runs"
+down_revision: str | None = "015_transport_mode_observability"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

@@ -24,7 +24,8 @@ classifiers = [
 ]
 
 [tool.poetry.dependencies]
-python = "^3.11"
+# Torch/training wheels are not published for 3.14 yet; keep CI/local aligned with Docker (3.11–3.13).
+python = ">=3.11,<3.14"
 click = ">=8.1.0"
 typer = ">=0.9.0"
 rich = ">=13.7.0"
@@ -54,6 +55,8 @@ psutil = ">=5.9.0"
 croniter = ">=1.4.0"
 cryptography = ">=41.0.0"
 nvidia-ml-py = "^13.610.43"
+numpy = ">=1.26.0"
+pynacl = ">=1.5.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=8,<10"
@@ -95,6 +98,7 @@ bitsandbytes = { version = ">=0.43.0", markers = "platform_system != 'Darwin'" }
 
 [tool.poetry.scripts]
 deepiri-gpu = "deepiri_zepgpu.cli:main"
+zepgpu-node = "deepiri_zepgpu.node_agent.agent:cli"
 zepgpu-train = "deepiri_zepgpu.training.cli:main"
 
 [tool.black]
@@ -135,7 +139,8 @@ ignore = [
 ]
 
 [tool.mypy]
-python_version = "3.11"
+# Match current typing surface (NumPy 2.x stubs use 3.12 `type` statements).
+python_version = "3.12"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
@@ -156,6 +161,12 @@ module = [
     "deepiri_zepgpu.vpn.*",
     "deepiri_zepgpu.database.repositories.*",
 ]
+ignore_errors = true
+
+# NumPy 2.x stubs use `type` statements that mypy rejects when python_version < 3.12.
+[[tool.mypy.overrides]]
+module = ["numpy", "numpy.*"]
+follow_imports = "skip"
 ignore_errors = true
 
 [tool.pytest.ini_options]

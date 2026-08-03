@@ -7,7 +7,7 @@ from typing import Any
 
 from croniter import croniter
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from deepiri_zepgpu.api.server.dependencies import get_current_user, get_db_session
@@ -126,8 +126,7 @@ class ScheduleResponse(BaseModel):
     created_at: datetime
     user_id: str | None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ScheduleListResponse(BaseModel):
@@ -154,8 +153,7 @@ class ScheduleRunResponse(BaseModel):
     trigger_type: str
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ScheduleRunListResponse(BaseModel):

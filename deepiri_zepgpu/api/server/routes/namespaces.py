@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from deepiri_zepgpu.api.server.dependencies import get_current_user, get_db_session
@@ -58,8 +58,7 @@ class NamespaceResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class NamespaceListResponse(BaseModel):
@@ -79,8 +78,7 @@ class NamespaceMemberResponse(BaseModel):
     is_active: bool
     joined_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TeamCreateRequest(BaseModel):
@@ -109,8 +107,7 @@ class TeamResponse(BaseModel):
     is_active: bool
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TeamListResponse(BaseModel):
@@ -130,8 +127,7 @@ class TeamMemberResponse(BaseModel):
     is_active: bool
     joined_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class NamespaceQuotaResponse(BaseModel):
@@ -148,8 +144,7 @@ class NamespaceQuotaResponse(BaseModel):
     max_gpu_hours_per_month: float | None
     max_concurrent_tasks: int | None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class NamespaceUsageResponse(BaseModel):
@@ -165,8 +160,7 @@ class NamespaceUsageResponse(BaseModel):
     gpu_hours_today: float
     gpu_hours_this_month: float
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class QuotaUpdateRequest(BaseModel):

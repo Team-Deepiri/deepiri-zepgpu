@@ -262,7 +262,7 @@ CELERY_RESULT_BACKEND=redis://localhost:6379/2
 
 Optional S3/MinIO settings (`S3_*` / endpoint URL) enable large result storage; the stack runs without MinIO and degrades gracefully when object storage is unavailable.
 
-Auth defaults to `changeme-in-production` for the JWT secret in local development — override via application settings before deploying publicly.
+Auth defaults to a ≥32-byte placeholder JWT secret for local development — override via application settings before deploying publicly.
 
 ---
 
@@ -377,26 +377,27 @@ ws.send(JSON.stringify({ type: 'subscribe_task', task_id: 'task-uuid' }));
 ### Setup
 
 ```bash
-# Install dependencies
-poetry install
+# Install dependencies (dev + training groups for full test coverage).
+# Requires Python >=3.11,<3.14 (PyTorch has no 3.14 wheels yet).
+poetry install --with dev,training
 
 # Run unit tests
 poetry run pytest tests/ -m "not integration and not regression" -v
 
-# Integration tests (Postgres on :5433)
+# Integration tests (Postgres on :5444, Redis on :6399)
 docker compose -f docker/docker-compose.test.yml up -d
-TEST_DATABASE_URL=postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5433/zepgpu_test \
-DATABASE__URL=postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5433/zepgpu_test \
+TEST_DATABASE_URL=postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5444/zepgpu_test \
+DATABASE__URL=postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5444/zepgpu_test \
 PYTHONPATH=. poetry run pytest tests/integration/ -m integration -v
 
 # Full-system regression (same Postgres)
-TEST_DATABASE_URL=postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5433/zepgpu_test \
-DATABASE__URL=postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5433/zepgpu_test \
+TEST_DATABASE_URL=postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5444/zepgpu_test \
+DATABASE__URL=postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5444/zepgpu_test \
 PYTHONPATH=. poetry run pytest tests/regression/ -m regression -v
 
 # Revolution suite (adversary + multi-party economy + golden vectors)
-TEST_DATABASE_URL=postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5433/zepgpu_test \
-DATABASE__URL=postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5433/zepgpu_test \
+TEST_DATABASE_URL=postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5444/zepgpu_test \
+DATABASE__URL=postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5444/zepgpu_test \
 PYTHONPATH=. poetry run pytest tests/adversarial tests/revolution -m revolution -v
 
 # Run linters

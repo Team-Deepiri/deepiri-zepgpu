@@ -1075,3 +1075,16 @@ def reset_expired_fair_share_periods() -> dict[str, int]:
             return {"buckets_reset": reset_count}
 
     return asyncio.run(_reset())
+
+
+@celery_app.task  # type: ignore[untyped-decorator]
+def sweep_node_assignment_timeouts() -> dict[str, Any]:
+    """Phase 13 Celery beat: lease expiry / accepted / running timeouts."""
+
+    async def _sweep() -> dict[str, Any]:
+        from deepiri_zepgpu.rooms.assignment_sweep import run_assignment_sweep
+
+        async with get_db_context() as db:
+            return await run_assignment_sweep(db)
+
+    return asyncio.run(_sweep())
