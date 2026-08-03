@@ -68,9 +68,8 @@ export interface NodeTaskResult {
 export interface TaskCreateRequest {
   name?: string
   func_name?: string
-  serialized_func?: string
-  args?: string
-  kwargs?: string
+  args?: unknown[]
+  kwargs?: Record<string, unknown>
   priority?: number
   gpu_memory_mb?: number
   cpu_cores?: number
@@ -90,6 +89,8 @@ export interface TaskCreateRequest {
 
 export interface RoomDispatchRequest {
   func_name: string
+  args?: unknown[]
+  kwargs?: Record<string, unknown>
   room_id: string
   dispatch_mode: 'room_auto' | 'room_specific_node'
   target_peer_id?: string

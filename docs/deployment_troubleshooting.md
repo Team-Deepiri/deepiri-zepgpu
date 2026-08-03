@@ -242,7 +242,7 @@ skips GPU allocation and runs the task on CPU:
 curl -s -X POST http://localhost:8000/api/v1/tasks \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"name":"cpu task","func_name":"random.seed","gpu_memory_mb":0}'
+  -d '{"name":"cpu task","func_name":"math.sqrt","args":[0],"gpu_memory_mb":0}'
 ```
 
 ### Task fails with "No GPU available"
@@ -277,8 +277,8 @@ A task whose function **returns a value** can fail with:
 ```
 
 This happens in the worker when the result store is used before its Redis client is
-initialized. Tasks whose function returns `None` (for example `random.seed`) complete
-normally because no result is stored.
+initialized. Operations that return a value (including `math.sqrt`) require the result
+store to be available.
 
 Workarounds today:
 
@@ -286,20 +286,11 @@ Workarounds today:
 - Treat value-returning tasks as dependent on a properly initialized, Redis-backed result
   store in the worker process.
 
-### Unauthenticated requests return 500 instead of 401
+### Unauthenticated requests fail closed
 
-Calling a protected REST route with a **missing or invalid** bearer token currently returns
-HTTP `500` (with `"type":"AttributeError"`) rather than `401`/`403`.
-
-Importantly, this is **not** a secrets/configuration problem:
-
-- A **valid** token returns `200`, which confirms the JWT secret is configured correctly.
-- The `500` on a missing token comes from the request handler dereferencing an absent user.
-- The `500` on an invalid/expired token comes from the auth error handler referencing
-  `jwt.JWTError`, which does not exist in the installed PyJWT library.
-
-If you are testing auth and see a `500`, check whether you sent a token at all and whether
-it is still valid before suspecting your environment.
+Protected REST routes reject missing, malformed, invalid, or expired bearer tokens with
+HTTP `401`. PyJWT failures are handled through `jwt.PyJWTError`; they do not fall through
+to an internal server error.
 
 ### Pipeline stages defined only with `func_name` are skipped
 

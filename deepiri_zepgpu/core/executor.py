@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import contextlib
+import logging
 import os
-import pickle
 import tempfile
 import threading
 import time
@@ -17,7 +16,8 @@ from typing import Any
 
 from deepiri_zepgpu.core.gpu_manager import GPUDevice, GPUManager
 from deepiri_zepgpu.core.task import Task, TaskStatus
-from deepiri_zepgpu.vpn.task_router import TaskRouter
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -107,56 +107,19 @@ class TaskExecutor:
             task.completed_at = datetime.now(UTC)
 
     async def _execute_on_remote_peer(self, task: Task, start_time: float) -> ExecutionResult:
-        """Run task function on a VPN peer via HTTP (WireGuard tunnel)."""
-        router = TaskRouter()
-        try:
-            raw = await router.execute_on_peer(
-                peer_vpn_ip=task.remote_peer_vpn_ip or "",
-                task_id=task.task_id,
-                func=task.func,
-                args=task.args,
-                kwargs=task.kwargs,
-                gpu_device_id=task.gpu_device_id or 0,
-                gpu_memory_mb=task.resources.gpu_memory_mb,
-                timeout_seconds=task.resources.timeout_seconds,
-            )
-            execution_time = time.time() - start_time
-            if raw.get("success"):
-                result_obj = None
-                if raw.get("result_encoded"):
-                    result_obj = pickle.loads(base64.b64decode(raw["result_encoded"]))
-                task.status = TaskStatus.COMPLETED
-                task.result = result_obj
-                return ExecutionResult(
-                    success=True,
-                    result=result_obj,
-                    execution_time=execution_time,
-                    gpu_memory_used_mb=float(task.resources.gpu_memory_mb),
-                )
-            task.status = TaskStatus.FAILED
-            task.error = raw.get("error", "Remote execution failed")
-            task.traceback = raw.get("traceback")
-            return ExecutionResult(
-                success=False,
-                error=task.error,
-                traceback=task.traceback,
-                execution_time=execution_time,
-            )
-        except Exception as e:
-            import traceback as tb
-
-            execution_time = time.time() - start_time
-            task.status = TaskStatus.FAILED
-            task.error = str(e)
-            task.traceback = tb.format_exc()
-            return ExecutionResult(
-                success=False,
-                error=str(e),
-                traceback=task.traceback,
-                execution_time=execution_time,
-            )
-        finally:
-            task.completed_at = datetime.now(UTC)
+        """Reject the removed arbitrary-callable WireGuard protocol explicitly."""
+        error = (
+            "Legacy WireGuard arbitrary-callable execution is disabled; "
+            "use the authenticated room node-task workflow"
+        )
+        task.status = TaskStatus.FAILED
+        task.error = error
+        task.completed_at = datetime.now(UTC)
+        return ExecutionResult(
+            success=False,
+            error=error,
+            execution_time=time.time() - start_time,
+        )
 
     async def _run_task(
         self,
@@ -183,30 +146,54 @@ class TaskExecutor:
         task: Task,
         image: str = "deepiri-gpu:latest",
     ) -> ExecutionResult:
-        """Execute task in isolated Docker container."""
-        container_id = None
+        """Execute a trusted local SDK task in a restricted Docker container.
+
+        This method is not reachable from the HTTP task API. The inline pickle is
+        created from objects already present in this process and is decoded only
+        after the container security boundary has been established.
+        """
+        gpu_device_id = self._validate_gpu_device_id(task.gpu_device_id)
+        container_id = f"deepiri_{task.task_id[:8]}"
+        logger.warning(
+            "Starting trusted executable container task %s with image %s",
+            task.task_id,
+            image,
+        )
         try:
             env = os.environ.copy()
-            env["CUDA_VISIBLE_DEVICES"] = str(task.gpu_device_id or 0)
+            env["CUDA_VISIBLE_DEVICES"] = str(gpu_device_id)
 
             docker_cmd = [
                 self._container_runtime,
                 "run",
                 "--rm",
+                "--name",
+                container_id,
+                "--network",
+                "none",
+                "--read-only",
+                "--cap-drop",
+                "ALL",
+                "--security-opt",
+                "no-new-privileges",
+                "--user",
+                "65534:65534",
+                "--pids-limit",
+                "256",
+                "--ulimit",
+                "nofile=128:128",
+                "--tmpfs",
+                "/tmp:rw,noexec,nosuid,nodev,size=64m",
                 "--gpus",
-                f'"device={task.gpu_device_id or 0}"',
+                f"device={gpu_device_id}",
                 "-e",
                 f"TASK_ID={task.task_id}",
                 "-e",
-                f"CUDA_VISIBLE_DEVICES={task.gpu_device_id or 0}",
+                f"CUDA_VISIBLE_DEVICES={gpu_device_id}",
                 "--memory",
-                f"{task.resources.gpu_memory_mb}m",
+                f"{task.resources.container_memory_mb}m",
                 "--cpus",
                 str(task.resources.cpu_cores),
-                "-v",
-                f"{self._work_dir}:/workspace",
-                "-w",
-                "/workspace",
                 image,
                 "python",
                 "-c",
@@ -220,7 +207,6 @@ class TaskExecutor:
                 stderr=asyncio.subprocess.PIPE,
             )
 
-            container_id = f"deepiri_{task.task_id[:8]}"
             self._container_ids[task.task_id] = container_id
 
             stdout, stderr = await asyncio.wait_for(
@@ -231,6 +217,7 @@ class TaskExecutor:
             if process.returncode != 0:
                 raise RuntimeError(f"Container execution failed: {stderr.decode()}")
 
+            logger.info("Trusted executable container task %s completed", task.task_id)
             return ExecutionResult(
                 success=True,
                 result=stdout.decode(),
@@ -238,12 +225,14 @@ class TaskExecutor:
             )
 
         except TimeoutError:
+            logger.warning("Trusted executable container task %s timed out", task.task_id)
             await self._kill_container(container_id)
             raise
 
         except Exception as e:
             import traceback
 
+            logger.warning("Trusted executable container task %s failed: %s", task.task_id, e)
             return ExecutionResult(
                 success=False,
                 error=str(e),
@@ -253,6 +242,14 @@ class TaskExecutor:
         finally:
             if container_id:
                 await self._cleanup_container(container_id)
+
+    @staticmethod
+    def _validate_gpu_device_id(gpu_device_id: int | None) -> int:
+        """Return a safe Docker GPU index without accepting shell-like values."""
+        selected = 0 if gpu_device_id is None else gpu_device_id
+        if isinstance(selected, bool) or not isinstance(selected, int) or not 0 <= selected <= 1023:
+            raise ValueError("gpu_device_id must be an integer between 0 and 1023")
+        return selected
 
     def _generate_task_code(self, task: Task) -> str:
         """Generate Python code to execute task in container."""

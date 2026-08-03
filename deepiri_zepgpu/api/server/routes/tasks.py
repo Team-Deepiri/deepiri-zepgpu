@@ -10,8 +10,16 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, s
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from deepiri_zepgpu.api.server.dependencies import get_current_user, get_db_session
+from deepiri_zepgpu.api.server.dependencies import (
+    get_db_session,
+    get_required_user,
+    require_researcher,
+)
 from deepiri_zepgpu.api.server.room_events import assignment_payload, emit_room_event
+from deepiri_zepgpu.api.server.task_submission_security import (
+    prepare_task_payload,
+    validate_submitted_callback,
+)
 from deepiri_zepgpu.database.models import User
 from deepiri_zepgpu.database.models.task import TaskPriority as DBTaskPriority
 from deepiri_zepgpu.database.models.task import TaskStatus as DBTaskStatus
@@ -32,33 +40,14 @@ router = APIRouter()
 DispatchMode = Literal["local", "room_auto", "room_specific_node"]
 
 
-def _validate_task_callable(func_name: str | None, serialized_func: str | None) -> None:
-    """Validate that a task has an executable function reference."""
-    if serialized_func:
-        return
-
-    if not func_name:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Task requires either serialized_func or func_name.",
-        )
-
-    parts = func_name.split(".")
-    if len(parts) < 2 or any(not part.isidentifier() for part in parts):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="func_name must be a dotted Python path like 'package.module.function'.",
-        )
-
-
 class TaskCreateRequest(BaseModel):
     """Task creation request."""
 
     name: str | None = None
-    func_name: str | None = None
-    serialized_func: str | None = None
-    args: str | None = None
-    kwargs: str | None = None
+    func_name: str | None = Field(default=None, max_length=255)
+    serialized_func: str | None = Field(default=None, max_length=4096)
+    args: list[Any] = Field(default_factory=list, max_length=1024)
+    kwargs: dict[str, Any] = Field(default_factory=dict, max_length=1024)
     priority: int = Field(default=2, ge=1, le=5)
     gpu_memory_mb: int = Field(default=1024, ge=0)
     cpu_cores: int = Field(default=1, ge=1)
@@ -211,50 +200,33 @@ def enqueue_task_to_celery(task_id: str) -> None:
     logger.info("Enqueued task %s to Celery with celery_task_id=%s", task_id, async_result.id)
 
 
-async def send_callback(callback_url: str, task_id: str, status: str, result: Any = None) -> None:
-    """Send callback webhook notification."""
-    import httpx
-
-    try:
-        async with httpx.AsyncClient() as client:
-            await client.post(
-                callback_url,
-                json={
-                    "task_id": task_id,
-                    "status": status,
-                    "result": result,
-                },
-                timeout=10.0,
-            )
-    except Exception:
-        pass
-
-
 @router.post("", response_model=TaskResponse, status_code=status.HTTP_201_CREATED)
 async def create_task(
     request: TaskCreateRequest,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db_session),
-    current_user: User | None = Depends(get_current_user),
+    current_user: User = Depends(require_researcher),
 ) -> TaskResponse:
     """Create a new task and enqueue it for execution."""
     from deepiri_zepgpu.database.models import Task
 
-    _validate_task_callable(request.func_name, request.serialized_func)
+    user, operation, encoded_args, encoded_kwargs = prepare_task_payload(
+        user=current_user,
+        func_name=request.func_name,
+        serialized_func=request.serialized_func,
+        args=request.args,
+        kwargs=request.kwargs,
+    )
+    callback_url = await validate_submitted_callback(request.callback_url)
     _validate_room_dispatch_request(request)
 
-    if not current_user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required"
-        )
-
     task = Task(
-        user_id=current_user.id,
+        user_id=user.id,
         name=request.name,
-        func_name=request.func_name,
-        serialized_func=request.serialized_func.encode() if request.serialized_func else None,
-        args=request.args.encode() if request.args else None,
-        kwargs=request.kwargs.encode() if request.kwargs else None,
+        func_name=operation,
+        serialized_func=None,
+        args=encoded_args,
+        kwargs=encoded_kwargs,
         priority=DBTaskPriority(request.priority),
         gpu_memory_mb=request.gpu_memory_mb,
         cpu_cores=request.cpu_cores,
@@ -263,7 +235,7 @@ async def create_task(
         allow_fallback_cpu=request.allow_fallback_cpu,
         tags=request.tags,
         metadata_json=request.metadata,
-        callback_url=request.callback_url,
+        callback_url=callback_url,
         dispatch_mode=request.dispatch_mode,
         vpn_network_id=str(request.room_id) if request.room_id else None,
         target_peer_id=str(request.target_peer_id) if request.target_peer_id else None,
@@ -282,7 +254,7 @@ async def create_task(
         try:
             dispatch_result = await select_and_assign_room_gpu(
                 db,
-                user_id=str(current_user.id),
+                user_id=str(user.id),
                 room_id=str(request.room_id),
                 task_id=str(task.id),
                 required_memory_mb=request.gpu_memory_mb,
@@ -344,7 +316,7 @@ async def create_task(
 @router.get("", response_model=TaskListResponse)
 async def list_tasks(
     db: AsyncSession = Depends(get_db_session),
-    current_user: User | None = Depends(get_current_user),
+    current_user: User = Depends(get_required_user),
     status_filter: str | None = Query(None, alias="status"),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
@@ -352,7 +324,6 @@ async def list_tasks(
     """List tasks."""
     repo = TaskRepository(db)
 
-    assert current_user is not None
     tasks = await repo.list_by_user(
         user_id=current_user.id,
         status=DBTaskStatus(status_filter) if status_filter else None,
@@ -390,7 +361,7 @@ async def list_tasks(
 async def get_task(
     task_id: str,
     db: AsyncSession = Depends(get_db_session),
-    current_user: User | None = Depends(get_current_user),
+    current_user: User = Depends(get_required_user),
 ) -> TaskResponse:
     """Get task by ID."""
     repo = TaskRepository(db)
@@ -399,17 +370,18 @@ async def get_task(
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
-    if current_user and str(task.user_id) != str(current_user.id):
+    if str(task.user_id) != str(current_user.id):
         raise HTTPException(status_code=403, detail="Access denied")
 
     assignment = await _load_assignment_summary(db, task_id)
     return _task_to_response(task, assignment)
 
 
+@router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def cancel_task(
     task_id: str,
     db: AsyncSession = Depends(get_db_session),
-    current_user: User | None = Depends(get_current_user),
+    current_user: User = Depends(get_required_user),
 ) -> None:
     """Cancel a task."""
     repo = TaskRepository(db)
@@ -418,7 +390,7 @@ async def cancel_task(
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
-    if current_user and str(task.user_id) != str(current_user.id):
+    if str(task.user_id) != str(current_user.id):
         raise HTTPException(status_code=403, detail="Access denied")
 
     if task.status in [DBTaskStatus.COMPLETED, DBTaskStatus.FAILED, DBTaskStatus.CANCELLED]:
@@ -459,7 +431,7 @@ async def retry_task(
     task_id: str,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db_session),
-    current_user: User | None = Depends(get_current_user),
+    current_user: User = Depends(get_required_user),
 ) -> TaskResponse:
     """Retry a failed task."""
     repo = TaskRepository(db)
@@ -468,7 +440,7 @@ async def retry_task(
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
-    if current_user and str(task.user_id) != str(current_user.id):
+    if str(task.user_id) != str(current_user.id):
         raise HTTPException(status_code=403, detail="Access denied")
 
     if task.status not in [DBTaskStatus.FAILED, DBTaskStatus.CANCELLED, DBTaskStatus.TIMEOUT]:
@@ -504,7 +476,7 @@ async def retry_task(
 async def get_task_result(
     task_id: str,
     db: AsyncSession = Depends(get_db_session),
-    current_user: User | None = Depends(get_current_user),
+    current_user: User = Depends(get_required_user),
 ) -> TaskResultResponse:
     """Get task result."""
     from deepiri_zepgpu.storage.result_store import ResultStore
@@ -515,7 +487,7 @@ async def get_task_result(
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
-    if current_user and str(task.user_id) != str(current_user.id):
+    if str(task.user_id) != str(current_user.id):
         raise HTTPException(status_code=403, detail="Access denied")
 
     result_data = None
@@ -525,9 +497,15 @@ async def get_task_result(
         result_store = ResultStore()
         result_bytes = await result_store.retrieve_result(task_id, "redis", task.result_ref)
         if result_bytes:
-            import pickle
+            from deepiri_zepgpu.queue.safe_task import UnsafeTaskPayloadError, decode_task_result
 
-            result_data = pickle.loads(result_bytes)
+            try:
+                result_data = decode_task_result(result_bytes)
+            except UnsafeTaskPayloadError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Stored legacy task result is unsupported; rerun the task",
+                ) from exc
         presigned_url = await result_store.get_presigned_url(task_id)
 
     return TaskResultResponse(

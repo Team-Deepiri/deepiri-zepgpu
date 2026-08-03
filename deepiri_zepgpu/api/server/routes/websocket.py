@@ -31,7 +31,7 @@ async def authenticate_websocket(token: str | None) -> str | None:
             algorithms=[settings.auth.algorithm],
         )
         return payload.get("sub")
-    except jwt.JWTError:  # type: ignore[attr-defined]
+    except jwt.PyJWTError:
         return None
 
 

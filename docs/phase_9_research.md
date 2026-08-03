@@ -20,14 +20,19 @@ Inside a GPU: HBM (~2 TB/s) → L2 → SM registers (~15–20 TB/s); tensors are
 
 ## A2. Current stack blockers (training)
 
-**O4 — Remote task path is pickle/base64/HTTP one-shot.**  
-`deepiri_zepgpu/vpn/task_router.py` pickles func/args/kwargs, base64-encodes them into JSON, POSTs to `http://{peer_vpn_ip}:9092/execute`. `peer_node.py` unpickles and runs once. No zero-copy tensors, no gradient compression, no collectives. Unsuitable as a training wire. **Quarantine:** training never uses this path; after P3 it remains only behind `transport_mode=wireguard` for legacy one-shot remote exec.
+**O4 — The legacy arbitrary-callable remote task path is disabled.**
+`deepiri_zepgpu/vpn/task_router.py` and `peer_node.py` now use authenticated, room-scoped,
+HMAC-protected strict JSON for a fixed no-op operation. Pickle payloads fail closed, and the
+legacy executor returns a migration error. Training uses its separate credentialed binary
+transport and never imports this compatibility endpoint.
 
 **O5 — Seconds-scale polling; no long-lived process groups; remote room path is noop.**  
 Poll intervals ~2–5s across task router, node agent, and pipelines. Celery defers room-assigned tasks; node agent remote execution is intentionally noop-only. `ResultStore` tiers (≤1MB Redis / ≤100MB S3) are job-result storage, not a per-step gradient bus. Training needs persistent workers and binary compressed updates. Prefer **WSS push assignment** over poll-only claim.
 
 **O6 — Training frameworks are optional extras, not the engine.**  
-Core deps: cloudpickle, nvidia-ml-py. Torch/JAX are optional. No DiLoCo, DeMo, NCCL, Gloo, or PCCL in core. Gang scheduling is local multi-GPU only (`CUDA_VISIBLE_DEVICES` on one worker).
+Core includes nvidia-ml-py; the training group supplies Torch, Transformers, PEFT,
+bitsandbytes, and Accelerate. Persisted worker tasks use allowlisted operations and bounded
+JSON rather than executable object serialization.
 
 ## A3. Networking / deployment
 
@@ -87,7 +92,7 @@ flowchart TB
 | Island (high BW) | Pool RAM; fit base model | FSDP2 and/or TP on NVLink / PCIe / Thunderbolt+JACCL |
 | Inter-island (WAN) | Low-comms data parallel | **PCCL** collectives default; DeMo optimizer; DiLoCo outer loop; 4–8 bit / DCT top-k; Eager/Streaming overlap |
 | Hard-NAT data plane | Direct peer bytes when possible | **iroh** QUIC direct→relay (P9); coordinator HTTPS/WSS **blob relay** as P6a MVP fallback |
-| Legacy remote exec | One-shot WG tasks only | `TaskRouter` pickle/HTTP — **quarantined**; never used for training; gated to `transport_mode=wireguard` after P3 |
+| Legacy remote exec | Unsupported arbitrary callables; fixed diagnostic noop only | Authenticated strict JSON/HMAC; unsafe legacy payloads fail closed and training never uses this endpoint |
 
 **Non-goals:** gossip-only room membership; Nostr public rooms as day-one; Skippy/MLX as cloud foundation; pickle-over-HTTP training; requiring InfiniBand for MVP LoRA; WAN pipeline parallelism (Petals/prime-iroh style) as the MVP training path (post-P10 research fork only); public blockchain incentives as a training prerequisite (permissioned compute ledger may attest run credits later — see Deferred).
 
@@ -196,14 +201,14 @@ flowchart TB
 - [ ] Add `transport_mode`: `wireguard` | `dialout` | `overlay` (overlay stub ok until P9)
 - [ ] Existing rows default `wireguard`; new cloud rooms default `dialout`
 - [ ] Implement dial-out end-to-end task path (WSS push primary; HTTPS claim fallback)
-- [ ] Route selection: dial-out / overlay strategies for rooms; quarantine pickle `TaskRouter` to `transport_mode=wireguard` only
+- [ ] Route selection: dial-out / overlay strategies for rooms; keep the legacy arbitrary-callable `TaskRouter` disabled for every transport
 - [ ] Metrics expose `transport_mode`
-- [ ] Docs: when to still use WireGuard (air-gapped L3); training never uses pickle `/execute`
+- [ ] Docs: when to still use WireGuard (air-gapped L3); authenticated room node-task dispatch replaces `/execute`
 
 ### Acceptance criteria
 
 - Dial-out room completes no-op with no WG ports on coordinator
-- Existing WG room still joins and executes
+- Existing WG room still joins and dispatches through the authenticated room node-task workflow
 - Old local WG simulation still passes
 - Training code paths do not import or call pickle `TaskRouter`
 
@@ -527,7 +532,7 @@ After min-k + Eager/Streaming work: **R1** SparseLoCo on outer grads; **R4** asy
 2. **Training collectives (P6a):** **PCCL** is the default WAN collective library (fault-tolerant join/leave, INTELLECT-path alignment). Use Hivemind only if PCCL Python integration blocks shipping.
 3. **Training MVP hard-NAT (P6a):** Coordinator-mediated **blob relay** (HTTPS chunked or WSS binary) for outer/adapter updates when direct peer TCP fails. Sufficient for LoRA-sized payloads before overlay.
 4. **Hard-NAT overlay (P9):** **iroh** QUIC with direct→relay. Do not spike WebRTC for native agents; reconsider WebRTC only if browser-based agents become a product requirement.
-5. **Legacy `TaskRouter` quarantine:** Pickle/base64/HTTP `/execute` over VPN IP is never used for training. After P3 it remains only for `transport_mode=wireguard` one-shot remote exec. New training code must not call it.
+5. **Legacy `TaskRouter` disabled:** Pickle/base64/HTTP `/execute` is fail-closed for every transport. Generic remote work uses authenticated room node-task dispatch; training uses its credentialed binary transport.
 
 ### Consequences
 

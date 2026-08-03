@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
@@ -99,20 +100,14 @@ def test_legacy_pickle_quarantined_to_wireguard() -> None:
         assert_legacy_pickle_router_allowed("dialout")
 
 
-@pytest.mark.asyncio
-async def test_task_router_rejects_dialout() -> None:
-    router = TaskRouter(relay_api_url="http://localhost:9")
-    with pytest.raises(LegacyRouterForbiddenError):
-        await router.execute_on_peer(
-            peer_vpn_ip="10.8.0.2",
-            task_id="t1",
-            func=lambda: None,
-            args=(),
-            kwargs={},
-            gpu_device_id=0,
-            gpu_memory_mb=1024,
-            transport_mode="dialout",
-        )
+
+def test_task_router_does_not_accept_arbitrary_callable_payloads() -> None:
+    signature = inspect.signature(TaskRouter.execute_on_peer)
+
+    assert "func" not in signature.parameters
+    assert "args" not in signature.parameters
+    assert "kwargs" not in signature.parameters
+    assert "serialized_func" not in signature.parameters
 
 
 def test_training_caller_guard() -> None:

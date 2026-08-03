@@ -10,7 +10,7 @@ pickle, cloudpickle, or required ML packages at module import time.
 
 - GPU: NVIDIA GeForce RTX 4050 Laptop GPU (6 GiB), compute capability 8.9.
 - Verified minimum VRAM: 6 GiB for the included tiny LoRA and QLoRA smoke configurations.
-- Tested runtime: Windows 11, Python 3.13.3, PyTorch 2.7.1+cu128, CUDA 12.8,
+- Tested runtime: Windows 11, Python 3.13.3, PyTorch 2.13.0+cu130, CUDA 13.0,
   Transformers 5.14.1, PEFT 0.20.0, Accelerate 1.14.0, and bitsandbytes 0.50.0.
 - Checked-in LoRA result: `docs/baselines/phase15_tiny_lora_rtx4050.json` records 64.37
   tokens/s, 18,988,032 peak allocated VRAM bytes, and a zero communication ratio.
@@ -22,13 +22,12 @@ utilization vary with thermals, background load, drivers, and package versions.
 
 ### Install and run
 
-Install the optional group. On Windows, install the CUDA wheel selected for the host from the
-official PyTorch wheel index; the default package resolver may otherwise install a CPU-only wheel.
-The following is the exact tested CUDA 12.8 setup:
+Install the optional group. The Poetry manifest selects the patched CUDA 13.0 Torch and torchvision
+wheels from the official PyTorch index on Windows and Linux. The following is the exact tested
+setup:
 
 ```console
 poetry install --with dev,training
-poetry run pip install --force-reinstall torch==2.7.1 --index-url https://download.pytorch.org/whl/cu128
 poetry run zepgpu-train examples/training/tiny_lora.json --smoke
 poetry run zepgpu-train examples/training/tiny_qlora.json --smoke
 ```
