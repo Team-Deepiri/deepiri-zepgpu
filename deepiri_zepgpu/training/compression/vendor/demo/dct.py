@@ -49,6 +49,7 @@ def _idct(x: np.ndarray, norm: str | None = "ortho") -> np.ndarray:
 
 
 def _get_prime_divisors(n: int) -> list[int]:
+    # Vendor-local number theory helper (see ATTRIBUTION.md); keep here with DeMo.
     divisors: list[int] = []
     while n % 2 == 0:
         divisors.append(2)

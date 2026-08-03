@@ -36,4 +36,7 @@ RUN groupadd -r zepgpu && \
 
 USER zepgpu
 
+# Default when someone runs the image ad-hoc. TrainingRuntime clears ENTRYPOINT
+# and always supplies an explicit `command` (typically process_worker with
+# --work-dir / --base-url), so this CMD is only a fallback default.
 CMD ["python", "-m", "deepiri_zepgpu.training.process_worker"]

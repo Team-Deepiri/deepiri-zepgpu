@@ -37,5 +37,6 @@ RUN groupadd -r zepgpu && \
 
 USER zepgpu
 
-# Overridable via `docker run ... command`; TrainingRuntime clears ENTRYPOINT.
+# Default when run ad-hoc. TrainingRuntime clears ENTRYPOINT and supplies an
+# explicit command list, so this CMD is only a fallback outside supervised runs.
 CMD ["python3", "-m", "deepiri_zepgpu.training.cli"]

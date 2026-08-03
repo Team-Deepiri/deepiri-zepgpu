@@ -558,6 +558,79 @@ async def test_lan_rejects_oversized_frame_and_bad_hmac() -> None:
 
 
 @pytest.mark.asyncio
+async def test_lan_unknown_peer_and_connect_failure() -> None:
+    from deepiri_zepgpu.training.transport import DirectUnavailable
+
+    channel = LanDirectChannel(credential="cred")
+    await channel.start()
+    with pytest.raises(DirectUnavailable, match="no LAN address"):
+        await channel.send("missing", b"hello")
+    channel.set_peer("gone", "127.0.0.1", 1)  # nothing listening
+    with pytest.raises(DirectUnavailable, match="connect failed"):
+        await channel.send("gone", b"hello")
+    await channel.stop()
+
+
+@pytest.mark.asyncio
+async def test_lan_bidirectional_concurrent_exchange() -> None:
+    left = LanDirectChannel(credential="cred")
+    right = LanDirectChannel(credential="cred")
+    left_inbox: list[bytes] = []
+    right_inbox: list[bytes] = []
+
+    async def on_left(encoded: bytes) -> None:
+        left_inbox.append(encoded)
+
+    async def on_right(encoded: bytes) -> None:
+        right_inbox.append(encoded)
+
+    left.register_receiver(on_left)
+    right.register_receiver(on_right)
+    port_l = await left.start()
+    port_r = await right.start()
+    left.set_peer("right", "127.0.0.1", port_r)
+    right.set_peer("left", "127.0.0.1", port_l)
+    await asyncio.gather(
+        left.send("right", b"L->R-1"),
+        right.send("left", b"R->L-1"),
+        left.send("right", b"L->R-2"),
+        right.send("left", b"R->L-2"),
+    )
+    deadline = asyncio.get_running_loop().time() + 2.0
+    while asyncio.get_running_loop().time() < deadline:
+        if len(left_inbox) == 2 and len(right_inbox) == 2:
+            break
+        await asyncio.sleep(0.02)
+    assert sorted(left_inbox) == [b"R->L-1", b"R->L-2"]
+    assert sorted(right_inbox) == [b"L->R-1", b"L->R-2"]
+    await left.stop()
+    # Disruption: peer stopped before send.
+    from deepiri_zepgpu.training.transport import DirectUnavailable
+
+    with pytest.raises(DirectUnavailable, match="connect failed"):
+        await right.send("left", b"after-stop")
+    await right.stop()
+
+
+@pytest.mark.asyncio
+async def test_lan_pair_missing_route() -> None:
+    from deepiri_zepgpu.training.lan import LanPairDirectChannel
+    from deepiri_zepgpu.training.transport import DirectUnavailable
+
+    only = LanDirectChannel(credential="cred")
+
+    async def _recv(_encoded: bytes) -> None:
+        return None
+
+    pair = LanPairDirectChannel(channels={"a": only})
+    with pytest.raises(DirectUnavailable, match="no LAN channel"):
+        pair.register("missing", _recv)
+    with pytest.raises(DirectUnavailable, match="no LAN route"):
+        await pair.send("nobody", b"x")
+    await only.stop()
+
+
+@pytest.mark.asyncio
 async def test_lan_pair_sync_roundtrip() -> None:
     import uuid
 

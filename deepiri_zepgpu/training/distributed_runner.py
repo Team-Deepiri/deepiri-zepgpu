@@ -12,6 +12,12 @@ from typing import Any
 
 import numpy as np
 
+from deepiri_zepgpu.training.adapter_utils import (
+    adapter_state_dict,
+    adapters_equal,
+    apply_adapter_state,
+    delta_from_snapshots,
+)
 from deepiri_zepgpu.training.compare import naive_full_precision_bytes
 from deepiri_zepgpu.training.config import (
     DirectBackend,
@@ -88,45 +94,6 @@ def validate_matching_configs(left: TrainingRunConfig, right: TrainingRunConfig)
         raise DistributedValidationError("both workers require distributed.enabled=true")
     if left.distributed.worker_count != 2 or right.distributed.worker_count != 2:
         raise DistributedValidationError("Phase 17 supports exactly two workers")
-
-
-def _adapter_state_dict(model: Any) -> dict[str, np.ndarray]:
-    state: dict[str, np.ndarray] = {}
-    for name, parameter in model.named_parameters():
-        if parameter.requires_grad and "lora" in name.lower():
-            state[name] = parameter.detach().float().cpu().numpy().astype(np.float32, copy=True)
-    if not state:
-        for name, parameter in model.named_parameters():
-            if parameter.requires_grad:
-                state[name] = parameter.detach().float().cpu().numpy().astype(np.float32, copy=True)
-    return state
-
-
-def _apply_adapter_state(model: Any, averaged: dict[str, np.ndarray], torch: Any) -> None:
-    with torch.no_grad():
-        named = dict(model.named_parameters())
-        for name, array in averaged.items():
-            parameter = named.get(name)
-            if parameter is None or not parameter.requires_grad:
-                continue
-            tensor = torch.as_tensor(array, device=parameter.device, dtype=parameter.dtype)
-            parameter.copy_(tensor)
-
-
-def _adapters_equal(
-    left: dict[str, np.ndarray], right: dict[str, np.ndarray], *, atol: float = 1e-5
-) -> bool:
-    if set(left) != set(right):
-        return False
-    return all(np.allclose(left[name], right[name], rtol=0.0, atol=atol) for name in left)
-
-
-def _delta_from_snapshots(
-    before: dict[str, np.ndarray], after: dict[str, np.ndarray]
-) -> dict[str, np.ndarray]:
-    if set(before) != set(after):
-        raise DistributedValidationError("adapter parameter set changed during local steps")
-    return {name: (after[name] - before[name]).astype(np.float32) for name in before}
 
 
 def _channel_register(channel: Any, worker_id: str, receiver: Any) -> None:
@@ -236,15 +203,15 @@ async def run_two_worker_training_async(
         optimizers.append(optimizer)
         tokenizers.append(tokenizer)
 
-    structures = [_adapter_state_dict(model) for model in models]
+    structures = [adapter_state_dict(model) for model in models]
     if set(structures[0]) != set(structures[1]):
         raise DistributedValidationError("adapter structures do not match across workers")
     for name in structures[0]:
         if structures[0][name].shape != structures[1][name].shape:
             raise DistributedValidationError(f"adapter shape mismatch for {name}")
     # Broadcast worker-0 adapters so both ranks start from identical weights.
-    _apply_adapter_state(models[1], structures[0], torch)
-    if not _adapters_equal(_adapter_state_dict(models[0]), _adapter_state_dict(models[1])):
+    apply_adapter_state(models[1], structures[0], torch)
+    if not adapters_equal(adapter_state_dict(models[0]), adapter_state_dict(models[1])):
         raise DistributedValidationError("failed to broadcast identical initial adapters")
 
     nvml = (
@@ -304,7 +271,7 @@ async def run_two_worker_training_async(
         for round_number in range(1, config.distributed.max_rounds + 1):
             if abort.is_set():
                 raise DistributedAbortError("training aborted before round start")
-            before = [_adapter_state_dict(model) for model in models]
+            before = [adapter_state_dict(model) for model in models]
             # Concurrent local steps on CPU; keep CUDA sequential for device safety.
             rank_steps: list[list[StepMetric]]
             if device.type == "cpu":
@@ -318,8 +285,8 @@ async def run_two_worker_training_async(
             for rank, steps in enumerate(rank_steps):
                 all_steps[rank].extend(steps)
 
-            after = [_adapter_state_dict(model) for model in models]
-            deltas = [_delta_from_snapshots(before[i], after[i]) for i in range(2)]
+            after = [adapter_state_dict(model) for model in models]
+            deltas = [delta_from_snapshots(before[i], after[i]) for i in range(2)]
             left_update = orchestrators[0].compressor.compress(deltas[0], orchestrators[0].state)
             right_update = orchestrators[1].compressor.compress(deltas[1], orchestrators[1].state)
 
@@ -393,7 +360,7 @@ async def run_two_worker_training_async(
                     name: (before[rank][name] + result.averaged[name]).astype(np.float32)
                     for name in before[rank]
                 }
-                _apply_adapter_state(models[rank], applied, torch)
+                apply_adapter_state(models[rank], applied, torch)
                 if all_steps[rank]:
                     last = all_steps[rank][-1]
                     wall = last.compute_seconds + result.blocked_sync_seconds
@@ -413,7 +380,7 @@ async def run_two_worker_training_async(
                         }
                     )
 
-            if not _adapters_equal(_adapter_state_dict(models[0]), _adapter_state_dict(models[1])):
+            if not adapters_equal(adapter_state_dict(models[0]), adapter_state_dict(models[1])):
                 raise DistributedValidationError("adapters diverged after sync averaging")
 
             for rank, worker_config in enumerate(configs):

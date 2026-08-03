@@ -13,6 +13,11 @@ from typing import Any
 import httpx
 import numpy as np
 
+from deepiri_zepgpu.training.adapter_utils import (
+    adapter_state_dict,
+    apply_adapter_state,
+    delta_from_snapshots,
+)
 from deepiri_zepgpu.training.config import OverlapMode, TrainingRunConfig
 from deepiri_zepgpu.training.example import EXAMPLE_TEXTS
 from deepiri_zepgpu.training.metrics import (
@@ -37,37 +42,6 @@ from deepiri_zepgpu.training.sync import (
 )
 from deepiri_zepgpu.training.transport import HttpRelayChannel, PcclDirectChannel, TransferManager
 from deepiri_zepgpu.training.worker import HttpWorkerCoordinator, PersistentTrainingWorker
-
-
-def _adapter_state_dict(model: Any) -> dict[str, np.ndarray]:
-    state: dict[str, np.ndarray] = {}
-    for name, parameter in model.named_parameters():
-        if parameter.requires_grad and "lora" in name.lower():
-            state[name] = parameter.detach().float().cpu().numpy().astype(np.float32, copy=True)
-    if not state:
-        for name, parameter in model.named_parameters():
-            if parameter.requires_grad:
-                state[name] = parameter.detach().float().cpu().numpy().astype(np.float32, copy=True)
-    return state
-
-
-def _apply_adapter_state(model: Any, averaged: dict[str, np.ndarray], torch: Any) -> None:
-    with torch.no_grad():
-        named = dict(model.named_parameters())
-        for name, array in averaged.items():
-            parameter = named.get(name)
-            if parameter is None or not parameter.requires_grad:
-                continue
-            tensor = torch.as_tensor(array, device=parameter.device, dtype=parameter.dtype)
-            parameter.copy_(tensor)
-
-
-def _delta_from_snapshots(
-    before: dict[str, np.ndarray], after: dict[str, np.ndarray]
-) -> dict[str, np.ndarray]:
-    if set(before) != set(after):
-        raise RuntimeError("adapter parameter set changed during local steps")
-    return {name: (after[name] - before[name]).astype(np.float32) for name in before}
 
 
 def load_worker_identity(work_dir: Path) -> dict[str, Any]:
@@ -202,7 +176,7 @@ async def run_worker(work_dir: Path, *, base_url: str) -> TrainingMetrics:
         started_at = datetime.now(UTC)
         try:
             for round_number in range(1, config.distributed.max_rounds + 1):
-                before = _adapter_state_dict(model)
+                before = adapter_state_dict(model)
                 texts = config.dataset.texts or EXAMPLE_TEXTS
                 encoded = tokenizer(
                     texts,
@@ -239,8 +213,8 @@ async def run_worker(work_dir: Path, *, base_url: str) -> TrainingMetrics:
                         )
                     )
 
-                after = _adapter_state_dict(model)
-                deltas = _delta_from_snapshots(before, after)
+                after = adapter_state_dict(model)
+                deltas = delta_from_snapshots(before, after)
                 round_before = before
                 round_deltas = deltas
                 round_texts = texts
@@ -273,7 +247,7 @@ async def run_worker(work_dir: Path, *, base_url: str) -> TrainingMetrics:
                         name: (round_before[name] + result.averaged[name]).astype(np.float32)
                         for name in round_before
                     }
-                    _apply_adapter_state(model, applied, torch)
+                    apply_adapter_state(model, applied, torch)
                     if steps:
                         last = steps[-1]
                         steps[-1] = last.model_copy(

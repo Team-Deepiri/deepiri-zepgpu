@@ -142,6 +142,9 @@ class DemoCompressor:
             ).reshape(rows, top_k)
             cursor += val_bytes
             val = (q.astype(np.float32) * np.float32(scale) + np.float32(vmin)).astype(np.float32)
+            # `totalk` is part of the DeMo wire header (kept for compatibility).
+            # Decode uses chunk size as the DCT block width; `bits` selects quant width.
+            _ = (bits, totalk)
             result[name] = decode_topk(
                 idx,
                 val,
@@ -150,5 +153,4 @@ class DemoCompressor:
                 xshape=(rows, chunk),
                 totalk=chunk,
             )
-            _ = (bits, totalk)
         return result

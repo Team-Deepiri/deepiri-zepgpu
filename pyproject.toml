@@ -143,7 +143,6 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"deepiri_zepgpu/training/cli.py" = ["C901"]
 "deepiri_zepgpu/training/distributed_runner.py" = ["C901"]
 "deepiri_zepgpu/training/process_worker.py" = ["C901"]
 "scripts/run_docker_wan_lora.py" = ["C901"]

@@ -76,8 +76,11 @@ def write_worker_files(
     (work / "config.json").write_text(json.dumps(config_json, indent=2), encoding="utf-8")
     (work / "run.cred").write_text(credential, encoding="utf-8")
     (work / "provider.token").write_text(provider_token, encoding="utf-8")
-    # Container runs as uid 999 (`zepgpu`). Make the bind-mounted work tree
-    # readable/writable regardless of host uid mapping.
+    # LOCAL E2E ONLY: container user is uid 999 (`zepgpu`) while bind mounts are
+    # owned by the host uid. Broad chmod is a development workaround so the
+    # worker can read credentials and write artifacts.
+    # Do NOT use this pattern in production — prefer userns-remap or matching
+    # host/container UID/GID instead of world-writable mounts.
     for path in [work, *work.rglob("*")]:
         try:
             if path.is_dir():

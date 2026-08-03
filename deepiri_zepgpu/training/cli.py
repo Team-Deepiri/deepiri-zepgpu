@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from typing import Any
 
 from deepiri_zepgpu.training.compare import (
     compare_runs,
@@ -21,7 +22,7 @@ from deepiri_zepgpu.training.config import (
 from deepiri_zepgpu.training.runner import run_training
 
 
-def main() -> None:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Run single-GPU or two-worker WAN LoRA/QLoRA training"
     )
@@ -57,9 +58,18 @@ def main() -> None:
         default=None,
         help="Optional Phase 15 metrics JSON for recorded comparison",
     )
-    args = parser.parse_args()
-    # Apply CLI overrides then re-validate so smoke/WAN bounds and enums re-run.
-    overrides: dict = TrainingRunConfig.from_json_file(args.config).model_dump(mode="python")
+    return parser
+
+
+def _distributed_dict(overrides: dict[str, Any]) -> dict[str, Any]:
+    return dict(overrides.get("distributed") or {})
+
+
+def apply_cli_overrides(args: argparse.Namespace) -> TrainingRunConfig:
+    """Load config JSON and apply CLI flags, then re-validate."""
+    overrides: dict[str, Any] = TrainingRunConfig.from_json_file(args.config).model_dump(
+        mode="python"
+    )
     if args.smoke:
         overrides["smoke_run"] = True
         overrides["max_steps"] = min(int(overrides.get("max_steps", 2)), 2)
@@ -67,72 +77,79 @@ def main() -> None:
     if args.resume_from:
         overrides["resume_from"] = args.resume_from
     if args.wan:
-        distributed = dict(overrides.get("distributed") or {})
+        distributed = _distributed_dict(overrides)
         distributed["enabled"] = True
         overrides["distributed"] = distributed
         overrides["schema_version"] = 2
     if args.compressor:
-        distributed = dict(overrides.get("distributed") or {})
+        distributed = _distributed_dict(overrides)
         compression = dict(distributed.get("compression") or {})
         compression["backend"] = CompressorBackend(args.compressor).value
         distributed["compression"] = compression
         overrides["distributed"] = distributed
     if args.direct_backend:
-        distributed = dict(overrides.get("distributed") or {})
+        distributed = _distributed_dict(overrides)
         distributed["direct_backend"] = DirectBackend(args.direct_backend).value
         overrides["distributed"] = distributed
     if args.overlap:
-        distributed = dict(overrides.get("distributed") or {})
+        distributed = _distributed_dict(overrides)
         distributed["overlap_mode"] = OverlapMode(args.overlap).value
         overrides["distributed"] = distributed
-    config = TrainingRunConfig.model_validate(overrides)
+    return TrainingRunConfig.model_validate(overrides)
 
-    if config.distributed.enabled:
-        from deepiri_zepgpu.training.distributed_runner import run_two_worker_training
 
-        # Prefer CPU for process-mode smoke when CUDA may be absent.
-        if args.smoke and config.device.startswith("cuda"):
-            try:
-                import torch
+def maybe_fallback_cpu_for_smoke(config: TrainingRunConfig, *, smoke: bool) -> TrainingRunConfig:
+    if not (smoke and config.device.startswith("cuda")):
+        return config
+    try:
+        import torch
 
-                if not torch.cuda.is_available():
-                    config = config.model_copy(
-                        update={
-                            "device": "cpu",
-                            "precision": (
-                                Precision.FP32
-                                if config.precision.value == "fp16"
-                                else config.precision
-                            ),
-                        }
-                    )
-                    config = TrainingRunConfig.model_validate(config.model_dump(mode="python"))
-            except ImportError:
-                config = TrainingRunConfig.model_validate(
-                    {**config.model_dump(mode="python"), "device": "cpu"}
-                )
+        if torch.cuda.is_available():
+            return config
+        updated = config.model_copy(
+            update={
+                "device": "cpu",
+                "precision": (
+                    Precision.FP32 if config.precision.value == "fp16" else config.precision
+                ),
+            }
+        )
+        return TrainingRunConfig.model_validate(updated.model_dump(mode="python"))
+    except ImportError:
+        return TrainingRunConfig.model_validate(
+            {**config.model_dump(mode="python"), "device": "cpu"}
+        )
 
-        left, right, bundle = run_two_worker_training(config)
-        print(left.summary())
-        print("---")
-        print(right.summary())
-        naive_path = Path(config.output_dir) / "naive_fp_bytes.json"
-        if args.compare_phase15 and args.compare_phase15.exists():
-            comparison = compare_runs(
-                phase15=args.compare_phase15,
-                phase17=left,
-                naive=naive_path if naive_path.exists() else bundle.get("naive"),
-                phase17_label=config.distributed.compression.backend.value,
-            )
-            out = Path(config.output_dir) / "phase17_comparison.json"
-            write_comparison(comparison, out)
-            print(comparison_summary(comparison))
-        else:
-            print(
-                json.dumps({"naive": bundle.get("naive"), "run_id": bundle.get("run_id")}, indent=2)
-            )
+
+def run_wan_cli(config: TrainingRunConfig, args: argparse.Namespace) -> None:
+    from deepiri_zepgpu.training.distributed_runner import run_two_worker_training
+
+    config = maybe_fallback_cpu_for_smoke(config, smoke=bool(args.smoke))
+    left, _right, bundle = run_two_worker_training(config)
+    print(left.summary())
+    print("---")
+    print(_right.summary())
+    naive_path = Path(config.output_dir) / "naive_fp_bytes.json"
+    if args.compare_phase15 and args.compare_phase15.exists():
+        comparison = compare_runs(
+            phase15=args.compare_phase15,
+            phase17=left,
+            naive=naive_path if naive_path.exists() else bundle.get("naive"),
+            phase17_label=config.distributed.compression.backend.value,
+        )
+        out = Path(config.output_dir) / "phase17_comparison.json"
+        write_comparison(comparison, out)
+        print(comparison_summary(comparison))
         return
+    print(json.dumps({"naive": bundle.get("naive"), "run_id": bundle.get("run_id")}, indent=2))
 
+
+def main() -> None:
+    args = build_parser().parse_args()
+    config = apply_cli_overrides(args)
+    if config.distributed.enabled:
+        run_wan_cli(config, args)
+        return
     print(run_training(config).summary())
 
 
