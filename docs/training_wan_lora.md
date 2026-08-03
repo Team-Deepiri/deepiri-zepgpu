@@ -86,6 +86,8 @@ docker build -f docker/Dockerfile.training.cpu -t zepgpu-training:local .
 poetry run python scripts/run_docker_wan_lora.py --base-url http://127.0.0.1:8000
 ```
 
+Containers run as the host `uid:gid` (`docker --user`) with owner-only mount permissions (`0700`/`0600`). Do not world-chmod bind mounts.
+
 ## Two-OS-process workers (live coordinator)
 
 ```console
@@ -94,6 +96,7 @@ poetry run python scripts/run_two_process_wan_lora.py --base-url http://127.0.0.
 
 Workers authenticate, emit `ready`, wait for `running`, then train with HTTP relay sync using
 deterministic transfer IDs so peers can download without an in-memory bus.
+
 ## Metrics (schema v2)
 
 Fields include `blocked_sync_seconds`, `overlapped_sync_seconds`, uncompressed/compressed
@@ -120,4 +123,4 @@ relay train loop locally.
 |---|---|
 | [`docs/baselines/phase15_tiny_lora_rtx4050.json`](baselines/phase15_tiny_lora_rtx4050.json) | Single-node comparison target |
 | [`docs/baselines/phase17_naive_fp_bytes.json`](baselines/phase17_naive_fp_bytes.json) | Documented naive full-precision bytes fixture |
-| `docs/baselines/phase17_wan_*_{zep,demo}.json` | Recorded WAN/smoke results when hardware available |
+| [`docs/baselines/phase17_wan_smoke_zep.json`](baselines/phase17_wan_smoke_zep.json) | Recorded WAN smoke metadata (`zep`); expand with metrics when hardware available |

@@ -18,7 +18,7 @@ from deepiri_zepgpu.database.models.training_run import (
     TrainingWorkerEvent,
     TrainingWorkerState,
 )
-from deepiri_zepgpu.training.config import filter_secrets
+from deepiri_zepgpu.training.config import TrainingRunConfig, filter_secrets
 
 TERMINAL_STATES = {
     TrainingRunState.COMPLETED,
@@ -98,13 +98,15 @@ class TrainingRunRepository:
     ) -> TrainingRun:
         if len(provider_ids) != len(set(provider_ids)):
             raise ValueError("provider_ids must be unique")
+        # Persist the public config contract (no runtime.environment / secret keys).
+        public_config = TrainingRunConfig.model_validate(config).to_public_dict()
         run = TrainingRun(
             id=uuid.uuid4(),
             vpn_network_id=room_id,
             user_id=user_id,
             state=TrainingRunState.CREATED,
-            config_version=int(config.get("schema_version", 1)),
-            config=filter_secrets(config),
+            config_version=int(public_config.get("schema_version", 1)),
+            config=public_config,
             provider_ids=provider_ids,
             artifacts=[],
             workers=[TrainingWorker(peer_id=provider_id) for provider_id in provider_ids],
@@ -129,8 +131,17 @@ class TrainingRunRepository:
         """Heal runs stuck after concurrent checkpoint/complete races."""
         if run.state in TERMINAL_STATES or not run.workers:
             return run
-        if all(item.state == TrainingWorkerState.COMPLETED for item in run.workers):
-            await self.transition(run, TrainingRunState.COMPLETED)
+        if not all(item.state == TrainingWorkerState.COMPLETED for item in run.workers):
+            return run
+        locked = await self._lock_run(run.id)
+        try:
+            if locked.state not in TERMINAL_STATES and all(
+                item.state == TrainingWorkerState.COMPLETED for item in locked.workers
+            ):
+                await self.transition(locked, TrainingRunState.COMPLETED)
+                await self.session.refresh(locked)
+        finally:
+            self._overlay_run(run, locked)
         return run
 
     async def get_worker(self, run_id: str, worker_id: str) -> TrainingWorker | None:
@@ -158,6 +169,7 @@ class TrainingRunRepository:
         runs = result.scalars().all()
         for run in runs:
             await self.enforce_startup_deadline(run)
+            await self.reconcile_completed_workers(run)
         return runs
 
     async def transition(
@@ -277,6 +289,9 @@ class TrainingRunRepository:
         occurred_at: datetime,
         payload: dict[str, Any],
     ) -> bool:
+        # Lock first so concurrent ready/complete/idempotent retries serialize.
+        locked_run = await self._lock_run(run.id)
+        # Re-check idempotency under the run lock (avoids TOCTOU vs unique event_id).
         existing_result = await self.session.execute(
             select(TrainingWorkerEvent).where(TrainingWorkerEvent.event_id == event_id)
         )
@@ -291,8 +306,6 @@ class TrainingRunRepository:
             ):
                 raise TrainingWorkerEventConflict("conflicting duplicate worker event")
             return False
-        # Lock after the idempotency check so concurrent ready/complete events serialize.
-        locked_run = await self._lock_run(run.id)
         locked_worker = next(
             (item for item in locked_run.workers if str(item.id) == str(worker.id)), None
         )
@@ -312,24 +325,39 @@ class TrainingRunRepository:
         self.session.add(event)
         await self._apply_worker_event(locked_run, locked_worker, kind, clean_payload)
         await self.session.flush()
-        # Keep the caller's instances coherent for the HTTP response mapper.
-        run.state = locked_run.state
-        run.error = locked_run.error
-        run.updated_at = locked_run.updated_at
-        run.started_at = locked_run.started_at
-        run.completed_at = locked_run.completed_at
-        run.startup_deadline_at = locked_run.startup_deadline_at
-        worker.state = locked_worker.state
-        worker.current_round = locked_worker.current_round
-        worker.progress = locked_worker.progress
-        worker.last_heartbeat_at = locked_worker.last_heartbeat_at
-        worker.ready_at = locked_worker.ready_at
-        worker.stopped_at = locked_worker.stopped_at
-        worker.restart_count = locked_worker.restart_count
-        worker.error = locked_worker.error
-        # Refresh relationship view used by _response(run).
-        run.workers = locked_run.workers
+        await self.session.refresh(locked_run)
+        await self.session.refresh(locked_worker)
+        self._overlay_run(run, locked_run)
+        self._overlay_worker(worker, locked_worker)
         return True
+
+    @staticmethod
+    def _overlay_run(destination: TrainingRun, source: TrainingRun) -> None:
+        for name in (
+            "state",
+            "error",
+            "updated_at",
+            "started_at",
+            "completed_at",
+            "startup_deadline_at",
+        ):
+            setattr(destination, name, getattr(source, name))
+        destination.workers = source.workers
+
+    @staticmethod
+    def _overlay_worker(destination: TrainingWorker, source: TrainingWorker) -> None:
+        for name in (
+            "state",
+            "current_round",
+            "progress",
+            "last_heartbeat_at",
+            "ready_at",
+            "stopped_at",
+            "restart_count",
+            "error",
+            "credential_revoked_at",
+        ):
+            setattr(destination, name, getattr(source, name))
 
     async def _apply_worker_event(
         self, run: TrainingRun, worker: TrainingWorker, kind: str, payload: dict[str, Any]

@@ -471,14 +471,25 @@ def test_image_trust_and_workload_security(tmp_path: Path) -> None:
     with pytest.raises(ValidationError):
         TrainingWorkloadSpec(
             image="zepgpu-training:local",
+            user="1000:1000",
             host_work_dir=Path("/"),
         )
     with pytest.raises(ValidationError):
         TrainingWorkloadSpec(
             image="zepgpu-training:local",
+            user="1000:1000",
             host_work_dir=tmp_path / "escape",
             mount_root=tmp_path / "jail",
         )
+    with pytest.raises(ValidationError, match="user"):
+        TrainingWorkloadSpec(
+            image="zepgpu-training:local",
+            host_work_dir=tmp_path / "needs-user",
+        )
+    with pytest.raises(ValidationError, match="user"):
+        TrainingWorkloadSpec(image="zepgpu-training:local", user="-1:0")
+    with pytest.raises(ValidationError, match="user"):
+        TrainingWorkloadSpec(image="zepgpu-training:local", user="1000:")
     jail = tmp_path / "jail"
     jail.mkdir()
     work = jail / "run"
@@ -486,6 +497,7 @@ def test_image_trust_and_workload_security(tmp_path: Path) -> None:
     spec = TrainingWorkloadSpec(
         image="zepgpu-training:local",
         environment={"HF_TOKEN": "secret", "SAFE": "1"},
+        user="1000:1000",
         host_work_dir=work,
         mount_root=jail,
     )
@@ -499,15 +511,29 @@ def test_image_trust_and_workload_security(tmp_path: Path) -> None:
     assert any(part.startswith(f"{work.resolve()}:") for part in cmd)
     # Single --gpus device list
     assert cmd.count("--gpus") == 1
+    with_user = TrainingWorkloadSpec(
+        image="zepgpu-training:local",
+        user="1000:1000",
+        gpu_devices=[],
+    )
+    user_cmd = runtime.build_docker_command(with_user, name="zepgpu-train-user")
+    assert "--user" in user_cmd
+    assert "1000:1000" in user_cmd
 
 
-def test_runtime_fail_closed_without_allowlist(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.delenv("ZEPGPU_TRAINING_DEV", raising=False)
+def test_runtime_fail_closed_without_allowlist(tmp_path: Path) -> None:
     missing = tmp_path / "missing.allowlist"
     with pytest.raises(TrainingRuntimeError, match="allowlist missing"):
+        TrainingRuntime(allowlist_path=missing)
+    with pytest.raises(TrainingRuntimeError, match="allowlist missing"):
         TrainingRuntime(allowlist_path=missing, allow_missing_allowlist=False)
+    # Explicit opt-in remains available for local experiments only.
+    ok = TrainingRuntime(allowlist_path=missing, allow_missing_allowlist=True)
+    assert "zepgpu-training:local" in ok.trust_policy.allowed
+    empty = tmp_path / "empty.allowlist"
+    empty.write_text("# comment only\n", encoding="utf-8")
+    with pytest.raises(ImageTrustError, match="empty"):
+        ImageTrustPolicy.from_file(empty)
 
 
 @pytest.mark.asyncio

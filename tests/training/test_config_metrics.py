@@ -69,6 +69,8 @@ def test_public_config_dict_redacts_secrets_and_runtime_env() -> None:
     leaked = filter_secrets({"run_credential": "abc", "ok": 1})
     assert leaked["run_credential"] == "[REDACTED]"
     assert leaked["ok"] == 1
+    # Opaque env keys (no secret-like name) are still wiped for public persistence.
+    assert "SAFE" not in public["distributed"]["runtime"]["environment"]
 
 
 def test_ratio_math_and_single_node_metrics() -> None:

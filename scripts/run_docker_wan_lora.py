@@ -26,6 +26,7 @@ from training_e2e_common import (  # noqa: E402
     heartbeat_payload,
     invite_and_join,
     register_and_login,
+    run_reached_success,
     smoke_training_config,
 )
 
@@ -76,19 +77,23 @@ def write_worker_files(
     (work / "config.json").write_text(json.dumps(config_json, indent=2), encoding="utf-8")
     (work / "run.cred").write_text(credential, encoding="utf-8")
     (work / "provider.token").write_text(provider_token, encoding="utf-8")
-    # LOCAL E2E ONLY: container user is uid 999 (`zepgpu`) while bind mounts are
-    # owned by the host uid. Broad chmod is a development workaround so the
-    # worker can read credentials and write artifacts.
-    # Do NOT use this pattern in production — prefer userns-remap or matching
-    # host/container UID/GID instead of world-writable mounts.
+    # Owner-only perms. Containers must run as this host uid:gid (--user) so they
+    # can read credentials / write artifacts without world-writable mounts.
     for path in [work, *work.rglob("*")]:
         try:
             if path.is_dir():
-                os.chmod(path, 0o777)
+                os.chmod(path, 0o700)
             else:
-                os.chmod(path, 0o666)
+                os.chmod(path, 0o600)
         except OSError:
             pass
+
+
+def host_docker_user() -> str:
+    """Return uid:gid for docker --user so bind mounts stay owner-accessible."""
+    uid = getattr(os, "getuid", lambda: 0)()
+    gid = getattr(os, "getgid", lambda: 0)()
+    return f"{uid}:{gid}"
 
 
 async def wait_run_state(
@@ -116,17 +121,17 @@ async def wait_run_state(
 
 
 async def main_async(args: argparse.Namespace) -> int:
+    if not args.allowlist.exists():
+        raise FileNotFoundError(
+            f"training image allowlist missing: {args.allowlist} "
+            "(refusing soft-open trust for Docker e2e)"
+        )
     output = (args.output_dir or (DEFAULT_OUTPUT / uuid.uuid4().hex[:8])).resolve()
     output.mkdir(parents=True, exist_ok=True)
     suffix = uuid.uuid4().hex[:8]
     password = args.password
     runtime = TrainingRuntime(
-        trust_policy=(
-            ImageTrustPolicy.from_file(args.allowlist)
-            if args.allowlist.exists()
-            else ImageTrustPolicy({args.image})
-        ),
-        allow_missing_allowlist=True,
+        trust_policy=ImageTrustPolicy.from_file(args.allowlist),
     )
     handles: list[Any] = []
 
@@ -182,7 +187,7 @@ async def main_async(args: argparse.Namespace) -> int:
             json={
                 "room_id": room_id,
                 "provider_ids": peer_ids,
-                "config": config.model_dump(mode="json"),
+                "config": config.to_public_dict(),
             },
         )
         create.raise_for_status()
@@ -212,7 +217,7 @@ async def main_async(args: argparse.Namespace) -> int:
                         "peer_id": peer_id,
                         "peer_worker_id": peer_worker[peer_id],
                     },
-                    config_json=config.model_dump(mode="json"),
+                    config_json=config.to_public_dict(),
                     credential=str(cred.json()["credential"]),
                     provider_token=peer_auths[index],
                 )
@@ -242,6 +247,7 @@ async def main_async(args: argparse.Namespace) -> int:
                     network_enabled=True,
                     privileged=False,
                     read_only_rootfs=True,
+                    user=host_docker_user(),
                     extra_hosts=["host.docker.internal:host-gateway"],
                     host_work_dir=work,
                     host_checkpoint_dir=work / "checkpoints",
@@ -289,10 +295,7 @@ async def main_async(args: argparse.Namespace) -> int:
                 inspect.raise_for_status()
                 body = inspect.json()
                 state = body.get("state")
-                worker_states = {item.get("state") for item in body.get("workers", [])}
-                # Prefer coordinator completed; also accept all workers completed
-                # (heals pre-reconcile coordinators stuck in checkpointing).
-                if state == "completed" or worker_states == {"completed"}:
+                if run_reached_success(body):
                     exit_codes = []
                     for handle in handles:
                         exit_codes.append(await runtime.wait(handle, timeout_seconds=60.0))

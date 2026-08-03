@@ -29,6 +29,7 @@ from training_e2e_common import (  # noqa: E402
     heartbeat_payload,
     invite_and_join,
     register_and_login,
+    run_reached_success,
     smoke_training_config,
 )
 
@@ -64,8 +65,10 @@ def write_worker_files(
     (work / "config.json").write_text(json.dumps(config_json, indent=2), encoding="utf-8")
     (work / "run.cred").write_text(credential, encoding="utf-8")
     (work / "provider.token").write_text(provider_token, encoding="utf-8")
-    os.chmod(work / "run.cred", 0o600)
-    os.chmod(work / "provider.token", 0o600)
+    os.chmod(work, 0o700)
+    for path in work.iterdir():
+        with contextlib.suppress(OSError):
+            os.chmod(path, 0o600)
 
 
 async def wait_run_state(
@@ -152,7 +155,7 @@ async def main_async(args: argparse.Namespace) -> int:
             json={
                 "room_id": room_id,
                 "provider_ids": peer_ids,
-                "config": config.model_dump(mode="json"),
+                "config": config.to_public_dict(),
             },
         )
         create.raise_for_status()
@@ -166,6 +169,7 @@ async def main_async(args: argparse.Namespace) -> int:
 
         processes: list[subprocess.Popen[Any]] = []
         work_dirs: list[Path] = []
+        log_files: list[Any] = []
         try:
             for index, peer_id in enumerate(peer_ids):
                 work = output / f"worker-{index}"
@@ -185,12 +189,13 @@ async def main_async(args: argparse.Namespace) -> int:
                         "peer_id": peer_id,
                         "peer_worker_id": peer_worker[peer_id],
                     },
-                    config_json=config.model_dump(mode="json"),
+                    config_json=config.to_public_dict(),
                     credential=str(cred.json()["credential"]),
                     provider_token=peer_auths[index],
                 )
                 log_path = work / "worker.log"
                 log_file = log_path.open("w", encoding="utf-8")
+                log_files.append(log_file)
                 proc = subprocess.Popen(
                     [
                         args.python,
@@ -207,7 +212,7 @@ async def main_async(args: argparse.Namespace) -> int:
                     env={**os.environ, "PYTHONUNBUFFERED": "1"},
                 )
                 processes.append(proc)
-                # Stagger readiness against coordinators that lack FOR UPDATE locking.
+                # Stagger worker-1 until worker-0 has reported ready (stable under load).
                 if index == 0:
                     deadline = time.perf_counter() + 60.0
                     while time.perf_counter() < deadline:
@@ -248,14 +253,14 @@ async def main_async(args: argparse.Namespace) -> int:
                 inspect.raise_for_status()
                 body = inspect.json()
                 state = body.get("state")
-                if state == "completed":
+                if run_reached_success(body):
                     codes = [proc.wait(timeout=30) for proc in processes]
                     if any(code != 0 for code in codes):
                         raise RuntimeError(f"worker process non-zero exit: {codes}")
                     summary = {
                         "run_id": run_id,
                         "room_id": room_id,
-                        "state": state,
+                        "state": "completed" if state == "completed" else "completed_workers",
                         "worker_dirs": [str(path) for path in work_dirs],
                     }
                     (output / "summary.json").write_text(
@@ -283,6 +288,10 @@ async def main_async(args: argparse.Namespace) -> int:
                 if proc.poll() is None:
                     proc.kill()
             raise
+        finally:
+            for handle in log_files:
+                with contextlib.suppress(Exception):
+                    handle.close()
 
 
 def main() -> None:
