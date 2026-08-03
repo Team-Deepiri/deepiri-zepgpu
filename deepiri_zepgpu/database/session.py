@@ -13,12 +13,8 @@ from sqlalchemy.pool import NullPool
 
 from deepiri_zepgpu.config import settings
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL", "postgresql+asyncpg://deepiri:deepiri@localhost:5432/deepiri"
-)
-DATABASE_SYNC_URL = os.getenv(
-    "DATABASE_SYNC_URL", "postgresql://deepiri:deepiri@localhost:5432/deepiri"
-)
+DATABASE_URL = os.getenv("DATABASE_URL", settings.database.url)
+DATABASE_SYNC_URL = os.getenv("DATABASE_SYNC_URL", settings.database.sync_url)
 
 async_engine = create_async_engine(
     DATABASE_URL,
