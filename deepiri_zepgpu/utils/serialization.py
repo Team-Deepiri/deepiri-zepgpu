@@ -74,7 +74,7 @@ class Serializer:
     def _serialize_numpy(self, obj: Any) -> bytes:
         """Serialize numpy arrays efficiently."""
         if isinstance(obj, np.ndarray):
-            return obj.tobytes()
+            return bytes(obj.tobytes())
         raise SerializationError("NumPy format requires an ndarray")
 
     def _deserialize_numpy(self, data: bytes) -> Any:
