@@ -6,7 +6,7 @@ import {
   Wifi, Users, ActivitySquare, BarChart3
 } from 'lucide-react'
 import clsx from 'clsx'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import { AreaChart, Area, ResponsiveContainer, XAxis, YAxis, Tooltip } from 'recharts'
 import type { GPUDevice } from '@/types'
 

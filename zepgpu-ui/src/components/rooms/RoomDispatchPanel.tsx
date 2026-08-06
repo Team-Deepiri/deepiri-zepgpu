@@ -99,6 +99,7 @@ export default function RoomDispatchPanel({
         room_id: roomId,
         dispatch_mode: dispatchMode,
         func_name: funcName.trim(),
+        args: funcName.trim() === 'math.sqrt' ? [0] : undefined,
         name: name.trim() || undefined,
         gpu_memory_mb: gpuMemoryMb,
         target_peer_id: dispatchMode === 'room_specific_node' ? targetPeerId : undefined,
@@ -131,7 +132,7 @@ export default function RoomDispatchPanel({
   const handleDispatch = () => {
     if (!funcName.trim()) {
       setFuncTouched(true)
-      toast.error('Function is required')
+      toast.error('Operation is required')
       return
     }
     if (dispatchMode === 'room_specific_node' && !targetPeerId) {
@@ -187,23 +188,24 @@ export default function RoomDispatchPanel({
           </div>
           <div>
             <label className="block text-xs text-slate-500 mb-1" htmlFor="dispatch-func">
-              Function
+              Operation
             </label>
-            <input
+            <select
               id="dispatch-func"
-              type="text"
               className={clsx(
                 'w-full bg-slate-900 border rounded-lg px-3 py-2 text-sm text-white font-mono',
                 funcMissing ? 'border-red-500' : 'border-slate-600',
               )}
-              placeholder="package.module.function"
               value={funcName}
               onChange={(e) => setFuncName(e.target.value)}
               onBlur={() => setFuncTouched(true)}
               aria-invalid={funcMissing}
-            />
+            >
+              <option value="">Select an allowlisted operation</option>
+              <option value="math.sqrt">math.sqrt</option>
+            </select>
             {funcMissing && (
-              <p className="text-xs text-red-400 mt-1">Function is required.</p>
+              <p className="text-xs text-red-400 mt-1">Operation is required.</p>
             )}
           </div>
           <div>

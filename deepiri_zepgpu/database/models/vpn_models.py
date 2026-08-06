@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import enum
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     BigInteger,
@@ -18,7 +18,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from deepiri_zepgpu.database.models.base import Base, TimestampMixin, UUIDMixin
@@ -61,6 +61,10 @@ class VpnNetwork(UUIDMixin, TimestampMixin, Base):
         nullable=True,
         index=True,
     )
+    # wireguard | dialout | overlay (overlay experimental until Phase 19)
+    transport_mode: Mapped[str] = mapped_column(
+        String(32), default="wireguard", server_default="wireguard", nullable=False
+    )
 
     peers: Mapped[list[Peer]] = relationship("Peer", back_populates="vpn_network", lazy="dynamic")
     invites: Mapped[list[VpnInvite]] = relationship(
@@ -100,8 +104,44 @@ class Peer(UUIDMixin, TimestampMixin, Base):
     heartbeat_interval_seconds: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
 
     auth_token_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    token_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    token_revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    token_rotated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    token_last_used_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    agent_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    provider_mode: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    node_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     ledger_public_key: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     ledger_private_key_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    capabilities_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    capabilities_reported_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    health_state: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    health_reason: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    path_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    path_class: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    coordinator_rtt_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    path_freshness_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    path_measurement_kind: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    recent_failures: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+    last_claim_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     user: Mapped[User] = relationship("User", back_populates="vpn_peers", lazy="joined")
     vpn_network: Mapped[VpnNetwork] = relationship("VpnNetwork", back_populates="peers")
@@ -141,6 +181,8 @@ class GpuShare(UUIDMixin, TimestampMixin, Base):
     )
     current_task_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     utilization_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
+    temperature_celsius: Mapped[float | None] = mapped_column(Float, nullable=True)
+    power_watts: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 

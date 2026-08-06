@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import secrets
 from datetime import datetime
 from typing import Any
 
@@ -13,52 +12,32 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from deepiri_zepgpu.api.server.dependencies import get_db_session, get_required_user
-from deepiri_zepgpu.api.server.remote_task_events import notify_remote_task_terminal_state
-from deepiri_zepgpu.api.server.room_events import assignment_payload, emit_room_event
+from deepiri_zepgpu.api.server.node_task_lifecycle import (
+    _task_status,
+    emit_assignment_room_event,
+    notify_assignment_terminal,
+)
+from deepiri_zepgpu.api.server.provider_auth import (
+    get_verified_provider,
+    verify_provider_credentials,
+)
 from deepiri_zepgpu.database.models import User
 from deepiri_zepgpu.database.models.node_task_assignment import NodeTaskAssignment
 from deepiri_zepgpu.database.models.task import Task
 from deepiri_zepgpu.database.models.vpn_models import Peer
 from deepiri_zepgpu.database.repositories.node_task_repository import (
     NodeTaskRepository,
-    NodeTaskTransitionError,
+    is_lifecycle_noop,
 )
-from deepiri_zepgpu.vpn.remote_gpu_lock import RemoteGpuLock
-from deepiri_zepgpu.vpn.repositories import PeerRepository, VpnNetworkRepository
+from deepiri_zepgpu.vpn.repositories import VpnNetworkRepository
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/node-tasks", tags=["Node Tasks"])
 
 
-async def get_verified_peer(
-    peer_id: str,
-    authorization: str | None = Header(default=None),
-    db: AsyncSession = Depends(get_db_session),
-) -> Peer:
-    """Verify the caller holds the bearer token issued to this peer.
-
-    Node agents send `Authorization: Bearer <auth_token>` (see
-    NodeTaskClient._headers). This checks that token against the peer's
-    stored auth_token before allowing any node-task mutation, so peer_id
-    alone is no longer sufficient to act as another node.
-    """
-    if not authorization or not authorization.lower().startswith("bearer "):
-        raise HTTPException(status_code=401, detail="Missing bearer token")
-    provided_token = authorization.split(" ", 1)[1].strip()
-    if not provided_token:
-        raise HTTPException(status_code=401, detail="Missing bearer token")
-
-    peer_repo = PeerRepository(db)
-    peer = await peer_repo.get_by_id(peer_id)
-    if peer is None:
-        raise HTTPException(status_code=404, detail="Peer not found")
-
-    stored_token = await peer_repo.get_auth_token(peer)
-    if not stored_token or not secrets.compare_digest(stored_token, provided_token):
-        raise HTTPException(status_code=401, detail="Invalid peer credentials")
-
-    return peer
+# Evolve get_verified_peer → shared provider verification (Phase 12).
+get_verified_peer = get_verified_provider
 
 
 async def _require_room_member_for_result(
@@ -66,13 +45,7 @@ async def _require_room_member_for_result(
     authorization: str | None,
     db: AsyncSession,
 ) -> None:
-    """Authorize a human dashboard caller to view a task result.
-
-    Used only on the peer_id-less path of get_node_task_result: the caller
-    must present a valid user JWT (the same Authorization header scheme
-    every other human-facing route in vpn.py expects) and be a member of
-    the room the assignment belongs to. Mirrors _ensure_network_member.
-    """
+    """Authorize a human dashboard caller to view a task result."""
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="Authentication required")
     token = authorization.split(" ", 1)[1].strip()
@@ -100,7 +73,20 @@ class NodeTaskResponse(BaseModel):
     started_at: datetime | None = None
     completed_at: datetime | None = None
     failed_at: datetime | None = None
+    claimed_at: datetime | None = None
+    lease_expires_at: datetime | None = None
+    claim_generation: int = 0
+    terminal_reason: str | None = None
+    cancel_requested: bool = False
+    cancel_requested_at: datetime | None = None
     error: str | None = None
+    noop: bool = Field(
+        default=False,
+        description=(
+            "True when the request did not change state (idempotent retry or "
+            "ignored conflict against an already-terminal assignment)."
+        ),
+    )
 
 
 class CompleteNodeTaskRequest(BaseModel):
@@ -117,10 +103,19 @@ class NodeTaskLogRequest(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
+class NodeTaskLogBatchRequest(BaseModel):
+    logs: list[NodeTaskLogRequest] = Field(default_factory=list, min_length=1, max_length=100)
+
+
 class NodeTaskLogResponse(BaseModel):
     assignment_id: str
     event_type: str
     payload: dict[str, Any]
+
+
+class NodeTaskLogBatchResponse(BaseModel):
+    assignment_id: str
+    accepted: int
 
 
 class NodeTaskResultResponse(BaseModel):
@@ -132,26 +127,63 @@ class NodeTaskResultResponse(BaseModel):
     result_ref: str | None = None
     result_size_bytes: int | None = None
     error: str | None = None
+    terminal_reason: str | None = None
 
 
-def _assignment_to_response(assignment: NodeTaskAssignment) -> NodeTaskResponse:
+class ReconcileRequest(BaseModel):
+    assignment_ids: list[str] = Field(default_factory=list, max_length=100)
+
+
+class ReconcileItem(BaseModel):
+    assignment_id: str
+    action: str
+    status: str | None = None
+    terminal_reason: str | None = None
+    reason: str | None = None
+    claim_generation: int | None = None
+    lease_expires_at: str | None = None
+    cancel_requested: bool | None = None
+    recovered: bool | None = None
+
+
+class ReconcileResponse(BaseModel):
+    room_id: str
+    peer_id: str
+    outcomes: list[ReconcileItem]
+
+
+class PendingTasksResponse(BaseModel):
+    """Pending assignments plus cancel flags for poll fallback."""
+
+    assignments: list[NodeTaskResponse]
+    cancel_requested: list[NodeTaskResponse] = Field(default_factory=list)
+
+
+def _assignment_to_response(
+    assignment: NodeTaskAssignment,
+    *,
+    noop: bool | None = None,
+) -> NodeTaskResponse:
     return NodeTaskResponse(
         assignment_id=str(assignment.id),
         room_id=str(assignment.vpn_network_id),
         task_id=str(assignment.task_id),
-        peer_id=str(assignment.peer_id),
+        peer_id=str(assignment.peer_id) if assignment.peer_id else "",
         gpu_share_id=str(assignment.gpu_share_id) if assignment.gpu_share_id else None,
         status=assignment.status.value,
         accepted_at=assignment.accepted_at,
         started_at=assignment.started_at,
         completed_at=assignment.completed_at,
         failed_at=assignment.failed_at,
+        claimed_at=getattr(assignment, "claimed_at", None),
+        lease_expires_at=getattr(assignment, "lease_expires_at", None),
+        claim_generation=int(getattr(assignment, "claim_generation", 0) or 0),
+        terminal_reason=getattr(assignment, "terminal_reason", None),
+        cancel_requested=bool(getattr(assignment, "cancel_requested_at", None)),
+        cancel_requested_at=getattr(assignment, "cancel_requested_at", None),
         error=assignment.error,
+        noop=is_lifecycle_noop(assignment) if noop is None else noop,
     )
-
-
-def _task_status(task: Task) -> str:
-    return task.status.value if hasattr(task.status, "value") else str(task.status)
 
 
 async def _task_for_assignment(
@@ -159,56 +191,6 @@ async def _task_for_assignment(
     assignment: NodeTaskAssignment,
 ) -> Task | None:
     return await db.get(Task, assignment.task_id)
-
-
-async def _notify_if_task_exists(
-    *,
-    task: Task | None,
-    assignment: NodeTaskAssignment,
-) -> None:
-    """Notify remote task listeners only when the parent task still exists."""
-    if task is None:
-        logger.warning(
-            "Skipping remote task terminal notification because task %s for "
-            "assignment %s was not found",
-            assignment.task_id,
-            assignment.id,
-        )
-        return
-
-    await notify_remote_task_terminal_state(task=task, assignment=assignment)
-
-
-async def _emit_room_task_event(
-    *,
-    event_type: str,
-    task: Task | None,
-    assignment: NodeTaskAssignment,
-) -> None:
-    status = _task_status(task) if task is not None else "assigned"
-    await emit_room_event(
-        str(assignment.vpn_network_id),
-        event_type,
-        assignment_payload(
-            task_id=str(assignment.task_id),
-            assignment_id=str(assignment.id),
-            peer_id=str(assignment.peer_id) if assignment.peer_id else None,
-            gpu_share_id=str(assignment.gpu_share_id) if assignment.gpu_share_id else None,
-            status=status,
-            assignment_status=assignment.status.value,
-            error=assignment.error or (task.error if task is not None else None),
-        ),
-    )
-
-
-def _release_assignment_lock(assignment: NodeTaskAssignment) -> None:
-    """Best-effort release of the Redis lock after a terminal DB commit."""
-    if not assignment.gpu_share_id:
-        return
-    try:
-        RemoteGpuLock().release(str(assignment.gpu_share_id), str(assignment.task_id))
-    except Exception:
-        logger.exception("Failed to release GPU lock for assignment %s", assignment.id)
 
 
 @router.get(
@@ -219,16 +201,113 @@ async def list_pending_node_tasks(
     room_id: str,
     peer_id: str,
     limit: int = Query(default=1, ge=1, le=10),
+    include_cancels: bool = Query(default=True),
+    authorization: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db_session),
-    peer: Peer = Depends(get_verified_peer),
 ) -> list[NodeTaskResponse]:
+    peer = await verify_provider_credentials(
+        peer_id=peer_id,
+        authorization=authorization,
+        db=db,
+        room_id=room_id,
+    )
     repo = NodeTaskRepository(db)
     assignments = await repo.list_pending_for_peer(
         vpn_network_id=room_id,
         peer_id=str(peer.id),
         limit=limit,
     )
-    return [_assignment_to_response(assignment) for assignment in assignments]
+    responses = [_assignment_to_response(assignment) for assignment in assignments]
+    if include_cancels:
+        cancels = await repo.list_cancel_requested_for_peer(
+            vpn_network_id=room_id,
+            peer_id=str(peer.id),
+        )
+        # Surface cancel flags via status annotations on responses already returned;
+        # agents also poll cancel_requested via the dedicated field on responses.
+        for cancel_assignment in cancels:
+            responses.append(_assignment_to_response(cancel_assignment))
+    return responses
+
+
+@router.get(
+    "/rooms/{room_id}/nodes/{peer_id}/tasks/poll",
+    response_model=PendingTasksResponse,
+)
+async def poll_node_tasks(
+    room_id: str,
+    peer_id: str,
+    limit: int = Query(default=1, ge=1, le=10),
+    authorization: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db_session),
+) -> PendingTasksResponse:
+    """HTTPS poll fallback: pending assignments + cancel propagation flags."""
+    peer = await verify_provider_credentials(
+        peer_id=peer_id,
+        authorization=authorization,
+        db=db,
+        room_id=room_id,
+    )
+    repo = NodeTaskRepository(db)
+    assignments = await repo.list_pending_for_peer(
+        vpn_network_id=room_id,
+        peer_id=str(peer.id),
+        limit=limit,
+    )
+    cancels = await repo.list_cancel_requested_for_peer(
+        vpn_network_id=room_id,
+        peer_id=str(peer.id),
+    )
+    return PendingTasksResponse(
+        assignments=[_assignment_to_response(a) for a in assignments],
+        cancel_requested=[_assignment_to_response(a) for a in cancels],
+    )
+
+
+@router.post(
+    "/rooms/{room_id}/nodes/{peer_id}/reconcile",
+    response_model=ReconcileResponse,
+)
+async def reconcile_node_tasks(
+    room_id: str,
+    peer_id: str,
+    request: ReconcileRequest,
+    authorization: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db_session),
+) -> ReconcileResponse:
+    """Provider restart recovery: resume valid leases, fail expired, abandon stale."""
+    peer = await verify_provider_credentials(
+        peer_id=peer_id,
+        authorization=authorization,
+        db=db,
+        room_id=room_id,
+    )
+    repo = NodeTaskRepository(db)
+    outcomes = await repo.reconcile_for_peer(
+        vpn_network_id=room_id,
+        peer_id=str(peer.id),
+        local_assignment_ids=request.assignment_ids,
+    )
+
+    # Notify + release GPU for any newly terminal outcomes from reconcile.
+    for item in outcomes:
+        if item.get("action") not in {"fail_expired", "cancel"}:
+            continue
+        assignment = await repo.get_by_id(str(item["assignment_id"]))
+        if assignment is None:
+            continue
+        task = await _task_for_assignment(db, assignment)
+        await notify_assignment_terminal(task=task, assignment=assignment)
+
+    await db.commit()
+    return ReconcileResponse(
+        room_id=room_id,
+        peer_id=str(peer.id),
+        outcomes=[
+            ReconcileItem(**{k: v for k, v in item.items() if k in ReconcileItem.model_fields})
+            for item in outcomes
+        ],
+    )
 
 
 @router.get("/{assignment_id}/result", response_model=NodeTaskResultResponse)
@@ -268,7 +347,36 @@ async def get_node_task_result(
         result_ref=task.result_ref,
         result_size_bytes=task.result_size_bytes,
         error=task.error or assignment.error,
+        terminal_reason=assignment.terminal_reason,
     )
+
+
+@router.post("/{assignment_id}/claim", response_model=NodeTaskResponse)
+async def claim_node_task(
+    assignment_id: str,
+    db: AsyncSession = Depends(get_db_session),
+    peer: Peer = Depends(get_verified_peer),
+) -> NodeTaskResponse:
+    """Claim an assignment. Terminal conflicts soft-return current state (``noop``)."""
+    repo = NodeTaskRepository(db)
+    assignment = await repo.mark_claimed(assignment_id=assignment_id, peer_id=str(peer.id))
+    if assignment is None:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+    noop = is_lifecycle_noop(assignment)
+    await db.commit()
+    await db.refresh(assignment)
+    task = await _task_for_assignment(db, assignment)
+    if noop:
+        return _assignment_to_response(assignment, noop=True)
+    if assignment.is_terminal:
+        await notify_assignment_terminal(task=task, assignment=assignment)
+    else:
+        await emit_assignment_room_event(
+            event_type="room_task_claimed",
+            task=task,
+            assignment=assignment,
+        )
+    return _assignment_to_response(assignment)
 
 
 @router.post("/{assignment_id}/accept", response_model=NodeTaskResponse)
@@ -277,21 +385,8 @@ async def accept_node_task(
     db: AsyncSession = Depends(get_db_session),
     peer: Peer = Depends(get_verified_peer),
 ) -> NodeTaskResponse:
-    repo = NodeTaskRepository(db)
-    try:
-        assignment = await repo.mark_accepted(assignment_id=assignment_id, peer_id=str(peer.id))
-    except NodeTaskTransitionError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    if assignment is None:
-        raise HTTPException(status_code=404, detail="Assignment not found")
-    await db.commit()
-    await db.refresh(assignment)
-    await _emit_room_task_event(
-        event_type="room_task_started",
-        task=await _task_for_assignment(db, assignment),
-        assignment=assignment,
-    )
-    return _assignment_to_response(assignment)
+    """Backwards-compatible accept (= claim)."""
+    return await claim_node_task(assignment_id=assignment_id, db=db, peer=peer)
 
 
 @router.post("/{assignment_id}/start", response_model=NodeTaskResponse)
@@ -300,20 +395,25 @@ async def start_node_task(
     db: AsyncSession = Depends(get_db_session),
     peer: Peer = Depends(get_verified_peer),
 ) -> NodeTaskResponse:
+    """Start an assignment. Terminal/idempotent conflicts soft-return (``noop``)."""
     repo = NodeTaskRepository(db)
-    try:
-        assignment = await repo.mark_running(assignment_id=assignment_id, peer_id=str(peer.id))
-    except NodeTaskTransitionError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    assignment = await repo.mark_running(assignment_id=assignment_id, peer_id=str(peer.id))
     if assignment is None:
         raise HTTPException(status_code=404, detail="Assignment not found")
+    noop = is_lifecycle_noop(assignment)
     await db.commit()
     await db.refresh(assignment)
-    await _emit_room_task_event(
-        event_type="room_task_started",
-        task=await _task_for_assignment(db, assignment),
-        assignment=assignment,
-    )
+    task = await _task_for_assignment(db, assignment)
+    if noop:
+        return _assignment_to_response(assignment, noop=True)
+    if assignment.is_terminal:
+        await notify_assignment_terminal(task=task, assignment=assignment)
+    else:
+        await emit_assignment_room_event(
+            event_type="room_task_started",
+            task=task,
+            assignment=assignment,
+        )
     return _assignment_to_response(assignment)
 
 
@@ -324,31 +424,24 @@ async def complete_node_task(
     db: AsyncSession = Depends(get_db_session),
     peer: Peer = Depends(get_verified_peer),
 ) -> NodeTaskResponse:
+    """Complete an assignment. Already-terminal retries soft-return (``noop``)."""
     repo = NodeTaskRepository(db)
-    try:
-        assignment = await repo.mark_completed(
-            assignment_id=assignment_id,
-            peer_id=str(peer.id),
-            result_metadata=request.result_metadata,
-        )
-    except NodeTaskTransitionError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    assignment = await repo.mark_completed(
+        assignment_id=assignment_id,
+        peer_id=str(peer.id),
+        result_metadata=request.result_metadata,
+    )
     if assignment is None:
         raise HTTPException(status_code=404, detail="Assignment not found")
 
+    noop = is_lifecycle_noop(assignment)
     task = await _task_for_assignment(db, assignment)
 
     await db.commit()
     await db.refresh(assignment)
-    _release_assignment_lock(assignment)
-
-    await _notify_if_task_exists(task=task, assignment=assignment)
-    await _emit_room_task_event(
-        event_type="room_task_completed",
-        task=task,
-        assignment=assignment,
-    )
-    return _assignment_to_response(assignment)
+    if not noop:
+        await notify_assignment_terminal(task=task, assignment=assignment)
+    return _assignment_to_response(assignment, noop=noop)
 
 
 @router.post("/{assignment_id}/fail", response_model=NodeTaskResponse)
@@ -358,31 +451,24 @@ async def fail_node_task(
     db: AsyncSession = Depends(get_db_session),
     peer: Peer = Depends(get_verified_peer),
 ) -> NodeTaskResponse:
+    """Fail an assignment. Already-terminal retries soft-return (``noop``)."""
     repo = NodeTaskRepository(db)
-    try:
-        assignment = await repo.mark_failed(
-            assignment_id=assignment_id,
-            peer_id=str(peer.id),
-            error=request.error,
-        )
-    except NodeTaskTransitionError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    assignment = await repo.mark_failed(
+        assignment_id=assignment_id,
+        peer_id=str(peer.id),
+        error=request.error,
+    )
     if assignment is None:
         raise HTTPException(status_code=404, detail="Assignment not found")
 
+    noop = is_lifecycle_noop(assignment)
     task = await _task_for_assignment(db, assignment)
 
     await db.commit()
     await db.refresh(assignment)
-    _release_assignment_lock(assignment)
-
-    await _notify_if_task_exists(task=task, assignment=assignment)
-    await _emit_room_task_event(
-        event_type="room_task_failed",
-        task=task,
-        assignment=assignment,
-    )
-    return _assignment_to_response(assignment)
+    if not noop:
+        await notify_assignment_terminal(task=task, assignment=assignment)
+    return _assignment_to_response(assignment, noop=noop)
 
 
 @router.post("/{assignment_id}/logs", response_model=NodeTaskLogResponse)
@@ -419,3 +505,37 @@ async def log_node_task_event(
         event_type=request.event_type,
         payload=payload,
     )
+
+
+@router.post("/{assignment_id}/logs/batch", response_model=NodeTaskLogBatchResponse)
+async def log_node_task_events_batch(
+    assignment_id: str,
+    request: NodeTaskLogBatchRequest,
+    db: AsyncSession = Depends(get_db_session),
+    peer: Peer = Depends(get_verified_peer),
+) -> NodeTaskLogBatchResponse:
+    """Batched/chunked log submission after short disconnects."""
+    repo = NodeTaskRepository(db)
+    assignment = await repo.get_for_peer(
+        assignment_id=assignment_id,
+        peer_id=str(peer.id),
+    )
+    if assignment is None:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+
+    accepted = 0
+    for entry in request.logs:
+        payload = {
+            "peer_id": str(peer.id),
+            "task_id": str(assignment.task_id),
+            "message": entry.message,
+            **entry.payload,
+        }
+        await repo.record_event(
+            assignment_id=assignment_id,
+            event_type=entry.event_type,
+            payload=payload,
+        )
+        accepted += 1
+    await db.commit()
+    return NodeTaskLogBatchResponse(assignment_id=assignment_id, accepted=accepted)

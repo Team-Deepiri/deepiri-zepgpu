@@ -1,0 +1,68 @@
+"""Short-lived worker run credentials signed by the coordinator."""
+
+from __future__ import annotations
+
+import base64
+import hashlib
+import hmac
+import struct
+import time
+import uuid
+from dataclasses import dataclass
+
+_VERSION = 2
+_BODY = struct.Struct("!B16s16s16s16s16sq")
+
+
+@dataclass(frozen=True, slots=True)
+class RunCredential:
+    room_id: str
+    run_id: str
+    worker_id: str
+    peer_id: str
+    credential_id: str
+    expires_at: int
+
+
+def credential_id_hash(credential_id: str) -> str:
+    return hashlib.sha256(uuid.UUID(credential_id).bytes).hexdigest()
+
+
+def issue_run_credential(credential: RunCredential, secret: bytes) -> str:
+    body = _BODY.pack(
+        _VERSION,
+        uuid.UUID(credential.room_id).bytes,
+        uuid.UUID(credential.run_id).bytes,
+        uuid.UUID(credential.worker_id).bytes,
+        uuid.UUID(credential.peer_id).bytes,
+        uuid.UUID(credential.credential_id).bytes,
+        credential.expires_at,
+    )
+    signature = hmac.new(secret, body, hashlib.sha256).digest()
+    return base64.urlsafe_b64encode(body + signature).decode("ascii")
+
+
+def verify_run_credential(token: str, secret: bytes, now: int | None = None) -> RunCredential:
+    try:
+        raw = base64.b64decode(token.encode("ascii"), altchars=b"-_", validate=True)
+    except Exception as exc:
+        raise ValueError("malformed run credential") from exc
+    if len(raw) != _BODY.size + 32:
+        raise ValueError("malformed run credential")
+    body, provided = raw[: _BODY.size], raw[_BODY.size :]
+    expected = hmac.new(secret, body, hashlib.sha256).digest()
+    if not hmac.compare_digest(provided, expected):
+        raise ValueError("invalid run credential")
+    version, room, run, worker, peer, credential_id, expires_at = _BODY.unpack(body)
+    if version != _VERSION:
+        raise ValueError("unsupported run credential version")
+    if expires_at <= (int(time.time()) if now is None else now):
+        raise ValueError("expired run credential")
+    return RunCredential(
+        room_id=str(uuid.UUID(bytes=room)),
+        run_id=str(uuid.UUID(bytes=run)),
+        worker_id=str(uuid.UUID(bytes=worker)),
+        peer_id=str(uuid.UUID(bytes=peer)),
+        credential_id=str(uuid.UUID(bytes=credential_id)),
+        expires_at=expires_at,
+    )

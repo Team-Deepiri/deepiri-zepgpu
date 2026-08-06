@@ -4,9 +4,12 @@ import { Copy, Download, Shield } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { getRoomErrorMessage, getRoomErrorStatus } from '@/utils/roomErrors'
 import { roomsApi } from '@/api/rooms'
+import type { Room } from '@/types'
 
 interface RoomConfigPanelProps {
   roomId: string
+  transportMode?: Room['transport_mode'] | null
+  requiresWireguardUdp?: boolean
 }
 
 function downloadConfig(filename: string, content: string) {
@@ -19,8 +22,16 @@ function downloadConfig(filename: string, content: string) {
   URL.revokeObjectURL(url)
 }
 
-export default function RoomConfigPanel({ roomId }: RoomConfigPanelProps) {
+export default function RoomConfigPanel({
+  roomId,
+  transportMode,
+  requiresWireguardUdp,
+}: RoomConfigPanelProps) {
   const [previewOpen, setPreviewOpen] = useState(false)
+  const mode = transportMode ?? 'wireguard'
+  const needsUdp = requiresWireguardUdp ?? mode === 'wireguard'
+  const isDialout = mode === 'dialout'
+  const isOverlay = mode === 'overlay'
 
   const {
     data: config,
@@ -32,6 +43,7 @@ export default function RoomConfigPanel({ roomId }: RoomConfigPanelProps) {
   } = useQuery({
     queryKey: ['room-config', roomId],
     queryFn: () => roomsApi.getRoomConfig(roomId),
+    enabled: !isDialout,
     retry: (failureCount, err) => {
       const status = getRoomErrorStatus(err)
       if (status === 403 || status === 404) {
@@ -61,7 +73,31 @@ export default function RoomConfigPanel({ roomId }: RoomConfigPanelProps) {
 
   return (
     <div className="space-y-3">
-      {isLoading || isFetching ? (
+      <div className="text-xs text-slate-400 space-y-1">
+        <p>
+          Transport mode:{' '}
+          <span className="text-slate-200 font-medium">{mode}</span>
+          {isOverlay && (
+            <span className="ml-2 text-amber-400">(experimental until Phase 19)</span>
+          )}
+        </p>
+        {isDialout ? (
+          <p>
+            Dial-out providers only need outbound HTTPS/WSS to the coordinator. No inbound UDP
+            51820 is required.
+          </p>
+        ) : needsUdp ? (
+          <p>WireGuard rooms expect UDP 51820 reachability for the relay/endpoint.</p>
+        ) : null}
+      </div>
+
+      {isDialout ? (
+        <p className="text-slate-400 text-sm">
+          Use <code className="text-cyan-300">zepgpu-node join</code> /{' '}
+          <code className="text-cyan-300">serve</code> with your invite. WireGuard config download
+          is not required for dial-out rooms.
+        </p>
+      ) : isLoading || isFetching ? (
         <p className="text-slate-500 text-sm">Loading connection config…</p>
       ) : notAvailable ? (
         <p className="text-slate-400 text-sm">

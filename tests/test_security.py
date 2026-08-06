@@ -1,6 +1,7 @@
 """Tests for security module."""
 
 from deepiri_zepgpu.core.task import Task
+from deepiri_zepgpu.queue.celery_app import celery_app
 from deepiri_zepgpu.security.access_control import AccessControl, Quota
 from deepiri_zepgpu.security.user_management import UserManager, UserRole
 
@@ -94,3 +95,10 @@ class TestUserManager:
 
         admins = users.list_users(role=UserRole.ADMIN)
         assert len(admins) == 1
+
+
+def test_celery_broker_messages_are_json_only() -> None:
+    """Untrusted broker messages must never invoke a pickle decoder."""
+    assert celery_app.conf.task_serializer == "json"
+    assert celery_app.conf.result_serializer == "json"
+    assert list(celery_app.conf.accept_content) == ["json"]

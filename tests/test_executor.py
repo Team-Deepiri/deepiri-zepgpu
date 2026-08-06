@@ -1,5 +1,6 @@
 """Tests for executor module."""
 
+import asyncio
 from collections.abc import AsyncGenerator
 
 import pytest
@@ -113,3 +114,80 @@ class TestTaskExecutor:
         assert len(results) == 5
         assert all(r.success for r in results)
         assert [r.result for r in results] == [1, 2, 3, 4, 5]
+
+    @pytest.mark.asyncio
+    async def test_container_execution_uses_restricted_runtime_flags(
+        self,
+        executor: TaskExecutor,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Executable local SDK tasks must not inherit host network or filesystem access."""
+        commands: list[tuple[str, ...]] = []
+        subprocess_kwargs: list[dict[str, object]] = []
+
+        class FakeProcess:
+            returncode = 0
+
+            async def communicate(self) -> tuple[bytes, bytes]:
+                return b"safe", b""
+
+        async def fake_subprocess(*command: str, **kwargs: object) -> FakeProcess:
+            commands.append(command)
+            subprocess_kwargs.append(kwargs)
+            return FakeProcess()
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_subprocess)
+        task = Task(
+            func=int,
+            args=("42",),
+            resources=TaskResources(gpu_memory_mb=8192, container_memory_mb=1536),
+            gpu_device_id=3,
+        )
+
+        result = await executor.execute_in_container(task, image="trusted-image:tested")
+
+        assert result.success is True
+        run_command = commands[0]
+        assert run_command[run_command.index("--network") + 1] == "none"
+        assert "--read-only" in run_command
+        assert run_command[run_command.index("--cap-drop") + 1] == "ALL"
+        assert run_command[run_command.index("--security-opt") + 1] == "no-new-privileges"
+        assert run_command[run_command.index("--user") + 1] == "65534:65534"
+        assert run_command[run_command.index("--pids-limit") + 1] == "256"
+        assert run_command[run_command.index("--ulimit") + 1] == "nofile=128:128"
+        assert run_command[run_command.index("--gpus") + 1] == "device=3"
+        assert '"' not in run_command[run_command.index("--gpus") + 1]
+        assert run_command[run_command.index("--memory") + 1] == "1536m"
+        assert run_command[run_command.index("--memory") + 1] != "8192m"
+        assert "shell" not in subprocess_kwargs[0]
+        assert "-v" not in run_command
+        assert "--volume" not in run_command
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("gpu_device_id", [-1, 1024, "0", "0;id", True, 1.5])
+    async def test_container_execution_rejects_invalid_gpu_device_id(
+        self,
+        executor: TaskExecutor,
+        monkeypatch: pytest.MonkeyPatch,
+        gpu_device_id: object,
+    ) -> None:
+        subprocess_called = False
+
+        async def fake_subprocess(*_command: str, **_kwargs: object) -> None:
+            nonlocal subprocess_called
+            subprocess_called = True
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_subprocess)
+        task = Task(func=int, gpu_device_id=gpu_device_id)  # type: ignore[arg-type]
+
+        with pytest.raises(ValueError, match="gpu_device_id"):
+            await executor.execute_in_container(task)
+        assert subprocess_called is False
+
+    @pytest.mark.parametrize("container_memory_mb", [0, 63, 262_145, "1024", True])
+    def test_container_memory_limit_is_positive_and_bounded(
+        self,
+        container_memory_mb: object,
+    ) -> None:
+        with pytest.raises(ValueError, match="container_memory_mb"):
+            TaskResources(container_memory_mb=container_memory_mb)  # type: ignore[arg-type]

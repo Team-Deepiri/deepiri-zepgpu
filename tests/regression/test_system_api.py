@@ -235,3 +235,45 @@ async def test_gang_list_and_fair_share_smoke(regression_client):
 
     fair = await regression_client.get("/api/v1/gang/fair-share/me")
     assert fair.status_code in (200, 404), fair.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("path", "payload"),
+    [
+        (
+            "/api/v1/tasks",
+            {"name": "blocked-callback", "func_name": "math.sqrt", "args": [0]},
+        ),
+        (
+            "/api/v1/schedules",
+            {
+                "name": "blocked-scheduled-callback",
+                "schedule_type": "interval",
+                "interval_seconds": 120,
+                "func_name": "math.sqrt",
+                "args": [0],
+            },
+        ),
+        (
+            "/api/v1/gang/gang",
+            {
+                "name": "blocked-gang-callback",
+                "num_gpus_required": 2,
+                "func_name": "math.sqrt",
+                "args": [0],
+            },
+        ),
+    ],
+)
+async def test_all_task_submission_types_reject_private_callbacks(
+    regression_client,
+    path: str,
+    payload: dict[str, object],
+) -> None:
+    response = await regression_client.post(
+        path,
+        json={**payload, "callback_url": "http://127.0.0.1/hook"},
+    )
+    assert response.status_code == 422, response.text
+    assert "Invalid callback URL" in response.json()["detail"]

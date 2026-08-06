@@ -114,7 +114,8 @@ describe('roomsApi (MSW)', () => {
     const task = await roomsApi.dispatchTask({
       room_id: fixtureRoom.id,
       dispatch_mode: 'room_auto',
-      func_name: 'random.seed',
+      func_name: 'math.sqrt',
+      args: [0],
       gpu_memory_mb: 1024,
     })
     expect(task.room_id).toBe(fixtureRoom.id)

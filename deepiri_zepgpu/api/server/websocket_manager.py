@@ -30,6 +30,9 @@ class ConnectionManager:
         self._room_subscriptions: dict[str, set[WebSocket]] = defaultdict(set)
         self._socket_rooms: dict[WebSocket, set[str]] = defaultdict(set)
         self._user_room_memberships: dict[str, set[str]] = {}
+        # Phase 13: provider-agent dial-out channels keyed by peer_id.
+        self._provider_connections: dict[str, list[WebSocket]] = defaultdict(list)
+        self._socket_to_peer_id: dict[WebSocket, str] = {}
         self._membership_cache = membership_cache or RoomMembershipCache()
         self._lock = asyncio.Lock()
 
@@ -44,6 +47,51 @@ class ConnectionManager:
             self._connections[user_id].append(websocket)
             self._socket_to_user_id[websocket] = user_id
         logger.info(f"WebSocket connected for user {user_id}")
+
+    async def connect_provider(self, websocket: WebSocket, peer_id: str) -> None:
+        """Accept a provider-agent WebSocket authenticated by provider token."""
+        await websocket.accept()
+        async with self._lock:
+            self._provider_connections[peer_id].append(websocket)
+            self._socket_to_peer_id[websocket] = peer_id
+        logger.info("Provider WebSocket connected for peer %s", peer_id)
+
+    async def disconnect_provider(self, websocket: WebSocket, peer_id: str) -> None:
+        async with self._lock:
+            connections = self._provider_connections.get(peer_id)
+            if connections and websocket in connections:
+                connections.remove(websocket)
+                if not connections:
+                    del self._provider_connections[peer_id]
+            self._socket_to_peer_id.pop(websocket, None)
+        logger.info("Provider WebSocket disconnected for peer %s", peer_id)
+
+    async def send_provider_message(self, peer_id: str, message: dict[str, Any]) -> bool:
+        """Send a message to all sockets for a provider peer. Returns True if any delivered."""
+        async with self._lock:
+            connections = list(self._provider_connections.get(peer_id, []))
+
+        if not connections:
+            return False
+
+        delivered = False
+        dead: list[WebSocket] = []
+        for connection in connections:
+            try:
+                await connection.send_json(message)
+                delivered = True
+            except Exception as exc:
+                logger.error("Error sending to provider peer %s: %s", peer_id, exc)
+                dead.append(connection)
+
+        for connection in dead:
+            await self.disconnect_provider(connection, peer_id)
+        return delivered
+
+    def get_provider_connection_count(self, peer_id: str | None = None) -> int:
+        if peer_id is not None:
+            return len(self._provider_connections.get(peer_id, []))
+        return sum(len(conns) for conns in self._provider_connections.values())
 
     async def disconnect(self, websocket: WebSocket, user_id: str) -> None:
         """Disconnect a WebSocket client and clear room subscriptions."""
@@ -143,7 +191,7 @@ class ConnectionManager:
         return True
 
     async def _drop_dead_socket(self, websocket: WebSocket) -> None:
-        """Remove a failed socket from user and room indexes."""
+        """Remove a failed socket from user, room, and provider indexes."""
         async with self._lock:
             user_id = self._socket_to_user_id.pop(websocket, None)
             if user_id is not None:
@@ -153,6 +201,13 @@ class ConnectionManager:
                     if not connections:
                         del self._connections[user_id]
                         self._user_room_memberships.pop(user_id, None)
+            peer_id = self._socket_to_peer_id.pop(websocket, None)
+            if peer_id is not None:
+                provider_conns = self._provider_connections.get(peer_id)
+                if provider_conns and websocket in provider_conns:
+                    provider_conns.remove(websocket)
+                    if not provider_conns:
+                        del self._provider_connections[peer_id]
             self._remove_socket_from_rooms_locked(websocket)
 
     async def send_personal_message(self, message: dict[str, Any], user_id: str) -> None:

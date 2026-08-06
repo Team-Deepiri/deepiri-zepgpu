@@ -16,7 +16,8 @@ from deepiri_zepgpu.api.server.routes.tasks import TaskCreateRequest
 
 def test_validate_room_dispatch_requires_room_id() -> None:
     request = TaskCreateRequest(
-        func_name="random.seed",
+        func_name="math.sqrt",
+        args=[0],
         dispatch_mode="room_auto",
         gpu_memory_mb=0,
     )
@@ -27,7 +28,8 @@ def test_validate_room_dispatch_requires_room_id() -> None:
 
 def test_validate_room_specific_requires_target() -> None:
     request = TaskCreateRequest(
-        func_name="random.seed",
+        func_name="math.sqrt",
+        args=[0],
         dispatch_mode="room_specific_node",
         room_id=uuid4(),
         gpu_memory_mb=0,
@@ -38,14 +40,16 @@ def test_validate_room_specific_requires_target() -> None:
 
 
 def test_local_dispatch_request_valid_without_room() -> None:
-    request = TaskCreateRequest(func_name="random.seed", dispatch_mode="local", gpu_memory_mb=0)
+    request = TaskCreateRequest(
+        func_name="math.sqrt", args=[0], dispatch_mode="local", gpu_memory_mb=0
+    )
     task_routes._validate_room_dispatch_request(request)
 
 
 @pytest.mark.asyncio
 async def test_create_task_room_auto_assigns_without_celery(monkeypatch) -> None:
     room_id = uuid4()
-    user = SimpleNamespace(id=str(uuid4()))
+    user = SimpleNamespace(id=str(uuid4()), role=SimpleNamespace(value="researcher"))
     enqueued: list[str] = []
     monkeypatch.setattr(
         task_routes, "enqueue_task_to_celery", lambda task_id: enqueued.append(task_id)
@@ -115,7 +119,8 @@ async def test_create_task_room_auto_assigns_without_celery(monkeypatch) -> None
             return None
 
     request = TaskCreateRequest(
-        func_name="random.seed",
+        func_name="math.sqrt",
+        args=[0],
         dispatch_mode="room_auto",
         room_id=room_id,
         gpu_memory_mb=1024,

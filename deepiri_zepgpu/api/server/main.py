@@ -20,6 +20,7 @@ from deepiri_zepgpu.config import settings
 from deepiri_zepgpu.database import close_db, init_db
 from deepiri_zepgpu.database.session import get_db_context
 from deepiri_zepgpu.queue.redis_queue import queue
+from deepiri_zepgpu.rooms.assignment_sweep import run_assignment_sweep
 from deepiri_zepgpu.storage.result_store import result_store
 from deepiri_zepgpu.vpn.config import vpn_settings
 from deepiri_zepgpu.vpn.peer_manager import mark_stale_peers_offline
@@ -79,6 +80,22 @@ async def _vpn_registry_maintenance_loop(stop: asyncio.Event) -> None:
             continue
 
 
+async def _assignment_sweep_loop(stop: asyncio.Event) -> None:
+    """Phase 13: lease expiry / accepted-never-started / running timeout sweep."""
+    interval = max(5, int(settings.vpn.assignment_sweep_interval_seconds))
+    while not stop.is_set():
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=interval)
+            break
+        except TimeoutError:
+            pass
+        try:
+            async with get_db_context() as db:
+                await run_assignment_sweep(db)
+        except Exception:
+            continue
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan events."""
@@ -96,13 +113,24 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     vpn_stop = asyncio.Event()
     vpn_task = asyncio.create_task(_vpn_registry_maintenance_loop(vpn_stop))
-    yield
-    vpn_stop.set()
-    vpn_task.cancel()
-    with suppress(asyncio.CancelledError):
-        await vpn_task
-    await close_db()
-    await queue.disconnect()
+    sweep_stop = asyncio.Event()
+    sweep_task = asyncio.create_task(_assignment_sweep_loop(sweep_stop))
+    try:
+        yield
+    finally:
+        vpn_stop.set()
+        sweep_stop.set()
+        vpn_task.cancel()
+        sweep_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await vpn_task
+        with suppress(asyncio.CancelledError):
+            await sweep_task
+        from deepiri_zepgpu.api.server.routes.training_runs import relay_store
+
+        await relay_store.close()
+        await close_db()
+        await queue.disconnect()
 
 
 app = FastAPI(

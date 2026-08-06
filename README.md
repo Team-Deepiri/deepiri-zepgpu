@@ -102,12 +102,11 @@ export TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/login \
   -d '{"username":"demo","password":"password123"}' \
   | python3 -c "import sys, json; print(json.load(sys.stdin)['access_token'])")
 
-# Create a no-op task. random.seed takes no required args and returns None,
-# which the worker records as a completed task with no stored result.
+# Create a task using the bounded allowlisted compatibility operation.
 curl -s -X POST http://localhost:8000/api/v1/tasks \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"name":"Smoke test","func_name":"random.seed","gpu_memory_mb":0}'
+  -d '{"name":"Smoke test","func_name":"math.sqrt","args":[0],"gpu_memory_mb":0}'
 
 # Poll task status (replace TASK_ID with the id from the create response)
 curl -s http://localhost:8000/api/v1/tasks/TASK_ID \
@@ -262,7 +261,14 @@ CELERY_RESULT_BACKEND=redis://localhost:6379/2
 
 Optional S3/MinIO settings (`S3_*` / endpoint URL) enable large result storage; the stack runs without MinIO and degrades gracefully when object storage is unavailable.
 
-Auth defaults to `changeme-in-production` for the JWT secret in local development — override via application settings before deploying publicly.
+Task callbacks are revalidated at submission and delivery. Set
+`TASK_CALLBACK_ALLOWED_HOSTS=callbacks.example.com,*.hooks.example.net` to restrict
+production destinations. `TASK_CALLBACK_ALLOW_LOCALHOST=true` permits `localhost` only
+when `ENVIRONMENT=development`; loopback/private destinations remain blocked otherwise.
+Production callback URLs must use HTTPS, redirects are not followed, and proxy environment
+variables are ignored.
+
+Auth defaults to a ≥32-byte placeholder JWT secret for local development — override via application settings before deploying publicly.
 
 ---
 
@@ -295,7 +301,7 @@ curl -X POST http://localhost:8000/api/v1/auth/login \
 curl -X POST http://localhost:8000/api/v1/tasks \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"name":"My Task","func_name":"random.seed","gpu_memory_mb":0}'
+  -d '{"name":"My Task","func_name":"math.sqrt","args":[0],"gpu_memory_mb":0}'
 
 # List tasks
 curl http://localhost:8000/api/v1/tasks \
@@ -323,12 +329,15 @@ JSON payload to that URL:
 curl -X POST http://localhost:8000/api/v1/tasks \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"name":"With callback","func_name":"random.seed","gpu_memory_mb":0,
-       "callback_url":"https://example.com/hook"}'
+  -d '{"name":"With callback","func_name":"math.sqrt","args":[0],"gpu_memory_mb":0,
+       "callback_url":"https://callbacks.example.com/hook"}'
 
 # Webhook body delivered to callback_url:
 # {"task_id":"<uuid>","status":"completed","user_id":"<uuid>"}
 ```
+
+Callbacks are best-effort. A delivery failure is recorded in task metadata and never changes
+a completed task to failed or causes it to be rerun.
 
 ### Pipelines
 
@@ -340,8 +349,8 @@ curl -X POST http://localhost:8000/api/v1/pipelines \
   -d '{
     "name": "Demo Pipeline",
     "stages": [
-      {"name": "preprocess", "func_name": "random.seed"},
-      {"name": "train", "func_name": "random.seed", "depends_on": ["preprocess"]}
+      {"name": "preprocess", "func_name": "math.sqrt", "args": {"x": 0}},
+      {"name": "train", "func_name": "math.sqrt", "args": {"x": 0}, "depends_on": ["preprocess"]}
     ]
   }'
 
@@ -377,26 +386,27 @@ ws.send(JSON.stringify({ type: 'subscribe_task', task_id: 'task-uuid' }));
 ### Setup
 
 ```bash
-# Install dependencies
-poetry install
+# Install dependencies (dev + training groups for full test coverage).
+# Requires Python >=3.11,<3.14 (PyTorch has no 3.14 wheels yet).
+poetry install --with dev,training
 
 # Run unit tests
 poetry run pytest tests/ -m "not integration and not regression" -v
 
-# Integration tests (Postgres on :5433)
+# Integration tests (Postgres on :5444, Redis on :6399)
 docker compose -f docker/docker-compose.test.yml up -d
-TEST_DATABASE_URL=postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5433/zepgpu_test \
-DATABASE__URL=postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5433/zepgpu_test \
+TEST_DATABASE_URL=postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5444/zepgpu_test \
+DATABASE__URL=postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5444/zepgpu_test \
 PYTHONPATH=. poetry run pytest tests/integration/ -m integration -v
 
 # Full-system regression (same Postgres)
-TEST_DATABASE_URL=postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5433/zepgpu_test \
-DATABASE__URL=postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5433/zepgpu_test \
+TEST_DATABASE_URL=postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5444/zepgpu_test \
+DATABASE__URL=postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5444/zepgpu_test \
 PYTHONPATH=. poetry run pytest tests/regression/ -m regression -v
 
 # Revolution suite (adversary + multi-party economy + golden vectors)
-TEST_DATABASE_URL=postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5433/zepgpu_test \
-DATABASE__URL=postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5433/zepgpu_test \
+TEST_DATABASE_URL=postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5444/zepgpu_test \
+DATABASE__URL=postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5444/zepgpu_test \
 PYTHONPATH=. poetry run pytest tests/adversarial tests/revolution -m revolution -v
 
 # Run linters

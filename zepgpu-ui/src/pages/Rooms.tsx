@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { Home, Plus, Trash2, Users } from 'lucide-react'
@@ -29,6 +29,9 @@ export default function Rooms() {
   const queryClient = useQueryClient()
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
+  const [transportMode, setTransportMode] = useState<'dialout' | 'wireguard' | 'overlay'>(
+    'dialout',
+  )
 
   const {
     data: rooms,
@@ -46,11 +49,13 @@ export default function Rooms() {
       roomsApi.createRoom({
         name: name.trim(),
         description: description.trim() || null,
+        transport_mode: transportMode,
       }),
     onSuccess: (room) => {
       toast.success(`Room "${room.name}" created`)
       setName('')
       setDescription('')
+      setTransportMode('dialout')
       queryClient.invalidateQueries({ queryKey: ['rooms'] })
     },
     onError: (err) => {
@@ -118,6 +123,11 @@ export default function Rooms() {
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-medium text-slate-200">{room.name}</span>
                       <RoomStatusBadge status={room.status} />
+                      {room.transport_mode && (
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-slate-700 text-slate-300">
+                          {room.transport_mode}
+                        </span>
+                      )}
                     </div>
                     {room.description && (
                       <p className="text-slate-500 text-xs mt-0.5 truncate">{room.description}</p>
@@ -173,6 +183,30 @@ export default function Rooms() {
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Shared GPU pool for the team"
               />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-500 mb-1" htmlFor="room-transport">
+                Transport mode
+              </label>
+              <select
+                id="room-transport"
+                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white"
+                value={transportMode}
+                onChange={(e) =>
+                  setTransportMode(e.target.value as 'dialout' | 'wireguard' | 'overlay')
+                }
+              >
+                <option value="dialout">Dial-out (recommended, no inbound ports)</option>
+                <option value="wireguard">WireGuard (UDP 51820)</option>
+                <option value="overlay">Overlay (experimental)</option>
+              </select>
+              <p className="text-slate-600 text-xs mt-1">
+                {transportMode === 'dialout'
+                  ? 'Providers dial out over HTTPS/WSS. No UDP 51820 required.'
+                  : transportMode === 'wireguard'
+                    ? 'Classic VPN mesh; providers need WireGuard UDP reachability.'
+                    : 'Experimental until Phase 19 — use only for overlay pilots.'}
+              </p>
             </div>
             <button
               type="submit"

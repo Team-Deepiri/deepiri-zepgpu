@@ -27,7 +27,8 @@ jobs:
         run: pip install poetry
 
       - name: Install dependencies
-        run: poetry install --all-extras
+        # --all-extras does not install optional Poetry groups (training/gpu/ml).
+        run: poetry install --with dev,training
 
       - name: Run Ruff
         run: poetry run ruff check deepiri_zepgpu
@@ -75,7 +76,7 @@ jobs:
         run: pip install poetry
 
       - name: Install dependencies
-        run: poetry install --all-extras
+        run: poetry install --with dev,training
 
       - name: Run unit tests
         run: poetry run pytest tests/ -m "not integration and not regression and not revolution" --cov=deepiri_zepgpu --cov-report=xml

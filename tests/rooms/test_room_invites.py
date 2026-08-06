@@ -51,6 +51,9 @@ class FakePeerRepository:
             return []
         return [self.existing_peer]
 
+    async def get_by_id(self, _peer_id: str) -> object | None:
+        return self.created_peer or self.existing_peer
+
     async def create(
         self,
         user_id: str,
@@ -72,6 +75,9 @@ class FakePeerRepository:
             created_at=datetime.now(UTC),
             last_seen=None,
             user=None,
+            node_name=None,
+            provider_mode=None,
+            token_expires_at=datetime.now(UTC) + timedelta(days=90),
         )
         return self.created_peer
 
@@ -254,6 +260,7 @@ def test_join_room_success_creates_peer_and_uses_invite(
     )
     monkeypatch.setattr(rooms, "generate_keypair", lambda: ("private-key", "public-key"))
     monkeypatch.setattr(rooms, "encrypt_value", lambda value: f"encrypted-{value}")
+    monkeypatch.setattr(rooms, "issue_provider_token", AsyncMock(return_value="provider-token"))
     grant_membership = AsyncMock()
     monkeypatch.setattr(rooms.manager, "grant_room_membership", grant_membership)
 
@@ -261,7 +268,7 @@ def test_join_room_success_creates_peer_and_uses_invite(
         rooms.join_room(
             data=RoomJoinRequest(invite_code="ABC123"),
             user=SimpleNamespace(id=user_id),
-            db=object(),
+            db=SimpleNamespace(commit=AsyncMock(), refresh=AsyncMock()),
         )
     )
 
@@ -269,6 +276,7 @@ def test_join_room_success_creates_peer_and_uses_invite(
     assert response.member.user_id == user_id
     assert response.member.status == "disconnected"
     assert response.config_available is True
+    assert response.auth_token == "provider-token"
     grant_membership.assert_awaited_once_with(str(user_id), str(room_id))
 
     assert FakeInviteRepository.last_instance is not None
@@ -310,6 +318,9 @@ class FakeConfigPeerRepository:
         if self.peer is None:
             return []
         return [self.peer]
+
+    async def get_by_id(self, _peer_id: str) -> object | None:
+        return self.peer
 
     async def get_private_key(self, _peer: object) -> str | None:
         return self.private_key

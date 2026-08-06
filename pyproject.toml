@@ -18,13 +18,15 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Scientific/Engineering :: Physics",
     "Topic :: System :: Distributed Computing",
 ]
 
 [tool.poetry.dependencies]
-python = "^3.11"
+# Torch/training wheels are not published for 3.14 yet; keep CI/local aligned with Docker (3.11–3.13).
+python = ">=3.11,<3.14"
 click = ">=8.1.0"
 typer = ">=0.9.0"
 rich = ">=13.7.0"
@@ -34,7 +36,6 @@ fastapi = ">=0.109.0"
 uvicorn = { extras = ["standard"], version = ">=0.27.0" }
 pydantic = { extras = ["email"], version = ">=2.6.0" }
 pydantic-settings = ">=2.1.0"
-python-jose = { extras = ["cryptography"], version = ">=3.3.0" }
 pyjwt = ">=2.8.0"
 passlib = { extras = ["bcrypt"], version = ">=1.7.4" }
 python-multipart = ">=0.0.9"
@@ -42,6 +43,8 @@ websockets = ">=12.0"
 sqlalchemy = { extras = ["asyncio"], version = ">=2.0.0" }
 asyncpg = ">=0.29.0"
 alembic = ">=1.13.0"
+mako = ">=1.3.12"
+pygments = ">=2.20.0"
 redis = ">=5.0.0"
 celery = { extras = ["redis"], version = ">=5.3.0" }
 boto3 = ">=1.34.0"
@@ -49,11 +52,12 @@ botocore = ">=1.34.0"
 aiobotocore = ">=2.9.0"
 prometheus-client = ">=0.19.0"
 structlog = ">=24.1.0"
-cloudpickle = ">=3.0.0"
 psutil = ">=5.9.0"
 croniter = ">=1.4.0"
 cryptography = ">=41.0.0"
 nvidia-ml-py = "^13.610.43"
+numpy = ">=1.26.0"
+pynacl = ">=1.5.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=8,<10"
@@ -68,8 +72,14 @@ types-croniter = ">=6.2.0"
 optional = true
 
 [tool.poetry.group.gpu.dependencies]
-torch = ">=2.2.0"
-torchvision = ">=0.17.0"
+torch = [
+    { version = "==2.13.0+cu130", source = "pytorch-cu130", markers = "sys_platform == 'linux' or sys_platform == 'win32'" },
+    { version = "==2.13.0", markers = "sys_platform == 'darwin'" },
+]
+torchvision = [
+    { version = "==0.28.0+cu130", source = "pytorch-cu130", markers = "python_full_version != '3.14.1' and (sys_platform == 'linux' or sys_platform == 'win32')" },
+    { version = "==0.28.0", markers = "python_full_version != '3.14.1' and sys_platform == 'darwin'" },
+]
 cupy-cuda12x = ">=13.0.0"
 numba = ">=0.59.0"
 
@@ -77,14 +87,41 @@ numba = ">=0.59.0"
 optional = true
 
 [tool.poetry.group.ml.dependencies]
-torch = ">=2.2.0"
+torch = [
+    { version = "==2.13.0+cu130", source = "pytorch-cu130", markers = "sys_platform == 'linux' or sys_platform == 'win32'" },
+    { version = "==2.13.0", markers = "sys_platform == 'darwin'" },
+]
 jax = ">=0.4.25"
 optax = ">=0.2.0"
 flax = ">=0.8.0"
 pytorch-lightning = ">=2.2.0"
 
+[tool.poetry.group.training]
+optional = true
+
+[tool.poetry.group.training.dependencies]
+torch = [
+    { version = "==2.13.0+cu130", source = "pytorch-cu130", markers = "sys_platform == 'linux' or sys_platform == 'win32'" },
+    { version = "==2.13.0", markers = "sys_platform == 'darwin'" },
+]
+torchvision = [
+    { version = "==0.28.0+cu130", source = "pytorch-cu130", markers = "python_full_version != '3.14.1' and (sys_platform == 'linux' or sys_platform == 'win32')" },
+    { version = "==0.28.0", markers = "python_full_version != '3.14.1' and sys_platform == 'darwin'" },
+]
+transformers = ">=4.41.0"
+peft = ">=0.11.0"
+accelerate = ">=0.30.0"
+bitsandbytes = { version = ">=0.43.0", markers = "platform_system != 'Darwin'" }
+
+[[tool.poetry.source]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+priority = "explicit"
+
 [tool.poetry.scripts]
 deepiri-gpu = "deepiri_zepgpu.cli:main"
+zepgpu-node = "deepiri_zepgpu.node_agent.agent:cli"
+zepgpu-train = "deepiri_zepgpu.training.cli:main"
 
 [tool.black]
 line-length = 100
@@ -100,12 +137,16 @@ exclude = '''
   | build
   | dist
   | \.venv
+  | deepiri_zepgpu/training/compression/vendor
 )/
 '''
 
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+extend-exclude = [
+    "deepiri_zepgpu/training/compression/vendor",
+]
 
 [tool.ruff.lint]
 select = [
@@ -123,8 +164,16 @@ ignore = [
     "B008",  # do not perform function calls in argument defaults
 ]
 
+[tool.ruff.lint.per-file-ignores]
+"deepiri_zepgpu/training/distributed_runner.py" = ["C901"]
+"deepiri_zepgpu/training/process_worker.py" = ["C901"]
+"scripts/run_docker_wan_lora.py" = ["C901"]
+"scripts/run_two_process_wan_lora.py" = ["C901"]
+"scripts/verify_phase_17_local.py" = ["C901"]
+
 [tool.mypy]
-python_version = "3.11"
+# Match current typing surface (NumPy 2.x stubs use 3.12 `type` statements).
+python_version = "3.12"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
@@ -144,7 +193,15 @@ module = [
     "deepiri_zepgpu.queue.*",
     "deepiri_zepgpu.vpn.*",
     "deepiri_zepgpu.database.repositories.*",
+    "deepiri_zepgpu.training.compression.vendor.*",
+    "deepiri_zepgpu.training.compression.vendor.demo.*",
 ]
+ignore_errors = true
+
+# NumPy 2.x stubs use `type` statements that mypy rejects when python_version < 3.12.
+[[tool.mypy.overrides]]
+module = ["numpy", "numpy.*"]
+follow_imports = "skip"
 ignore_errors = true
 
 [tool.pytest.ini_options]
@@ -163,6 +220,7 @@ markers = [
     "regression: full-system regression (API surface + cross-module smoke)",
     "revolution: adversarial + multi-party credit economy + golden vectors",
     "e2e: end-to-end tests requiring Docker Compose stack",
+    "gpu: optional test requiring a CUDA GPU and training dependencies",
 ]
 
 [tool.coverage.run]

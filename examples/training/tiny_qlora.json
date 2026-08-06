@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "run_name": "tiny-qlora-smoke",
+  "model_name": "hf-internal-testing/tiny-random-gpt2",
+  "adapter_mode": "qlora",
+  "precision": "fp16",
+  "device": "cuda:0",
+  "load_in_4bit": true,
+  "sequence_length": 64,
+  "batch_size": 1,
+  "gradient_accumulation_steps": 2,
+  "max_steps": 2,
+  "checkpoint_every_steps": 1,
+  "seed": 42,
+  "output_dir": "artifacts/training/tiny-qlora-smoke",
+  "smoke_run": true,
+  "lora": {
+    "rank": 8,
+    "alpha": 16,
+    "dropout": 0.05,
+    "fan_in_fan_out": true
+  }
+}

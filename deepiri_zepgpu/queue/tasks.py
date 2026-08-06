@@ -9,7 +9,6 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-import cloudpickle
 from celery import Task
 from celery.exceptions import SoftTimeLimitExceeded
 
@@ -28,6 +27,14 @@ from deepiri_zepgpu.database.repositories import (
 )
 from deepiri_zepgpu.database.session import get_db_context
 from deepiri_zepgpu.queue.celery_app import celery_app
+from deepiri_zepgpu.queue.safe_task import (
+    UnsafeTaskPayloadError,
+    decode_task_arguments,
+    encode_task_result,
+    resolve_operation,
+    validate_operation,
+)
+from deepiri_zepgpu.security.callbacks import deliver_callback
 from deepiri_zepgpu.storage.result_store import ResultStore
 
 logger = logging.getLogger(__name__)
@@ -64,8 +71,6 @@ class GPUTask(Task):
 
 async def _execute_callback(task_id: str, status: str) -> None:
     """Execute callback webhook if configured."""
-    import httpx
-
     logger.info(f"Checking callback for task {task_id} with status {status}")
 
     async with get_db_context() as db:
@@ -80,22 +85,54 @@ async def _execute_callback(task_id: str, status: str) -> None:
             logger.info(f"Callback skipped: task {task_id} has no callback_url")
             return
 
-        try:
-            async with httpx.AsyncClient() as client:
-                await client.post(
-                    task.callback_url,
-                    json={
-                        "task_id": str(task_id),
-                        "status": status,
-                        "user_id": str(task.user_id) if task.user_id else None,
-                    },
-                    timeout=10.0,
-                )
+        await _deliver_and_record_callback(
+            task,
+            resource_label="task",
+            resource_id=str(task_id),
+            status=status,
+            payload={
+                "task_id": str(task_id),
+                "status": status,
+                "user_id": str(task.user_id) if task.user_id else None,
+            },
+        )
 
-            logger.info(f"Callback executed for task {task_id} to {task.callback_url}")
 
-        except Exception as e:
-            logger.warning(f"Callback failed for task {task_id}: {e}")
+async def _deliver_and_record_callback(
+    resource: Any,
+    *,
+    resource_label: str,
+    resource_id: str,
+    status: str,
+    payload: dict[str, Any],
+) -> bool:
+    """Deliver a callback without allowing callback failure to change execution status."""
+    callback_url = resource.callback_url
+    if not callback_url:
+        return False
+
+    attempted_at = datetime.now(UTC).isoformat()
+    metadata = dict(resource.metadata_json or {})
+    try:
+        await deliver_callback(callback_url, payload)
+    except Exception as exc:  # noqa: BLE001 -- callback failures must remain isolated
+        reason = str(exc)[:500] or type(exc).__name__
+        metadata["callback_delivery"] = {
+            "status": "failed",
+            "reason": reason,
+            "attempted_at": attempted_at,
+        }
+        resource.metadata_json = metadata
+        logger.warning("Callback failed for %s %s: %s", resource_label, resource_id, reason)
+        return False
+
+    metadata["callback_delivery"] = {
+        "status": "delivered",
+        "attempted_at": attempted_at,
+    }
+    resource.metadata_json = metadata
+    logger.info("Callback delivered for %s %s", resource_label, resource_id)
+    return True
 
 
 async def _mark_task_failed(task_id: str, error: str, tb: str) -> None:
@@ -238,23 +275,12 @@ def execute_task(  # noqa: C901
 
                 result = None
 
-                if task.serialized_func:
-                    func = cloudpickle.loads(task.serialized_func)
-                    func_args = cloudpickle.loads(task.args) if task.args else ()
-                    func_kwargs = cloudpickle.loads(task.kwargs) if task.kwargs else {}
-                    result = func(*func_args, **func_kwargs)
-                elif task.func_name:
-                    module_name, func_name = task.func_name.rsplit(".", 1)
-                    import importlib
-
-                    module = importlib.import_module(module_name)
-                    func = getattr(module, func_name)
-                    func_args = cloudpickle.loads(task.args) if task.args else ()
-                    func_kwargs = cloudpickle.loads(task.kwargs) if task.kwargs else {}
-                    result = func(*func_args, **func_kwargs)
+                operation = validate_operation(task.func_name, task.serialized_func)
+                func_args, func_kwargs = decode_task_arguments(task.args, task.kwargs)
+                result = resolve_operation(operation)(*func_args, **func_kwargs)
 
                 if result is not None:
-                    result_bytes = cloudpickle.dumps(result)
+                    result_bytes = encode_task_result(result)
                     result_store = ResultStore()
                     await result_store.store_result(task_id, result_bytes)
                     await repo.mark_completed(task_id, execution_time_ms=0)
@@ -280,6 +306,12 @@ def execute_task(  # noqa: C901
                     "task_id": task_id,
                     "gpu_device_id": gpu_device_id,
                 }
+
+            except UnsafeTaskPayloadError as e:
+                logger.warning("Rejected unsafe stored task %s: %s", task_id, e)
+                await repo.mark_failed(task_id, str(e), None)
+                await _log_audit(AuditAction.TASK_FAIL, task_id, task.user_id, {"error": str(e)})
+                return {"status": "error", "message": str(e)}
 
             except SoftTimeLimitExceeded:
                 logger.error(f"Task {task_id} timed out")
@@ -796,20 +828,9 @@ def execute_gang_task(  # noqa: C901
 
                 result = None
 
-                if gang_task.serialized_func:
-                    func = cloudpickle.loads(gang_task.serialized_func)
-                    func_args = cloudpickle.loads(gang_task.args) if gang_task.args else ()
-                    func_kwargs = cloudpickle.loads(gang_task.kwargs) if gang_task.kwargs else {}
-                    result = func(*func_args, **func_kwargs)
-                elif gang_task.func_name:
-                    module_name, func_name = gang_task.func_name.rsplit(".", 1)
-                    import importlib
-
-                    module = importlib.import_module(module_name)
-                    func = getattr(module, func_name)
-                    func_args = cloudpickle.loads(gang_task.args) if gang_task.args else ()
-                    func_kwargs = cloudpickle.loads(gang_task.kwargs) if gang_task.kwargs else {}
-                    result = func(*func_args, **func_kwargs)
+                operation = validate_operation(gang_task.func_name, gang_task.serialized_func)
+                func_args, func_kwargs = decode_task_arguments(gang_task.args, gang_task.kwargs)
+                result = resolve_operation(operation)(*func_args, **func_kwargs)
 
                 await gang_repo.mark_completed(gang_task_id)
 
@@ -827,6 +848,18 @@ def execute_gang_task(  # noqa: C901
                         completed=True,
                     )
 
+                await _deliver_and_record_callback(
+                    gang_task,
+                    resource_label="gang task",
+                    resource_id=str(gang_task_id),
+                    status="completed",
+                    payload={
+                        "gang_task_id": str(gang_task_id),
+                        "status": "completed",
+                        "user_id": str(gang_task.user_id) if gang_task.user_id else None,
+                    },
+                )
+
                 logger.info(f"Gang task {gang_task_id} completed successfully")
 
                 return {
@@ -835,6 +868,23 @@ def execute_gang_task(  # noqa: C901
                     "gpu_ids": gpu_ids,
                     "result": result,
                 }
+
+            except UnsafeTaskPayloadError as e:
+                logger.warning("Rejected unsafe stored gang task %s: %s", gang_task_id, e)
+                await gang_repo.mark_failed(gang_task_id, str(e), None)
+                await gpu_repo.release_gang(gang_task_id)
+                await _deliver_and_record_callback(
+                    gang_task,
+                    resource_label="gang task",
+                    resource_id=str(gang_task_id),
+                    status="failed",
+                    payload={
+                        "gang_task_id": str(gang_task_id),
+                        "status": "failed",
+                        "user_id": str(gang_task.user_id) if gang_task.user_id else None,
+                    },
+                )
+                return {"status": "error", "message": str(e)}
 
             except Exception as e:
                 logger.error(f"Gang task {gang_task_id} failed: {e}")
@@ -847,6 +897,18 @@ def execute_gang_task(  # noqa: C901
                         gpu_seconds=0,
                         failed=True,
                     )
+
+                await _deliver_and_record_callback(
+                    gang_task,
+                    resource_label="gang task",
+                    resource_id=str(gang_task_id),
+                    status="failed",
+                    payload={
+                        "gang_task_id": str(gang_task_id),
+                        "status": "failed",
+                        "user_id": str(gang_task.user_id) if gang_task.user_id else None,
+                    },
+                )
 
                 raise
 
@@ -1075,3 +1137,16 @@ def reset_expired_fair_share_periods() -> dict[str, int]:
             return {"buckets_reset": reset_count}
 
     return asyncio.run(_reset())
+
+
+@celery_app.task  # type: ignore[untyped-decorator]
+def sweep_node_assignment_timeouts() -> dict[str, Any]:
+    """Phase 13 Celery beat: lease expiry / accepted / running timeouts."""
+
+    async def _sweep() -> dict[str, Any]:
+        from deepiri_zepgpu.rooms.assignment_sweep import run_assignment_sweep
+
+        async with get_db_context() as db:
+            return await run_assignment_sweep(db)
+
+    return asyncio.run(_sweep())

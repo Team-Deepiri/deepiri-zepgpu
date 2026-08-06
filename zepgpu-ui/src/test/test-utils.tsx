@@ -1,7 +1,7 @@
 import { ReactElement, ReactNode } from 'react'
 import { render, RenderOptions } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { MemoryRouter, Route, Routes } from 'react-router'
 
 function createTestQueryClient() {
   return new QueryClient({
@@ -21,13 +21,7 @@ function AllProviders({ children, route = '/' }: WrapperProps) {
   const queryClient = createTestQueryClient()
   return (
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter
-        initialEntries={[route]}
-        future={{
-          v7_startTransition: true,
-          v7_relativeSplatPath: true,
-        }}
-      >
+      <MemoryRouter initialEntries={[route]}>
         <Routes>
           <Route path="/rooms/:roomId" element={children} />
           <Route path="*" element={children} />

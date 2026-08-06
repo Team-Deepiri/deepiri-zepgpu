@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import base64
 import json
-import pickle
 import zlib
 from typing import Any
 
@@ -23,41 +22,23 @@ class Serializer:
     def __init__(self, compression_level: int = 6):
         self._compression_level = compression_level
 
-    def serialize(self, obj: Any, format: str = "pickle") -> bytes:
+    def serialize(self, obj: Any, format: str = "json") -> bytes:
         """Serialize an object."""
-        if format == "pickle":
-            return self._serialize_pickle(obj)
-        elif format == "json":
+        if format == "json":
             return self._serialize_json(obj)
         elif format == "numpy":
             return self._serialize_numpy(obj)
         else:
             raise ValueError(f"Unknown format: {format}")
 
-    def deserialize(self, data: bytes, format: str = "pickle") -> Any:
+    def deserialize(self, data: bytes, format: str = "json") -> Any:
         """Deserialize an object."""
-        if format == "pickle":
-            return self._deserialize_pickle(data)
-        elif format == "json":
+        if format == "json":
             return self._deserialize_json(data)
         elif format == "numpy":
             return self._deserialize_numpy(data)
         else:
             raise ValueError(f"Unknown format: {format}")
-
-    def _serialize_pickle(self, obj: Any) -> bytes:
-        """Serialize using pickle."""
-        try:
-            return pickle.dumps(obj)
-        except Exception as e:
-            raise SerializationError(f"Pickle serialization failed: {e}") from e
-
-    def _deserialize_pickle(self, data: bytes) -> Any:
-        """Deserialize using pickle."""
-        try:
-            return pickle.loads(data)
-        except Exception as e:
-            raise SerializationError(f"Pickle deserialization failed: {e}") from e
 
     def _serialize_json(self, obj: Any) -> bytes:
         """Serialize using JSON."""
@@ -93,8 +74,8 @@ class Serializer:
     def _serialize_numpy(self, obj: Any) -> bytes:
         """Serialize numpy arrays efficiently."""
         if isinstance(obj, np.ndarray):
-            return obj.tobytes()  # type: ignore[no-any-return]
-        return self._serialize_pickle(obj)
+            return bytes(obj.tobytes())
+        raise SerializationError("NumPy format requires an ndarray")
 
     def _deserialize_numpy(self, data: bytes) -> Any:
         """Deserialize numpy array from bytes."""
@@ -108,11 +89,11 @@ class Serializer:
         """Decompress data."""
         return zlib.decompress(data)
 
-    def serialize_b64(self, obj: Any, format: str = "pickle") -> str:
+    def serialize_b64(self, obj: Any, format: str = "json") -> str:
         """Serialize and return base64 encoded string."""
         return base64.b64encode(self.serialize(obj, format)).decode()
 
-    def deserialize_b64(self, data: str, format: str = "pickle") -> Any:
+    def deserialize_b64(self, data: str, format: str = "json") -> Any:
         """Deserialize from base64 encoded string."""
         return self.deserialize(base64.b64decode(data), format)
 

@@ -25,7 +25,7 @@ function invalidateForEvent(
     return
   }
 
-  if (type === 'room_node_online' || type === 'room_node_offline') {
+  if (type === 'room_node_online' || type === 'room_node_offline' || type === 'room_provider_revoked') {
     void queryClient.invalidateQueries({ queryKey: ['room-nodes', roomId] })
     void queryClient.invalidateQueries({ queryKey: ['room-gpu-pool', roomId] })
     void queryClient.invalidateQueries({ queryKey: ['room-members', roomId] })

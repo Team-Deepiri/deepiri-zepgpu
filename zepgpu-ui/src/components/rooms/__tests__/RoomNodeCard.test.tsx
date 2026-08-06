@@ -26,6 +26,11 @@ describe('RoomNodeCard', () => {
     expect(screen.getByText('connected')).toBeInTheDocument()
     expect(screen.getByText(/10\.8\.0\.2/)).toBeInTheDocument()
     expect(screen.getByText(/GPU host/)).toBeInTheDocument()
+    expect(screen.getByText('healthy')).toBeInTheDocument()
+    expect(screen.getByText(/Provider is online with fresh heartbeat/)).toBeInTheDocument()
+    expect(screen.getByText(/Path direct\/wan/)).toBeInTheDocument()
+    expect(screen.getByText(/RTT 42\.5 ms/)).toBeInTheDocument()
+    expect(screen.getByText(/CUDA 12\.4/)).toBeInTheDocument()
   })
 
   it('renders GPU memory and utilization', async () => {
