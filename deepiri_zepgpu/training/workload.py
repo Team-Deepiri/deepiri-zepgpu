@@ -79,18 +79,37 @@ class TrainingWorkloadSpec(BaseModel):
 
     def _assert_safe_host_mount(self, host: Path) -> None:
         resolved = host.expanduser().resolve()
-        if resolved in {Path("/"), Path("/etc"), Path("/root")}:
+
+        # Reject filesystem roots on every platform, including C:\ on Windows.
+        if resolved == Path(resolved.anchor):
             raise ValueError(f"host mount path is forbidden: {resolved}")
+
+        forbidden_exact_paths = {
+            Path("/etc").resolve(),
+            Path("/root").resolve(),
+        }
+        if resolved in forbidden_exact_paths:
+            raise ValueError(f"host mount path is forbidden: {resolved}")
+
         if resolved.name in _FORBIDDEN_MOUNT_NAMES:
             raise ValueError(f"host mount path is forbidden: {resolved}")
-        sensitive_parents = (Path("/etc"), Path("/root"), Path("/var/run"), Path("/run"))
+
+        sensitive_parents = (
+            Path("/etc").resolve(),
+            Path("/root").resolve(),
+            Path("/var/run").resolve(),
+            Path("/run").resolve(),
+        )
         if (
             any(resolved == prefix or prefix in resolved.parents for prefix in sensitive_parents)
             and self.mount_root is None
         ):
             raise ValueError(f"host mount path is forbidden without mount_root: {resolved}")
+
         if self.mount_root is not None:
             root = self.mount_root.expanduser().resolve()
+            if root == Path(root.anchor):
+                raise ValueError(f"mount_root cannot be a filesystem root: {root}")
             if resolved != root and root not in resolved.parents:
                 raise ValueError(f"host mount {resolved} escapes mount_root jail {root}")
 
