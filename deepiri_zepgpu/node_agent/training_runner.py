@@ -17,6 +17,7 @@ from typing import Any
 
 import httpx
 
+from deepiri_zepgpu.config import settings
 from deepiri_zepgpu.training.config import DistributedStrategy, TrainingRunConfig
 from deepiri_zepgpu.training.runtime import RuntimeHandle, TrainingRuntime
 from deepiri_zepgpu.training.workload import TrainingWorkloadSpec
@@ -106,7 +107,7 @@ class TrainingAgentRunner:
                     secret_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
                 assignment_devices = [int(process["device_index"])]
                 spec = TrainingWorkloadSpec(
-                    image="zepgpu-training:local",
+                    image=settings.training_image,
                     command=[
                         sys.executable,
                         "-m",
