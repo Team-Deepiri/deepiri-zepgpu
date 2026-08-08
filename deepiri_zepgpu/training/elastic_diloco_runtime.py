@@ -78,6 +78,24 @@ _INACTIVE_WORKER_STATES = {
 
 
 class Phase18CoordinatorRuntime:
+    """Process-local service boundary around ElasticDiLoCoCoordinator.
+
+    ``_entries`` caches live coordinator instances for the lifetime of the
+    current API process. It is not durable state: TrainingOuterRound rows and
+    finalized checkpoints are the recovery source of truth.
+
+    Access to registry creation is serialized by an event-loop-local lock.
+    Individual coordinator mutations are serialized by each runtime entry's
+    lock. The cache is intended for the normal single-threaded asyncio/FastAPI
+    execution model and is not shared across API worker processes.
+
+    ``discard(run_id)`` removes a single cached coordinator after a run no
+    longer needs process-local state. ``discard_all()`` clears process-local
+    coordinator state during application shutdown and in tests. Cache loss is
+    safe because coordinator state is reconstructed from durable persistence
+    on demand.
+    """
+
     """Production service boundary around the one ElasticDiLoCoCoordinator."""
 
     _entries: ClassVar[dict[str, _RuntimeEntry]] = {}
@@ -101,11 +119,14 @@ class Phase18CoordinatorRuntime:
 
     @classmethod
     def discard(cls, run_id: str) -> None:
+        """Drop one process-local coordinator cache entry."""
         cls._entries.pop(run_id, None)
 
     @classmethod
     def discard_all(cls) -> None:
+        """Clear process-local coordinator state during shutdown/test teardown."""
         cls._entries.clear()
+        cls._registry_locks.clear()
 
     async def register(
         self,

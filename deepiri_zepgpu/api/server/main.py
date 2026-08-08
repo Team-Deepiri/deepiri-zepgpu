@@ -104,7 +104,6 @@ async def _assignment_sweep_loop(stop: asyncio.Event) -> None:
 
 async def _training_reservation_sweep_loop(stop: asyncio.Event) -> None:
     """Expire stale Phase 18 reservations using durable database ownership."""
-
     interval = max(5, int(settings.vpn.assignment_sweep_interval_seconds))
     while not stop.is_set():
         try:
@@ -127,9 +126,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     try:
         await result_store.initialize()
     except Exception as exc:
-        import logging
-
-        logging.getLogger(__name__).warning(
+        logger.warning(
             "Result store initialization failed; continuing without result storage: %s",
             exc,
         )
@@ -149,12 +146,23 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         vpn_task.cancel()
         sweep_task.cancel()
         reservation_task.cancel()
+
         with suppress(asyncio.CancelledError):
             await vpn_task
         with suppress(asyncio.CancelledError):
             await sweep_task
         with suppress(asyncio.CancelledError):
             await reservation_task
+
+        # Import here to avoid coupling module import order to the training routes.
+        # All request/background-task activity is stopped before clearing this
+        # process-local coordinator cache.
+        from deepiri_zepgpu.training.elastic_diloco_runtime import (
+            Phase18CoordinatorRuntime,
+        )
+
+        Phase18CoordinatorRuntime.discard_all()
+
         from deepiri_zepgpu.api.server.routes.training_runs import relay_store
 
         await relay_store.close()
@@ -192,8 +200,6 @@ async def metrics_middleware(
     endpoint = request.url.path
     if endpoint.startswith("/api/v1"):
         endpoint = "/api/v1" + endpoint.split("/")[2] if len(endpoint.split("/")) > 2 else "/api/v1"
-    else:
-        endpoint = endpoint
 
     REQUEST_COUNT.labels(
         method=request.method,

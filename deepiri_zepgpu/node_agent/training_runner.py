@@ -202,6 +202,9 @@ class TrainingAgentRunner:
         base_url: str,
         error: str,
     ) -> None:
+        # The provider supervisor observes process termination but does not own
+        # authoritative outer-round state. Do not guess a round number here;
+        # the coordinator/database provide the correct round context.
         payload = {
             "event_id": str(uuid.uuid4()),
             "kind": "round_failed",
