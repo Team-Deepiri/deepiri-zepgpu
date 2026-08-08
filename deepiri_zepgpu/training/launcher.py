@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import socket
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -32,6 +33,13 @@ from deepiri_zepgpu.training.credentials import (
 )
 from deepiri_zepgpu.training.island_runtime import IslandRankAssignment
 from deepiri_zepgpu.training.placement import PlacementPlan, PlacementStatus
+
+
+def _find_free_local_port() -> int:
+    """Return an available local TCP port chosen by the OS."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
 
 
 class TrainingLaunchError(RuntimeError):
@@ -154,14 +162,15 @@ class DistributedTrainingLauncher:
                 }
             workers_by_peer = {str(item.peer_id): item for item in locked.workers}
             for reservation in reservations:
-                reservation.worker_id = str(workers_by_peer[str(reservation.peer_id)].id)
+                reservation.worker_id = workers_by_peer[str(reservation.peer_id)].id
+
                 if reservation.island_id is None:
                     selected = next(
                         item
                         for item in plan.selected_gpus
                         if item.gpu_share_id == str(reservation.gpu_share_id)
                     )
-                    reservation.island_id = str(islands[selected.island_id].id)
+                    reservation.island_id = islands[selected.island_id].id
             credentials = self._issue_credentials(locked, now=now)
             locked.launch_key = launch_key
             locked.launched_at = current
@@ -335,33 +344,56 @@ class DistributedTrainingLauncher:
         return result
 
     async def _build_rendezvous(self, plan: PlacementPlan) -> dict[str, dict[str, str | int]]:
-        """Create persisted island-local rendezvous addresses for NCCL workers."""
+        """Create island-local rendezvous addresses for NCCL workers."""
 
         output: dict[str, dict[str, str | int]] = {}
         selected = set(plan.selected_island_ids)
-        for island in sorted(plan.candidate_islands, key=lambda item: item.island_id):
+
+        for island in sorted(
+            plan.candidate_islands,
+            key=lambda item: item.island_id,
+        ):
             if island.island_id not in selected:
                 continue
+
             if island.classification == "same_host":
                 master_addr = "127.0.0.1"
+                master_port = _find_free_local_port()
+
             elif island.classification == "lan":
                 leader_id = sorted(island.provider_ids)[0]
                 result = await self.session.execute(select(Peer.vpn_ip).where(Peer.id == leader_id))
                 leader_addr = result.scalar_one_or_none()
                 if not leader_addr:
                     raise TrainingLaunchError(
-                        "LAN island leader has no room/VPN address for process-group rendezvous"
+                        "LAN island leader has no room/VPN address " "for process-group rendezvous"
                     )
+
                 master_addr = str(leader_addr)
+
+                # Multi-host rendezvous cannot safely use a locally probed
+                # ephemeral port because every participating provider must
+                # agree on the same port. Retain the deterministic Phase 18
+                # LAN rendezvous range.
+                master_port = (
+                    20_000
+                    + int(
+                        hashlib.sha256(island.island_id.encode()).hexdigest()[:8],
+                        16,
+                    )
+                    % 10_000
+                )
+
             else:
+                # WAN workers are independent DiLoCo participants and do not
+                # share an NCCL/FSDP process-group rendezvous.
                 continue
-            port = (
-                20_000 + int(hashlib.sha256(island.island_id.encode()).hexdigest()[:8], 16) % 10_000
-            )
+
             output[island.island_id] = {
                 "master_addr": master_addr,
-                "master_port": port,
+                "master_port": master_port,
             }
+
         return output
 
     def _worker_specs(

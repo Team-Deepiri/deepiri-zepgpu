@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import enum
+import uuid
 from datetime import datetime
 from typing import Any
 
@@ -194,12 +195,20 @@ class TrainingGpuReservation(UUIDMixin, TimestampMixin, Base):
         nullable=False,
         index=True,
     )
-    worker_id: Mapped[str | None] = mapped_column(
+
+    # Nullable because reservations are acquired from the persisted run-level
+    # placement before every reservation necessarily maps to a concrete worker.
+    # Active ownership is enforced by run_id/reservation_owner/gpu_share_id.
+    worker_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("training_workers.id", ondelete="SET NULL"),
         nullable=True,
     )
-    island_id: Mapped[str | None] = mapped_column(
+
+    # Nullable for reservations that are not part of a tightly coupled GPU island,
+    # such as independent DiLoCo workers. A null island_id does not imply that the
+    # reservation is unowned; run_id/reservation_owner remain authoritative.
+    island_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("training_islands.id", ondelete="SET NULL"),
         nullable=True,

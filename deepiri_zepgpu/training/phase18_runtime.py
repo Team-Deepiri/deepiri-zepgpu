@@ -8,6 +8,7 @@ events are observations only and cannot finalize schema-v3 outer rounds.
 from __future__ import annotations
 
 import asyncio
+import weakref
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import ClassVar
@@ -78,7 +79,9 @@ class Phase18CoordinatorRuntime:
     """Production service boundary around the one ElasticDiLoCoCoordinator."""
 
     _entries: ClassVar[dict[str, _RuntimeEntry]] = {}
-    _registry_lock: ClassVar[asyncio.Lock | None] = None
+    _registry_locks: ClassVar[
+        weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock]
+    ] = weakref.WeakKeyDictionary()
 
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -86,11 +89,13 @@ class Phase18CoordinatorRuntime:
 
     @classmethod
     def _get_registry_lock(cls) -> asyncio.Lock:
-        # pytest may create more than one event loop in a process.  Lazily
-        # replace a lock that belongs to a closed loop.
-        if cls._registry_lock is None:
-            cls._registry_lock = asyncio.Lock()
-        return cls._registry_lock
+        """Return the registry lock associated with the current event loop."""
+        loop = asyncio.get_running_loop()
+        lock = cls._registry_locks.get(loop)
+        if lock is None:
+            lock = asyncio.Lock()
+            cls._registry_locks[loop] = lock
+        return lock
 
     @classmethod
     def discard(cls, run_id: str) -> None:
