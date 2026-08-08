@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 import uuid
+from dataclasses import asdict
 from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
@@ -16,14 +17,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from deepiri_zepgpu.api.server.dependencies import get_db_session, get_required_user
 from deepiri_zepgpu.api.server.routes.node_tasks import get_verified_peer
+from deepiri_zepgpu.api.server.websocket_manager import manager
 from deepiri_zepgpu.config import settings
 from deepiri_zepgpu.database.models import User
 from deepiri_zepgpu.database.models.training_run import (
+    TrainingGpuReservation,
+    TrainingIsland,
     TrainingRun,
     TrainingRunState,
     TrainingWorker,
 )
-from deepiri_zepgpu.database.models.vpn_models import Peer
+from deepiri_zepgpu.database.models.vpn_models import GpuShare, Peer
+from deepiri_zepgpu.database.repositories.training_reservation_repository import (
+    TrainingReservationError,
+    TrainingReservationRepository,
+)
 from deepiri_zepgpu.database.repositories.training_run_repository import (
     TrainingRunRepository,
     TrainingRunTransitionError,
@@ -38,7 +46,15 @@ from deepiri_zepgpu.training.credentials import (
     issue_run_credential,
     verify_run_credential,
 )
+from deepiri_zepgpu.training.diloco import DiLoCoError
+from deepiri_zepgpu.training.launcher import DistributedTrainingLauncher, TrainingLaunchError
+from deepiri_zepgpu.training.phase18_runtime import (
+    Phase18CoordinatorRuntime,
+    Phase18RuntimeError,
+)
+from deepiri_zepgpu.training.placement import PlacementPlan, PlacementPlanner, PlacementStatus
 from deepiri_zepgpu.training.relay import RedisBinaryRelayStore, TransferConflictError
+from deepiri_zepgpu.training.topology import ProviderCandidate, provider_candidate_from_models
 from deepiri_zepgpu.vpn.repositories import VpnNetworkRepository
 
 router = APIRouter(prefix="/training-runs", tags=["Training Runs"])
@@ -61,7 +77,7 @@ class CreateTrainingRunRequest(BaseModel):
     def validate_unique_providers(self) -> CreateTrainingRunRequest:
         if len(self.provider_ids) != len(set(self.provider_ids)):
             raise ValueError("provider_ids must be unique")
-        if self.config.distributed.enabled:
+        if self.config.distributed.enabled and self.config.phase18 is None:
             # Phase 17 contract is exactly two workers. Later phases should relax
             # this via schema_version / phase-specific validation, not by widening
             # this gate silently.
@@ -85,6 +101,13 @@ class TrainingWorkerResponse(BaseModel):
     ready_at: datetime | None
     stopped_at: datetime | None
     error: str | None
+    island_id: str | None = None
+    global_rank: int | None = None
+    island_rank: int | None = None
+    world_size: int | None = None
+    island_world_size: int | None = None
+    assigned_devices: list[int] = Field(default_factory=list)
+    bootstrap_checkpoint: dict[str, Any] | None = None
 
 
 class TrainingRunResponse(BaseModel):
@@ -102,6 +125,9 @@ class TrainingRunResponse(BaseModel):
     started_at: datetime | None
     completed_at: datetime | None
     startup_deadline_at: datetime | None
+    placement_plan: dict[str, Any] | None = None
+    launched_at: datetime | None = None
+    current_outer_round: int = 0
     workers: list[TrainingWorkerResponse] = Field(default_factory=list)
 
 
@@ -122,6 +148,9 @@ def _response(run: TrainingRun) -> TrainingRunResponse:
         started_at=run.started_at,
         completed_at=run.completed_at,
         startup_deadline_at=run.startup_deadline_at,
+        placement_plan=run.placement_plan,
+        launched_at=run.launched_at,
+        current_outer_round=run.current_outer_round,
         workers=[
             TrainingWorkerResponse(
                 id=str(worker.id),
@@ -134,6 +163,13 @@ def _response(run: TrainingRun) -> TrainingRunResponse:
                 ready_at=worker.ready_at,
                 stopped_at=worker.stopped_at,
                 error=worker.error,
+                island_id=str(worker.island_id) if worker.island_id else None,
+                global_rank=worker.global_rank,
+                island_rank=worker.island_rank,
+                world_size=worker.world_size,
+                island_world_size=worker.island_world_size,
+                assigned_devices=worker.assigned_devices,
+                bootstrap_checkpoint=worker.bootstrap_checkpoint,
             )
             for worker in workers
         ],
@@ -220,6 +256,7 @@ class WorkerEventKind(str, Enum):
     CHECKPOINTING = "checkpointing"
     CHECKPOINT_COMPLETED = "checkpoint_completed"
     RECONNECTED = "reconnected"
+    BOOTSTRAP_COMPLETED = "bootstrap_completed"
     SHUTDOWN = "shutdown"
     ABORTED = "aborted"
     COMPLETED = "completed"
@@ -250,6 +287,118 @@ class WorkerStartupResponse(BaseModel):
     run_state: str
     worker_state: str
     config: dict[str, Any]
+    placement_plan: dict[str, Any] | None = None
+    island_id: str | None = None
+    global_rank: int | None = None
+    island_rank: int | None = None
+    world_size: int | None = None
+    island_world_size: int | None = None
+    assigned_devices: list[int] = Field(default_factory=list)
+    bootstrap_checkpoint: dict[str, Any] | None = None
+    processes: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class ReadinessPreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    room_id: UUID
+    config: TrainingRunConfig
+    provider_ids: list[UUID] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_provider_scope(self) -> ReadinessPreviewRequest:
+        if len(self.provider_ids) != len(set(self.provider_ids)):
+            raise ValueError("provider_ids must be unique")
+        if self.config.phase18 is None:
+            raise ValueError("readiness preview requires a Phase 18 config")
+        return self
+
+
+class LaunchWorkerResponse(BaseModel):
+    worker_id: str
+    provider_id: str
+    island_id: str
+    global_rank: int
+    island_rank: int
+    world_size: int
+    island_world_size: int
+    assigned_devices: list[int]
+
+
+class LaunchResponse(BaseModel):
+    run_id: str
+    launch_key: str
+    idempotent: bool
+    reservation_ids: list[str]
+    workers: list[LaunchWorkerResponse]
+
+
+class ReservationResponse(BaseModel):
+    id: str
+    worker_id: str | None
+    island_id: str | None
+    provider_id: str
+    gpu_share_id: str
+    state: str
+    expires_at: datetime
+    released_at: datetime | None
+    release_reason: str | None
+
+
+class Phase18RegistrationResponse(BaseModel):
+    outer_round: int
+    bootstrap_required: bool
+
+
+class Phase18UpdateResponse(BaseModel):
+    disposition: str
+    reason: str
+    round_number: int
+    round_state: str
+    accepted_worker_ids: list[str]
+    finalized: bool
+
+
+async def _provider_candidates(
+    db: AsyncSession,
+    *,
+    room_id: UUID,
+    provider_ids: list[UUID],
+) -> list[ProviderCandidate]:
+    query = select(Peer).where(Peer.vpn_network_id == room_id)
+    if provider_ids:
+        query = query.where(Peer.id.in_(provider_ids))
+    result = await db.execute(query.order_by(Peer.id))
+    peers = list(result.scalars().all())
+    if provider_ids and {str(item.id) for item in peers} != {str(item) for item in provider_ids}:
+        raise HTTPException(status_code=422, detail="Provider is not in the training room")
+    peer_ids = [item.id for item in peers]
+    shares_by_peer: dict[str, list[GpuShare]] = {str(item.id): [] for item in peers}
+    if peer_ids:
+        share_result = await db.execute(
+            select(GpuShare)
+            .where(GpuShare.vpn_network_id == room_id, GpuShare.peer_id.in_(peer_ids))
+            .order_by(GpuShare.peer_id, GpuShare.device_index, GpuShare.id)
+        )
+        for share in share_result.scalars().all():
+            shares_by_peer[str(share.peer_id)].append(share)
+    return [provider_candidate_from_models(peer, shares_by_peer[str(peer.id)]) for peer in peers]
+
+
+@router.post("/readiness", response_model=PlacementPlan)
+async def preview_training_readiness(
+    request: ReadinessPreviewRequest,
+    db: AsyncSession = Depends(get_db_session),
+    user: User = Depends(get_required_user),
+) -> PlacementPlan:
+    room_id = str(request.room_id)
+    await _require_room_member(db, str(user.id), room_id)
+    candidates = await _provider_candidates(
+        db,
+        room_id=request.room_id,
+        provider_ids=request.provider_ids,
+    )
+    return PlacementPlanner().plan(room_id=room_id, config=request.config, providers=candidates)
 
 
 @router.post("", response_model=TrainingRunResponse, status_code=201)
@@ -261,20 +410,31 @@ async def create_training_run(
     room_id = str(request.room_id)
     provider_ids = [str(provider_id) for provider_id in request.provider_ids]
     await _require_room_member(db, str(user.id), room_id)
-    if request.provider_ids:
-        providers = await db.execute(
-            select(Peer.id).where(
-                Peer.vpn_network_id == request.room_id, Peer.id.in_(request.provider_ids)
-            )
+    candidates = await _provider_candidates(
+        db,
+        room_id=request.room_id,
+        provider_ids=request.provider_ids,
+    )
+    placement: PlacementPlan | None = None
+    if request.config.phase18 is not None:
+        placement = PlacementPlanner().plan(
+            room_id=room_id, config=request.config, providers=candidates
         )
-        found = {str(value) for value in providers.scalars().all()}
-        if found != set(provider_ids):
-            raise HTTPException(status_code=422, detail="Provider is not in the training room")
+        if placement.status == PlacementStatus.INSUFFICIENT:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "message": "Phase 18 placement is insufficient",
+                    "placement": placement.model_dump(mode="json"),
+                },
+            )
+        provider_ids = placement.selected_provider_ids
     run = await TrainingRunRepository(db).create(
         room_id=room_id,
         user_id=str(user.id),
         config=request.config.to_public_dict(),
         provider_ids=provider_ids,
+        placement_plan=placement.model_dump(mode="json") if placement is not None else None,
     )
     return _response(run)
 
@@ -302,13 +462,171 @@ async def inspect_training_run(
     return _response(await _owned_run(db, str(run_id), user))
 
 
+@router.get("/{run_id}/placement", response_model=PlacementPlan)
+async def inspect_training_placement(
+    run_id: UUID,
+    db: AsyncSession = Depends(get_db_session),
+    user: User = Depends(get_required_user),
+) -> PlacementPlan:
+    run = await _owned_run(db, str(run_id), user)
+    if run.placement_plan is None:
+        raise HTTPException(status_code=404, detail="Training run has no placement plan")
+    return PlacementPlan.model_validate(run.placement_plan)
+
+
+@router.get("/{run_id}/islands", response_model=list[dict[str, Any]])
+async def inspect_training_islands(
+    run_id: UUID,
+    db: AsyncSession = Depends(get_db_session),
+    user: User = Depends(get_required_user),
+) -> list[dict[str, Any]]:
+    run = await _owned_run(db, str(run_id), user)
+    result = await db.execute(
+        select(TrainingIsland).where(TrainingIsland.run_id == run.id).order_by(TrainingIsland.id)
+    )
+    return [
+        {
+            "id": str(island.id),
+            "classification": island.classification,
+            "provider_ids": island.provider_ids,
+            "gpu_share_ids": island.gpu_share_ids,
+            "strategy_eligibility": island.strategy_eligibility,
+            "topology": island.topology,
+            "explanation": island.explanation,
+        }
+        for island in result.scalars().all()
+    ]
+
+
+@router.get("/{run_id}/reservations", response_model=list[ReservationResponse])
+async def inspect_training_reservations(
+    run_id: UUID,
+    db: AsyncSession = Depends(get_db_session),
+    user: User = Depends(get_required_user),
+) -> list[ReservationResponse]:
+    run = await _owned_run(db, str(run_id), user)
+    result = await db.execute(
+        select(TrainingGpuReservation)
+        .where(TrainingGpuReservation.run_id == run.id)
+        .order_by(TrainingGpuReservation.created_at, TrainingGpuReservation.id)
+    )
+    return [
+        ReservationResponse(
+            id=str(item.id),
+            worker_id=str(item.worker_id) if item.worker_id else None,
+            island_id=str(item.island_id) if item.island_id else None,
+            provider_id=str(item.peer_id),
+            gpu_share_id=str(item.gpu_share_id),
+            state=item.state.value,
+            expires_at=item.expires_at,
+            released_at=item.released_at,
+            release_reason=item.release_reason,
+        )
+        for item in result.scalars().all()
+    ]
+
+
+@router.post("/{run_id}/launch", response_model=LaunchResponse)
+async def launch_training_run(
+    run_id: UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db_session),
+    user: User = Depends(get_required_user),
+) -> LaunchResponse:
+    run = await _owned_run(db, str(run_id), user)
+    launcher = DistributedTrainingLauncher(
+        db, credential_secret=settings.auth.secret_key.encode("utf-8")
+    )
+    try:
+        result = await launcher.launch(run, reservation_owner=str(user.id))
+    except TrainingLaunchError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not result.idempotent:
+        workers_by_id = {str(item.id): item for item in run.workers}
+        repository = TrainingRunRepository(db)
+        for item in result.workers:
+            if item.credential is None:
+                raise HTTPException(status_code=500, detail="worker launch credential is missing")
+            processes = [asdict(process) for process in item.processes]
+            delivered = await manager.send_provider_message(
+                item.provider_id,
+                {
+                    "type": "training_launch",
+                    "schema_version": 1,
+                    "base_url": str(request.base_url).rstrip("/"),
+                    "room_id": str(run.vpn_network_id),
+                    "run_id": str(run.id),
+                    "worker_id": item.worker_id,
+                    "provider_id": item.provider_id,
+                    "credential": item.credential,
+                    "credential_expires_at": (
+                        item.credential_expires_at.isoformat()
+                        if item.credential_expires_at is not None
+                        else None
+                    ),
+                    "config": item.config,
+                    "processes": processes,
+                    "rendezvous": item.rendezvous,
+                },
+            )
+            worker = workers_by_id[item.worker_id]
+            worker.progress = {
+                **worker.progress,
+                "phase18_processes": processes,
+                "launch_delivery": "delivered" if delivered else "awaiting_provider_wss",
+            }
+            await repository.record_run_event(
+                run,
+                kind="provider_launch_dispatched",
+                payload={
+                    "worker_id": item.worker_id,
+                    "provider_id": item.provider_id,
+                    "delivered": delivered,
+                    "process_count": len(processes),
+                },
+            )
+        await db.flush()
+    return LaunchResponse(
+        run_id=result.run_id,
+        launch_key=result.launch_key,
+        idempotent=result.idempotent,
+        reservation_ids=result.reservation_ids,
+        workers=[
+            LaunchWorkerResponse(
+                worker_id=item.worker_id,
+                provider_id=item.provider_id,
+                island_id=item.island_id,
+                global_rank=item.global_rank,
+                island_rank=item.island_rank,
+                world_size=item.world_size,
+                island_world_size=item.island_world_size,
+                assigned_devices=item.assigned_devices,
+            )
+            for item in result.workers
+        ],
+    )
+
+
 async def _transition_action(
     run_id: str, action: str, db: AsyncSession, user: User
 ) -> TrainingRunResponse:
     run = await _owned_run(db, run_id, user)
     repository = TrainingRunRepository(db)
     try:
-        updated = await (repository.start(run) if action == "start" else repository.abort(run))
+        if action == "start":
+            updated = await repository.start(run)
+        elif run.config_version >= 3:
+            updated = await DistributedTrainingLauncher(
+                db, credential_secret=settings.auth.secret_key.encode("utf-8")
+            ).cancel(run)
+            for provider_id in run.provider_ids:
+                await manager.send_provider_message(
+                    provider_id,
+                    {"type": "training_cancel", "run_id": str(run.id)},
+                )
+            Phase18CoordinatorRuntime.discard(str(run.id))
+        else:
+            updated = await repository.abort(run)
     except TrainingRunTransitionError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return _response(updated)
@@ -482,6 +800,15 @@ async def inspect_worker_startup(
         run_state=run.state.value,
         worker_state=worker.state.value,
         config=run.config,
+        placement_plan=run.placement_plan,
+        island_id=str(worker.island_id) if worker.island_id else None,
+        global_rank=worker.global_rank,
+        island_rank=worker.island_rank,
+        world_size=worker.world_size,
+        island_world_size=worker.island_world_size,
+        assigned_devices=worker.assigned_devices,
+        bootstrap_checkpoint=worker.bootstrap_checkpoint,
+        processes=list(worker.progress.get("phase18_processes") or []),
     )
 
 
@@ -503,11 +830,153 @@ async def submit_worker_event(
             occurred_at=event.timestamp,
             payload=event.payload,
         )
+        if run.config_version >= 3 and event.kind in {
+            WorkerEventKind.READY,
+            WorkerEventKind.HEARTBEAT,
+            WorkerEventKind.PROGRESS,
+        }:
+            config = TrainingRunConfig.model_validate(run.config)
+            if config.phase18 is None:  # pragma: no cover - guarded by config version
+                raise TrainingReservationError("Phase 18 reservation config is missing")
+            await TrainingReservationRepository(db).renew(
+                run_id=str(run.id),
+                worker_id=str(worker.id),
+                owner=str(run.user_id),
+                ttl_seconds=config.phase18.reservation_ttl_seconds,
+            )
+        if (
+            run.config_version >= 3
+            and event.kind == WorkerEventKind.ROUND_FAILED
+            and run.state
+            not in {
+                TrainingRunState.COMPLETED,
+                TrainingRunState.FAILED,
+                TrainingRunState.CANCELLED,
+                TrainingRunState.TIMED_OUT,
+            }
+        ):
+            await Phase18CoordinatorRuntime(db).mark_worker_failed(
+                run,
+                worker,
+                reason=str(event.payload.get("error_type") or "worker round failed"),
+            )
+        if run.config_version >= 3 and run.state in {
+            TrainingRunState.COMPLETED,
+            TrainingRunState.FAILED,
+            TrainingRunState.CANCELLED,
+            TrainingRunState.TIMED_OUT,
+        }:
+            Phase18CoordinatorRuntime.discard(str(run.id))
     except TrainingWorkerEventValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except (TrainingRunTransitionError, TrainingWorkerEventConflict) as exc:
+    except (
+        TrainingRunTransitionError,
+        TrainingWorkerEventConflict,
+        TrainingReservationError,
+        Phase18RuntimeError,
+    ) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return _response(run)
+
+
+async def _read_phase18_binary(request: Request) -> bytes:
+    body = bytearray()
+    limit = settings.redis.training_relay_max_transfer_bytes
+    async for part in request.stream():
+        if len(body) + len(part) > limit:
+            raise HTTPException(status_code=413, detail="Phase 18 payload exceeds size limit")
+        body.extend(part)
+    if not body:
+        raise HTTPException(status_code=422, detail="Phase 18 binary payload is empty")
+    return bytes(body)
+
+
+@router.post(
+    "/{run_id}/workers/{worker_id}/phase18/register",
+    response_model=Phase18RegistrationResponse,
+)
+async def register_phase18_worker(
+    run_id: UUID,
+    worker_id: UUID,
+    request: Request,
+    peer: Peer = Depends(get_verified_training_peer),
+    db: AsyncSession = Depends(get_db_session),
+) -> Phase18RegistrationResponse:
+    run, worker = await _assigned_worker(db, str(run_id), str(worker_id), peer)
+    try:
+        outer_round, bootstrap_required = await Phase18CoordinatorRuntime(db).register(
+            run, worker, await _read_phase18_binary(request)
+        )
+    except (DiLoCoError, EnvelopeError, Phase18RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return Phase18RegistrationResponse(
+        outer_round=outer_round, bootstrap_required=bootstrap_required
+    )
+
+
+@router.post(
+    "/{run_id}/workers/{worker_id}/phase18/updates",
+    response_model=Phase18UpdateResponse,
+)
+async def submit_phase18_update(
+    run_id: UUID,
+    worker_id: UUID,
+    request: Request,
+    peer: Peer = Depends(get_verified_training_peer),
+    db: AsyncSession = Depends(get_db_session),
+) -> Phase18UpdateResponse:
+    run, worker = await _assigned_worker(db, str(run_id), str(worker_id), peer)
+    try:
+        result = await Phase18CoordinatorRuntime(db).submit_update(
+            run, worker, await _read_phase18_binary(request)
+        )
+    except (DiLoCoError, EnvelopeError, Phase18RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return Phase18UpdateResponse(
+        disposition=result.receipt.disposition.value,
+        reason=result.receipt.reason,
+        round_number=result.round_number,
+        round_state=result.state.value,
+        accepted_worker_ids=result.accepted_worker_ids,
+        finalized=result.finalized,
+    )
+
+
+@router.get("/{run_id}/workers/{worker_id}/phase18/rounds/{round_number}/state")
+async def receive_phase18_global_state(
+    run_id: UUID,
+    worker_id: UUID,
+    round_number: int,
+    peer: Peer = Depends(get_verified_training_peer),
+    db: AsyncSession = Depends(get_db_session),
+) -> Response:
+    run, worker = await _assigned_worker(db, str(run_id), str(worker_id), peer)
+    runtime = Phase18CoordinatorRuntime(db)
+    try:
+        state = await runtime.poll_round(run, round_number=round_number)
+        if state.value == "paused":
+            raise HTTPException(status_code=409, detail="outer round paused below min_k")
+        encoded = await runtime.global_state(run, worker, round_number=round_number)
+    except Phase18RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if encoded is None:
+        return Response(status_code=204)
+    return Response(content=encoded, media_type="application/octet-stream")
+
+
+@router.post("/{run_id}/workers/{worker_id}/phase18/bootstrap")
+async def bootstrap_phase18_worker(
+    run_id: UUID,
+    worker_id: UUID,
+    peer: Peer = Depends(get_verified_training_peer),
+    db: AsyncSession = Depends(get_db_session),
+) -> Response:
+    run, worker = await _assigned_worker(db, str(run_id), str(worker_id), peer)
+    try:
+        encoded = await Phase18CoordinatorRuntime(db).bootstrap(run, worker)
+    except Phase18RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return Response(content=encoded, media_type="application/octet-stream")
 
 
 @router.post("/{run_id}/abort", response_model=TrainingRunResponse)

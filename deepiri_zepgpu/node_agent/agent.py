@@ -26,6 +26,7 @@ from deepiri_zepgpu.node_agent.heartbeat import send_heartbeat
 from deepiri_zepgpu.node_agent.provider_ws import ProviderAssignmentSocket
 from deepiri_zepgpu.node_agent.task_client import NodeTaskClient
 from deepiri_zepgpu.node_agent.task_worker import NodeTaskWorker
+from deepiri_zepgpu.node_agent.training_runner import TrainingAgentRunner
 
 logger = logging.getLogger(__name__)
 _shutdown = False
@@ -109,27 +110,37 @@ def run_task_worker_once(config: NodeAgentConfig) -> int:
     return asyncio.run(_run_task_worker_once_async(config))
 
 
-async def _run_agent_forever_async(config: NodeAgentConfig) -> None:
+async def _run_agent_forever_async(config: NodeAgentConfig) -> None:  # noqa: C901
     worker = build_task_worker(config) if config.enable_task_worker else None
+    training_runner = TrainingAgentRunner(provider_token=config.auth_token)
     provider_ws: ProviderAssignmentSocket | None = None
     try:
         if worker is not None:
             await worker.reconcile_on_startup()
-            provider_ws = ProviderAssignmentSocket(
-                base_url=config.api_base_url,
-                room_id=config.room_id,
-                peer_id=config.peer_id,
-                token=config.auth_token,
-                on_message=worker.handle_provider_message,
+
+        async def _provider_message(message: dict[str, Any]) -> None:
+            if await training_runner.handle_message(message):
+                return
+            if worker is not None:
+                await worker.handle_provider_message(message)
+
+        # Phase 18 launch/cancel is WSS-pushed even when the generic task
+        # polling worker is disabled.
+        provider_ws = ProviderAssignmentSocket(
+            base_url=config.api_base_url,
+            room_id=config.room_id,
+            peer_id=config.peer_id,
+            token=config.auth_token,
+            on_message=_provider_message,
+        )
+        try:
+            await provider_ws.start()
+        except Exception:
+            logger.warning(
+                "Provider WSS unavailable; HTTPS heartbeats remain active",
+                exc_info=True,
             )
-            try:
-                await provider_ws.start()
-            except Exception:
-                logger.warning(
-                    "Provider WSS unavailable; continuing with HTTPS poll fallback",
-                    exc_info=True,
-                )
-                provider_ws = None
+            provider_ws = None
 
         while True:
             await asyncio.to_thread(send_heartbeat, config, dry_run=False)
@@ -146,6 +157,7 @@ async def _run_agent_forever_async(config: NodeAgentConfig) -> None:
     finally:
         if provider_ws is not None:
             await provider_ws.stop()
+        await training_runner.close()
         if worker is not None:
             await worker.client.close()
 

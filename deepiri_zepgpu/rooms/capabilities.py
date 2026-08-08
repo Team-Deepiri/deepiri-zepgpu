@@ -74,6 +74,28 @@ def normalize_capabilities(
     runtime = _mark_missing(RUNTIME_KEYS, dict(payload.get("runtime") or {}))
     topology = _mark_missing(TOPOLOGY_KEYS, dict(payload.get("topology") or {}))
 
+    # Pairwise samples are deliberately kept separate from the legacy
+    # provider→coordinator path observation.  A coordinator-facing LAN path
+    # says nothing about whether two providers can form an NCCL island.
+    pairwise_paths: list[dict[str, Any]] = []
+    for raw_path in payload.get("pairwise_paths") or []:
+        if not isinstance(raw_path, dict):
+            continue
+        target = raw_path.get("target_provider_id")
+        if not isinstance(target, str) or not target:
+            continue
+        pairwise_paths.append(
+            {
+                "target_provider_id": target,
+                "path_class": raw_path.get("path_class", "unknown"),
+                "measurement_kind": raw_path.get("measurement_kind", "estimated"),
+                "rtt_ms": raw_path.get("rtt_ms"),
+                "bandwidth_mbps": raw_path.get("bandwidth_mbps"),
+                "measured_at": raw_path.get("measured_at"),
+                "provenance": raw_path.get("provenance", "provider_report"),
+            }
+        )
+
     ts = reported_at or datetime.now(UTC)
     if ts.tzinfo is None:
         ts = ts.replace(tzinfo=UTC)
@@ -84,6 +106,7 @@ def normalize_capabilities(
         "gpus": gpus,
         "runtime": runtime,
         "topology": topology,
+        "pairwise_paths": sorted(pairwise_paths, key=lambda item: str(item["target_provider_id"])),
     }
 
 
@@ -120,6 +143,7 @@ def summarize_capabilities(capabilities: dict[str, Any] | None) -> dict[str, Any
         "gpu_count": int(capabilities.get("gpu_count") or len(capabilities.get("gpus") or [])),
         "runtime": {k: runtime.get(k, UNAVAILABLE) for k in RUNTIME_KEYS},
         "topology": {k: topology.get(k, UNAVAILABLE) for k in TOPOLOGY_KEYS},
+        "pairwise_paths": list(capabilities.get("pairwise_paths") or []),
         "reported_at": capabilities.get("reported_at"),
         "cuda_version": runtime.get("cuda_version", UNAVAILABLE),
         "pytorch_version": runtime.get("pytorch_version", UNAVAILABLE),

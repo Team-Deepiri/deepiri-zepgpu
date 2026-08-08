@@ -43,6 +43,32 @@ class OverlapMode(str, Enum):
     EAGER = "eager"
 
 
+class DistributedStrategy(str, Enum):
+    """Execution strategy for a schema-v3 training job."""
+
+    SINGLE = "single"
+    DILOCO = "diloco"
+    FSDP2 = "fsdp2"
+    TENSOR_PARALLEL = "tensor_parallel"
+
+
+class NetworkScope(str, Enum):
+    SAME_HOST = "same_host"
+    LAN = "lan"
+    WAN = "wan"
+
+
+class ResumePolicy(str, Enum):
+    NEVER = "never"
+    LATEST = "latest"
+    REQUIRED = "required"
+
+
+class OuterOptimizerKind(str, Enum):
+    SGD = "sgd"
+    ADAM = "adam"
+
+
 class DatasetConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -104,13 +130,100 @@ class RuntimeConfig(BaseModel):
         return self
 
 
+class RuntimeRequirements(BaseModel):
+    """Reported provider capabilities required by a Phase 18 placement."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    requires_cuda: bool = True
+    cuda_version: str | None = Field(default=None, max_length=64)
+    pytorch_version: str | None = Field(default=None, max_length=64)
+    nccl_version: str | None = Field(default=None, max_length=64)
+    compute_capability: str | None = Field(default=None, max_length=32)
+    requires_p2p: bool = False
+    requires_nvlink: bool = False
+    requires_fsdp2: bool = False
+    requires_tensor_parallel: bool = False
+    minimum_bandwidth_mbps: float | None = Field(default=None, gt=0)
+    maximum_rtt_ms: float | None = Field(default=None, gt=0)
+
+
+class OuterOptimizerConfig(BaseModel):
+    """Small, deterministic outer optimizer used by DiLoCo/local-SGD."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: OuterOptimizerKind = OuterOptimizerKind.SGD
+    learning_rate: float = Field(default=1.0, gt=0)
+    momentum: float = Field(default=0.0, ge=0, lt=1)
+    beta1: float = Field(default=0.9, ge=0, lt=1)
+    beta2: float = Field(default=0.999, ge=0, lt=1)
+    epsilon: float = Field(default=1e-8, gt=0)
+
+
+class Phase18TrainingConfig(BaseModel):
+    """First-class elastic/topology-aware training job specification."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    strategy: DistributedStrategy = DistributedStrategy.DILOCO
+    requested_node_count: int = Field(default=2, ge=1, le=256)
+    gpus_per_node: int = Field(default=1, ge=1, le=64)
+    total_gpus: int = Field(default=2, ge=1, le=4096)
+    minimum_vram_per_gpu_mb: int = Field(default=1024, ge=1)
+    diloco_h: int = Field(default=1, ge=1, le=1_000_000)
+    min_k: int = Field(default=2, ge=1, le=256)
+    sync_deadline_seconds: float = Field(default=120.0, gt=0, le=86400)
+    readiness_timeout_seconds: int = Field(default=300, ge=1, le=86400)
+    startup_timeout_seconds: int = Field(default=300, ge=1, le=86400)
+    checkpoint_interval_rounds: int = Field(default=1, ge=1, le=100_000)
+    maximum_runtime_seconds: int = Field(default=3600, ge=30, le=604800)
+    reservation_ttl_seconds: int = Field(default=900, ge=30, le=86400)
+    resume_policy: ResumePolicy = ResumePolicy.LATEST
+    network_scope: NetworkScope | None = None
+    runtime_requirements: RuntimeRequirements = Field(default_factory=RuntimeRequirements)
+    outer_optimizer: OuterOptimizerConfig = Field(default_factory=OuterOptimizerConfig)
+
+    @model_validator(mode="after")
+    def validate_job(self) -> Phase18TrainingConfig:  # noqa: C901
+        expected_total = self.requested_node_count * self.gpus_per_node
+        if self.total_gpus != expected_total:
+            raise ValueError(
+                "total_gpus must equal requested_node_count * gpus_per_node " f"({expected_total})"
+            )
+        if self.min_k > self.requested_node_count:
+            raise ValueError("min_k cannot exceed requested_node_count")
+        if self.strategy == DistributedStrategy.SINGLE:
+            if self.requested_node_count != 1 or self.total_gpus != 1:
+                raise ValueError("strategy='single' requires exactly one node and one GPU")
+            if self.min_k != 1:
+                raise ValueError("strategy='single' requires min_k=1")
+        if self.strategy in {
+            DistributedStrategy.FSDP2,
+            DistributedStrategy.TENSOR_PARALLEL,
+        }:
+            if self.network_scope == NetworkScope.WAN:
+                raise ValueError(f"strategy='{self.strategy.value}' cannot span WAN links")
+            if self.network_scope is None:
+                self.network_scope = NetworkScope.SAME_HOST
+            self.runtime_requirements.requires_cuda = True
+            self.runtime_requirements.requires_p2p = True
+            if self.strategy == DistributedStrategy.FSDP2:
+                self.runtime_requirements.requires_fsdp2 = True
+            else:
+                self.runtime_requirements.requires_tensor_parallel = True
+        elif self.network_scope is None:
+            self.network_scope = NetworkScope.WAN
+        return self
+
+
 class DistributedTrainingConfig(BaseModel):
-    """Two-worker WAN LoRA synchronization settings."""
+    """WAN synchronization settings (two workers in schema v2; elastic in v3)."""
 
     model_config = ConfigDict(extra="forbid")
 
     enabled: bool = False
-    worker_count: int = Field(default=2, ge=2, le=2)
+    worker_count: int = Field(default=2, ge=1, le=256)
     local_steps_per_round: int = Field(default=1, ge=1, le=10_000)
     max_rounds: int = Field(default=2, ge=1, le=10_000)
     compression: CompressionConfig = Field(default_factory=CompressionConfig)
@@ -125,7 +238,7 @@ class TrainingRunConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal[1, 2] = 1
+    schema_version: Literal[1, 2, 3] = 1
     run_name: str = Field(default="local-baseline", min_length=1, max_length=128)
     model_name: str = Field(
         default="hf-internal-testing/tiny-random-gpt2", min_length=1, max_length=1024
@@ -149,15 +262,37 @@ class TrainingRunConfig(BaseModel):
     smoke_run: bool = False
     lora: LoraConfig = Field(default_factory=LoraConfig)
     distributed: DistributedTrainingConfig = Field(default_factory=DistributedTrainingConfig)
+    phase18: Phase18TrainingConfig | None = None
 
     @model_validator(mode="after")
-    def validate_quantization(self) -> TrainingRunConfig:
+    def validate_quantization(self) -> TrainingRunConfig:  # noqa: C901
         if self.adapter_mode == AdapterMode.QLORA and not self.load_in_4bit:
             self.load_in_4bit = True
         if self.load_in_4bit and self.adapter_mode != AdapterMode.QLORA:
             raise ValueError("4-bit base loading requires adapter_mode='qlora'")
-        if self.distributed.enabled and self.schema_version < 2:
-            self.schema_version = 2
+        if self.phase18 is not None:
+            self.schema_version = 3
+            self.distributed.enabled = True
+            self.distributed.worker_count = self.phase18.requested_node_count
+            self.distributed.local_steps_per_round = self.phase18.diloco_h
+            self.startup_timeout_seconds = self.phase18.startup_timeout_seconds
+            if (
+                self.precision == Precision.FP16
+                and not self.phase18.runtime_requirements.requires_cuda
+            ):
+                raise ValueError("fp16 Phase 18 training requires CUDA")
+            if (
+                self.adapter_mode == AdapterMode.QLORA
+                and not self.phase18.runtime_requirements.requires_cuda
+            ):
+                raise ValueError("QLoRA Phase 18 training requires CUDA")
+        elif self.schema_version == 3:
+            raise ValueError("schema_version=3 requires a phase18 training specification")
+        elif self.distributed.enabled:
+            if self.distributed.worker_count != 2:
+                raise ValueError("Phase 17 supports exactly two workers")
+            if self.schema_version < 2:
+                self.schema_version = 2
         if self.distributed.enabled:
             total_steps = self.distributed.local_steps_per_round * self.distributed.max_rounds
             self.max_steps = total_steps
@@ -170,6 +305,8 @@ class TrainingRunConfig(BaseModel):
                 self.distributed.local_steps_per_round = min(
                     self.distributed.local_steps_per_round, 1
                 )
+                if self.phase18 is not None:
+                    self.phase18.diloco_h = self.distributed.local_steps_per_round
                 self.max_steps = (
                     self.distributed.local_steps_per_round * self.distributed.max_rounds
                 )

@@ -44,7 +44,13 @@ from deepiri_zepgpu.database.models.scheduled_task import (
 from deepiri_zepgpu.database.models.scheduled_task_run import ScheduledTaskRun, ScheduleRunStatus
 from deepiri_zepgpu.database.models.task import Task, TaskStatus
 from deepiri_zepgpu.database.models.training_run import (
+    TrainingGpuReservation,
+    TrainingIsland,
+    TrainingOuterRound,
+    TrainingOuterRoundState,
+    TrainingReservationState,
     TrainingRun,
+    TrainingRunEvent,
     TrainingRunState,
     TrainingWorker,
     TrainingWorkerEvent,
@@ -114,6 +120,12 @@ __all__ = [
     "ACTIVE_STATUSES",
     "TERMINAL_STATUSES",
     "TrainingRun",
+    "TrainingIsland",
+    "TrainingGpuReservation",
+    "TrainingReservationState",
+    "TrainingOuterRound",
+    "TrainingOuterRoundState",
+    "TrainingRunEvent",
     "TrainingRunState",
     "TrainingWorker",
     "TrainingWorkerEvent",

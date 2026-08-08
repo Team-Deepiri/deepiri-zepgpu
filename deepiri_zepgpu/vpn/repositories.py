@@ -327,9 +327,15 @@ class GpuShareRepository:
         state: GpuShareState,
         current_task_id: str | None = None,
     ) -> GpuShare | None:
-        result = await self.db.execute(select(GpuShare).where(GpuShare.id == share_id))
+        result = await self.db.execute(
+            select(GpuShare).where(GpuShare.id == share_id).with_for_update()
+        )
         share = result.scalar_one_or_none()
         if share:
+            if state == GpuShareState.ALLOCATED and (
+                share.state != GpuShareState.IDLE or share.current_task_id is not None
+            ):
+                return None
             share.state = state
             share.current_task_id = current_task_id
             await self.db.commit()

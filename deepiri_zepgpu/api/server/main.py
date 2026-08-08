@@ -18,6 +18,9 @@ from deepiri_zepgpu.api.server.routes import api_router, websocket
 from deepiri_zepgpu.api.server.websocket_manager import manager
 from deepiri_zepgpu.config import settings
 from deepiri_zepgpu.database import close_db, init_db
+from deepiri_zepgpu.database.repositories.training_reservation_repository import (
+    TrainingReservationRepository,
+)
 from deepiri_zepgpu.database.session import get_db_context
 from deepiri_zepgpu.queue.redis_queue import queue
 from deepiri_zepgpu.rooms.assignment_sweep import run_assignment_sweep
@@ -96,6 +99,23 @@ async def _assignment_sweep_loop(stop: asyncio.Event) -> None:
             continue
 
 
+async def _training_reservation_sweep_loop(stop: asyncio.Event) -> None:
+    """Expire stale Phase 18 reservations using durable database ownership."""
+
+    interval = max(5, int(settings.vpn.assignment_sweep_interval_seconds))
+    while not stop.is_set():
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=interval)
+            break
+        except TimeoutError:
+            pass
+        try:
+            async with get_db_context() as db:
+                await TrainingReservationRepository(db).cleanup_expired()
+        except Exception:
+            continue
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan events."""
@@ -115,17 +135,23 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     vpn_task = asyncio.create_task(_vpn_registry_maintenance_loop(vpn_stop))
     sweep_stop = asyncio.Event()
     sweep_task = asyncio.create_task(_assignment_sweep_loop(sweep_stop))
+    reservation_stop = asyncio.Event()
+    reservation_task = asyncio.create_task(_training_reservation_sweep_loop(reservation_stop))
     try:
         yield
     finally:
         vpn_stop.set()
         sweep_stop.set()
+        reservation_stop.set()
         vpn_task.cancel()
         sweep_task.cancel()
+        reservation_task.cancel()
         with suppress(asyncio.CancelledError):
             await vpn_task
         with suppress(asyncio.CancelledError):
             await sweep_task
+        with suppress(asyncio.CancelledError):
+            await reservation_task
         from deepiri_zepgpu.api.server.routes.training_runs import relay_store
 
         await relay_store.close()
