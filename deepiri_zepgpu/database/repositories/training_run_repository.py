@@ -624,14 +624,21 @@ class TrainingRunRepository:
         payload: dict[str, Any],
         now: datetime,
     ) -> None:
-        round_number = self._event_round(payload)
+        supervisor_failure = (
+            run.config_version >= 3
+            and payload.get("source") == "provider_process_supervisor"
+            and "round" not in payload
+        )
+        round_number = worker.current_round if supervisor_failure else self._event_round(payload)
         worker.current_round = max(worker.current_round, round_number)
         worker.state = (
             TrainingWorkerState.RECONNECTING
             if run.config_version >= 3
             else TrainingWorkerState.FAILED
         )
-        worker.error = worker.error or str(payload.get("error_type", "worker round failed"))
+        worker.error = worker.error or str(
+            payload.get("error") or payload.get("error_type") or "worker round failed"
+        )
         worker.stopped_at = now
         if run.config_version >= 3:
             active_count = sum(

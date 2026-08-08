@@ -211,6 +211,7 @@ class TrainingAgentRunner:
             "timestamp": datetime.now(UTC).isoformat(),
             "payload": {
                 "error_type": error[:255],
+                "error": error,
                 "source": "provider_process_supervisor",
             },
         }
