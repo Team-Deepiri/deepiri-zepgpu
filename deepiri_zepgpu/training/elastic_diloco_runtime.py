@@ -1,8 +1,10 @@
-"""Authoritative Phase 18 DiLoCo control/runtime integration.
+"""Authoritative elastic DiLoCo coordinator/runtime integration.
 
-The in-memory coordinator owns aggregation and membership decisions.  Every
-decision is mirrored transactionally into TrainingOuterRound; worker lifecycle
-events are observations only and cannot finalize schema-v3 outer rounds.
+The process-local coordinator is a cache of live aggregation state. Durable
+checkpoints and TrainingOuterRound rows remain authoritative across process
+restarts. If a process dies during an open outer round, the round is restarted
+from the latest durable global state and workers may safely resubmit their
+idempotent round update.
 """
 
 from __future__ import annotations
@@ -122,9 +124,18 @@ class Phase18CoordinatorRuntime:
         )
         entry = await self._entry(run, config, state)
         async with entry.lock:
-            if set(entry.initial_state) != set(state) or any(
-                not np.array_equal(entry.initial_state[name], state[name])
-                for name in entry.initial_state
+            # Before the first finalized round, every worker must agree on the
+            # same initial adapter state. After checkpoint recovery, registration
+            # is only an identity/liveness handshake: the worker is required to
+            # bootstrap the durable checkpoint before contributing a newer round,
+            # so its pre-bootstrap local state does not need to equal the recovered
+            # coordinator state.
+            if entry.coordinator.current_round == 0 and (
+                set(entry.initial_state) != set(state)
+                or any(
+                    not np.array_equal(entry.initial_state[name], state[name])
+                    for name in entry.initial_state
+                )
             ):
                 raise Phase18RuntimeError("worker initial adapter state differs from the run")
             entry.registered_worker_ids.add(str(worker.id))
@@ -399,6 +410,14 @@ class Phase18CoordinatorRuntime:
             )
         )
         row = result.scalar_one_or_none()
+        event_kind = "outer_round_started"
+        event_payload: dict[str, object] = {
+            "round": active.number,
+            "expected_worker_ids": active.expected_worker_ids,
+            "min_k": coordinator.job.min_k,
+            "deadline_at": active.deadline_at.isoformat(),
+            "policy": "all_active_or_deadline",
+        }
         if row is None:
             row = TrainingOuterRound(
                 run_id=run.id,
@@ -413,18 +432,51 @@ class Phase18CoordinatorRuntime:
                 deadline_at=active.deadline_at,
             )
             self.session.add(row)
-        elif row.state != TrainingOuterRoundState.OPEN:
+        elif row.state == TrainingOuterRoundState.OPEN:
+            # An OPEN row with no corresponding process-local active round means
+            # the coordinator process lost its volatile aggregation session. The
+            # database intentionally does not persist model-sized update tensors,
+            # so claiming the old accepted_worker_ids were still aggregated would
+            # be unsafe. Restart this same round number from the latest durable
+            # global/checkpoint state and require idempotent worker resubmission.
+            discarded_worker_ids = list(row.accepted_worker_ids)
+            previous_recovery = row.metrics.get("recovery")
+            recovery_count = (
+                int(previous_recovery.get("count", 0)) + 1
+                if isinstance(previous_recovery, dict)
+                else 1
+            )
+            recovered_at = datetime.now(UTC)
+            row.expected_workers = len(active.expected_worker_ids)
+            row.min_k = coordinator.job.min_k
+            row.accepted_worker_ids = []
+            row.optimizer_state = coordinator.outer_optimizer.state_dict()
+            row.deadline_at = active.deadline_at
+            row.finalized_at = None
+            row.metrics = {
+                **row.metrics,
+                "policy": "all_active_or_deadline",
+                "recovery": {
+                    "count": recovery_count,
+                    "last_recovered_at": recovered_at.isoformat(),
+                    "checkpoint_round": coordinator.current_round,
+                    "discarded_accepted_worker_ids": discarded_worker_ids,
+                    "policy": "restart_open_round_and_require_resubmission",
+                },
+            }
+            event_kind = "outer_round_recovered"
+            event_payload = {
+                **event_payload,
+                "checkpoint_round": coordinator.current_round,
+                "discarded_accepted_worker_ids": discarded_worker_ids,
+                "recovery_count": recovery_count,
+            }
+        else:
             raise Phase18RuntimeError("persisted outer round is already terminal")
         await self.run_repository.record_run_event(
             run,
-            kind="outer_round_started",
-            payload={
-                "round": active.number,
-                "expected_worker_ids": active.expected_worker_ids,
-                "min_k": coordinator.job.min_k,
-                "deadline_at": active.deadline_at.isoformat(),
-                "policy": "all_active_or_deadline",
-            },
+            kind=event_kind,
+            payload=event_payload,
         )
         await self.session.flush()
 

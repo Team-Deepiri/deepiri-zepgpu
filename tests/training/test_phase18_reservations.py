@@ -40,11 +40,11 @@ from deepiri_zepgpu.database.repositories.training_reservation_repository import
 from deepiri_zepgpu.database.repositories.training_run_repository import TrainingRunRepository
 from deepiri_zepgpu.training.config import Phase18TrainingConfig, TrainingRunConfig
 from deepiri_zepgpu.training.diloco import DiLoCoWorkerRuntime, UpdateDisposition
+from deepiri_zepgpu.training.elastic_diloco_runtime import Phase18CoordinatorRuntime
 from deepiri_zepgpu.training.launcher import (
     DistributedTrainingLauncher,
     TrainingLaunchError,
 )
-from deepiri_zepgpu.training.phase18_runtime import Phase18CoordinatorRuntime
 from deepiri_zepgpu.training.placement import PlacementPlan, PlacementPlanner
 from deepiri_zepgpu.training.topology import GpuCandidate, ProviderCandidate
 

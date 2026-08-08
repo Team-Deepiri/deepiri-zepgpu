@@ -47,11 +47,11 @@ from deepiri_zepgpu.training.credentials import (
     verify_run_credential,
 )
 from deepiri_zepgpu.training.diloco import DiLoCoError
-from deepiri_zepgpu.training.launcher import DistributedTrainingLauncher, TrainingLaunchError
-from deepiri_zepgpu.training.phase18_runtime import (
+from deepiri_zepgpu.training.elastic_diloco_runtime import (
     Phase18CoordinatorRuntime,
     Phase18RuntimeError,
 )
+from deepiri_zepgpu.training.launcher import DistributedTrainingLauncher, TrainingLaunchError
 from deepiri_zepgpu.training.placement import PlacementPlan, PlacementPlanner, PlacementStatus
 from deepiri_zepgpu.training.relay import RedisBinaryRelayStore, TransferConflictError
 from deepiri_zepgpu.training.topology import ProviderCandidate, provider_candidate_from_models

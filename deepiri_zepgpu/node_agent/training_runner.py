@@ -151,7 +151,14 @@ class TrainingAgentRunner:
             )
             self._watchers.add(watcher)
             watcher.add_done_callback(self._watchers.discard)
-        except Exception:
+
+        except Exception as exc:
+            logger.exception(
+                "Failed to launch training worker %s for run %s: %s",
+                worker_id,
+                run_id,
+                exc,
+            )
             for handle in handles:
                 await self.runtime.cleanup(handle)
             shutil.rmtree(root, ignore_errors=True)

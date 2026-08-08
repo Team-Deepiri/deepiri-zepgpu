@@ -30,7 +30,7 @@ from deepiri_zepgpu.database.models.vpn_models import (
 )
 from deepiri_zepgpu.training.config import TrainingRunConfig
 from deepiri_zepgpu.training.diloco import DiLoCoWorkerRuntime
-from deepiri_zepgpu.training.phase18_runtime import Phase18CoordinatorRuntime
+from deepiri_zepgpu.training.elastic_diloco_runtime import Phase18CoordinatorRuntime
 
 pytestmark = pytest.mark.integration
 
@@ -483,4 +483,148 @@ async def test_phase18_three_worker_runtime_failure_rejoin_and_cleanup(
         reservations = list((await session.execute(select(TrainingGpuReservation))).scalars().all())
         assert {item.state for item in reservations} == {TrainingReservationState.RELEASED}
         assert len(reservations) == 3
+    Phase18CoordinatorRuntime.discard(run_id)
+
+
+@pytest.mark.asyncio
+async def test_phase18_runtime_recovers_open_round_after_process_state_loss(
+    phase18_client, monkeypatch
+) -> None:
+    """An orphaned OPEN round is restarted safely and requires resubmission."""
+
+    client, room_id, provider_ids, factory = phase18_client
+    provider_ids = provider_ids[:2]
+    dispatched: dict[str, dict] = {}
+
+    async def capture_launch(peer_id: str, message: dict) -> bool:
+        dispatched[peer_id] = message
+        return True
+
+    from deepiri_zepgpu.api.server.websocket_manager import manager
+
+    monkeypatch.setattr(manager, "send_provider_message", capture_launch)
+
+    payload = phase18_payload(room_id, provider_ids)
+    payload["config"]["distributed"] = {"max_rounds": 1}
+    payload["config"]["phase18"]["min_k"] = 2
+
+    created = await client.post("/api/v1/training-runs", json=payload)
+    assert created.status_code == 201, created.text
+    run_id = created.json()["id"]
+
+    launched = await client.post(f"/api/v1/training-runs/{run_id}/launch")
+    assert launched.status_code == 200, launched.text
+
+    workers = sorted(dispatched.values(), key=lambda item: item["worker_id"])
+    for item in workers:
+        await _worker_event(
+            client,
+            run_id=run_id,
+            worker_id=item["worker_id"],
+            peer_id=item["provider_id"],
+            credential=item["credential"],
+            kind="ready",
+        )
+
+    started = await client.post(f"/api/v1/training-runs/{run_id}/start")
+    assert started.status_code == 200, started.text
+
+    config = TrainingRunConfig.model_validate(payload["config"])
+    initial = {"adapter": np.zeros((8,), dtype=np.float32)}
+    runtimes: dict[str, DiLoCoWorkerRuntime] = {}
+
+    for item in workers:
+        local = DiLoCoWorkerRuntime(
+            room_id=room_id,
+            run_id=run_id,
+            worker_id=item["worker_id"],
+            config=config,
+            initial_state=initial,
+        )
+        runtimes[item["worker_id"]] = local
+        registered = await client.post(
+            f"/api/v1/training-runs/{run_id}/workers/{item['worker_id']}/phase18/register",
+            params={"peer_id": item["provider_id"]},
+            headers=_worker_headers(item["credential"]),
+            content=local.initial_state_envelope(),
+        )
+        assert registered.status_code == 200, registered.text
+
+    updates: dict[str, bytes] = {}
+    for index, item in enumerate(workers):
+        local = runtimes[item["worker_id"]]
+        updates[item["worker_id"]] = local.encode_update(
+            round_number=1,
+            delta={"adapter": np.full((8,), float(index + 1), dtype=np.float32)},
+            completed_local_steps=4,
+        )
+
+    first = await client.post(
+        f"/api/v1/training-runs/{run_id}/workers/{workers[0]['worker_id']}/phase18/updates",
+        params={"peer_id": workers[0]["provider_id"]},
+        headers=_worker_headers(workers[0]["credential"]),
+        content=updates[workers[0]["worker_id"]],
+    )
+    assert first.status_code == 200, first.text
+    assert first.json()["disposition"] == "accepted"
+    assert first.json()["finalized"] is False
+
+    # Simulate loss of the API process's volatile coordinator cache while the
+    # authoritative TrainingOuterRound row remains OPEN in PostgreSQL.
+    Phase18CoordinatorRuntime.discard(run_id)
+
+    # With no finalized checkpoint yet, workers re-register their common initial
+    # state. The persisted OPEN round must not keep the pre-crash acceptance as
+    # though its tensor were still present in memory.
+    for item in workers:
+        registered = await client.post(
+            f"/api/v1/training-runs/{run_id}/workers/{item['worker_id']}/phase18/register",
+            params={"peer_id": item["provider_id"]},
+            headers=_worker_headers(item["credential"]),
+            content=runtimes[item["worker_id"]].initial_state_envelope(),
+        )
+        assert registered.status_code == 200, registered.text
+        assert registered.json()["bootstrap_required"] is False
+
+    replayed_first = await client.post(
+        f"/api/v1/training-runs/{run_id}/workers/{workers[0]['worker_id']}/phase18/updates",
+        params={"peer_id": workers[0]["provider_id"]},
+        headers=_worker_headers(workers[0]["credential"]),
+        content=updates[workers[0]["worker_id"]],
+    )
+    assert replayed_first.status_code == 200, replayed_first.text
+    assert replayed_first.json()["disposition"] == "accepted"
+    assert replayed_first.json()["finalized"] is False
+
+    second = await client.post(
+        f"/api/v1/training-runs/{run_id}/workers/{workers[1]['worker_id']}/phase18/updates",
+        params={"peer_id": workers[1]["provider_id"]},
+        headers=_worker_headers(workers[1]["credential"]),
+        content=updates[workers[1]["worker_id"]],
+    )
+    assert second.status_code == 200, second.text
+    assert second.json()["finalized"] is True
+    assert second.json()["accepted_worker_ids"] == sorted(
+        [workers[0]["worker_id"], workers[1]["worker_id"]]
+    )
+
+    async with factory() as session:
+        outer_round = (
+            await session.execute(
+                select(TrainingOuterRound).where(
+                    TrainingOuterRound.run_id == run_id,
+                    TrainingOuterRound.round_number == 1,
+                )
+            )
+        ).scalar_one()
+
+        assert outer_round.accepted_worker_ids == sorted(
+            [workers[0]["worker_id"], workers[1]["worker_id"]]
+        )
+        recovery = outer_round.metrics["recovery"]
+        assert recovery["count"] == 1
+        assert recovery["checkpoint_round"] == 0
+        assert recovery["discarded_accepted_worker_ids"] == [workers[0]["worker_id"]]
+        assert recovery["policy"] == "restart_open_round_and_require_resubmission"
+
     Phase18CoordinatorRuntime.discard(run_id)
