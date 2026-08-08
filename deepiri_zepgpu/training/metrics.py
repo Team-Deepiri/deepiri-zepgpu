@@ -71,6 +71,7 @@ class TrainingMetrics(BaseModel):
 
     schema_version: Literal[1, 2, 3] = 1
     run_id: str
+    worker_id: str | None = None
     started_at: datetime
     completed_at: datetime
     model: str

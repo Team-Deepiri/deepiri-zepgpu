@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager, suppress
@@ -63,6 +64,8 @@ QUEUE_LENGTH = Gauge(
     "Number of pending tasks in queue",
 )
 
+logger = logging.getLogger(__name__)
+
 
 async def _vpn_registry_maintenance_loop(stop: asyncio.Event) -> None:
     """Mark stale VPN peers and refresh in-process GPU pool from DB."""
@@ -113,7 +116,7 @@ async def _training_reservation_sweep_loop(stop: asyncio.Event) -> None:
             async with get_db_context() as db:
                 await TrainingReservationRepository(db).cleanup_expired()
         except Exception:
-            continue
+            logger.exception("Error during Phase 18 training reservation sweep")
 
 
 @asynccontextmanager

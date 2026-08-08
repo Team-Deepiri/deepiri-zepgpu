@@ -76,3 +76,14 @@ two-GPU FSDP2 command. Record both command outputs and each rank's
 Controlled multi-host LAN tests require measured LAN paths plus explicit collective, P2P,
 runtime-version, and strategy capability reports on every provider. Ordinary WAN links are
 not eligible.
+
+### Local-step resume limitation
+
+Phase 18 worker recovery occurs at finalized outer-round/checkpoint boundaries.
+
+The current Phase 18 worker runtime does not resume midway through a local
+DiLoCo interval or midway through an island-local training step. A restarted
+worker bootstraps from the latest valid finalized checkpoint and resumes from
+the corresponding round boundary.
+
+Full arbitrary coordinator/process restart recovery remains Phase 19 work.

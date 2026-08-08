@@ -147,7 +147,8 @@ def _phase18_metrics(
     placement = PlacementPlan.model_validate(startup["placement_plan"])
     return TrainingMetrics(
         schema_version=3,
-        run_id=f"{run_id}-{worker_id}",
+        run_id=run_id,
+        worker_id=worker_id,
         started_at=started_at,
         completed_at=completed_at,
         model=config.model_name,
@@ -408,7 +409,7 @@ async def _run_phase18_island(
     rank_config = config.model_copy(update={"device": f"cuda:{assignment.device_index}"})
     device = _resolve_device(rank_config, torch)
     _seed_runtime(torch, transformers, config.seed + assignment.global_rank)
-    tokenizer, model, _optimizer, start_step, _ = _load_model(
+    tokenizer, model, _, start_step, _ = _load_model(
         rank_config, torch, transformers, peft, run_id, device
     )
     if start_step != 0:
@@ -818,7 +819,8 @@ async def run_worker(work_dir: Path, *, base_url: str) -> TrainingMetrics:
                 hardware["device"] = torch.cuda.get_device_name(device)
             metrics = TrainingMetrics(
                 schema_version=2,
-                run_id=f"{run_id}-{worker_id}",
+                run_id=run_id,
+                worker_id=worker_id,
                 started_at=started_at,
                 completed_at=datetime.now(UTC),
                 model=config.model_name,
