@@ -39,11 +39,19 @@ class StepMetric(BaseModel):
     compressed_bytes: int = Field(default=0, ge=0)
     compression_ratio: float | None = Field(default=None, ge=0)
     path_type: Literal["direct", "relay", "none"] | None = None
+    path_class: str | None = None
+    path_measurement_kind: Literal["measured", "estimated", "unavailable"] | None = None
     rtt_ms: float | None = Field(default=None, ge=0)
     bandwidth_bps: float | None = Field(default=None, ge=0)
     round: int | None = Field(default=None, ge=0)
     loss: float | None = None
     gpu_utilization_percent: float | None = Field(default=None, ge=0, le=100)
+    worker_id: str | None = None
+    island_id: str | None = None
+    global_rank: int | None = Field(default=None, ge=0)
+    island_rank: int | None = Field(default=None, ge=0)
+    assigned_device: int | None = Field(default=None, ge=0)
+    peak_gpu_vram_bytes: int | None = Field(default=None, ge=0)
 
     @model_validator(mode="after")
     def align_sync_fields(self) -> StepMetric:
@@ -61,8 +69,9 @@ class StepMetric(BaseModel):
 class TrainingMetrics(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal[1, 2] = 1
+    schema_version: Literal[1, 2, 3] = 1
     run_id: str
+    worker_id: str | None = None
     started_at: datetime
     completed_at: datetime
     model: str
@@ -103,9 +112,19 @@ class TrainingMetrics(BaseModel):
     mean_gpu_utilization_percent: float | None = None
     final_loss: float | None = None
     mean_loss: float | None = None
+    expected_worker_count: int | None = Field(default=None, ge=1)
+    active_worker_count: int | None = Field(default=None, ge=0)
+    min_k: int | None = Field(default=None, ge=1)
+    local_steps_h: int | None = Field(default=None, ge=1)
+    current_outer_round: int | None = Field(default=None, ge=0)
+    rejoin_count: int = Field(default=0, ge=0)
+    island_ids: list[str] = Field(default_factory=list)
+    reservation_ids: list[str] = Field(default_factory=list)
+    placement_status: str | None = None
+    placement_warnings: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def derive_aggregate_metrics(self) -> TrainingMetrics:
+    def derive_aggregate_metrics(self) -> TrainingMetrics:  # noqa: C901
         if self.completed_at < self.started_at:
             raise ValueError("completed_at cannot precede started_at")
         if any(step.compute_seconds > step.step_seconds for step in self.steps):
@@ -170,6 +189,8 @@ class TrainingMetrics(BaseModel):
             or self.direct_backend
         ):
             self.schema_version = 2
+        if self.expected_worker_count is not None or self.island_ids or self.reservation_ids:
+            self.schema_version = 3
         return self
 
     def write_json(self, path: Path) -> None:

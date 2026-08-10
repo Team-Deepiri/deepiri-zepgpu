@@ -170,6 +170,7 @@ class RoomNodeCapabilitiesSummary(BaseModel):
     driver_version: str | None = None
     runtime: dict[str, object] = Field(default_factory=dict)
     topology: dict[str, object] = Field(default_factory=dict)
+    pairwise_paths: list[dict[str, object]] = Field(default_factory=list)
 
 
 class RoomNodeResponse(BaseModel):
@@ -217,6 +218,7 @@ class RoomNodeHeartbeatCapabilities(BaseModel):
     runtime: dict[str, object] | None = None
     topology: dict[str, object] | None = None
     gpus: list[RoomNodeHeartbeatGpu] | None = None
+    pairwise_paths: list[dict[str, object]] | None = None
 
 
 class RoomNodeHeartbeatPath(BaseModel):

@@ -50,6 +50,7 @@ class HttpWorkerCoordinator:
         peer_id: str,
         client: httpx.AsyncClient | None = None,
         max_retries: int = 3,
+        authorization_getter: Callable[[], str] | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.run_id = run_id
@@ -57,6 +58,14 @@ class HttpWorkerCoordinator:
         self.client = client or httpx.AsyncClient(timeout=15)
         self.max_retries = max_retries
         self._authorization = ""
+        self._authorization_getter = authorization_getter
+
+    def _current_authorization(self) -> str:
+        if self._authorization_getter is not None:
+            value = self._authorization_getter().strip()
+            if value:
+                return value
+        return self._authorization
 
     async def authenticate(
         self, worker_id: str, provider_token: str, run_credential: str | None
@@ -65,7 +74,7 @@ class HttpWorkerCoordinator:
         response = await self.client.get(
             f"{self.base_url}/api/v1/training-runs/{self.run_id}/workers/{worker_id}/startup",
             params={"peer_id": self.peer_id},
-            headers={"Authorization": f"Bearer {self._authorization}"},
+            headers={"Authorization": f"Bearer {self._current_authorization()}"},
         )
         if response.status_code in {401, 403}:
             raise PermissionError("training worker authentication failed")
@@ -87,7 +96,7 @@ class HttpWorkerCoordinator:
                 response = await self.client.post(
                     url,
                     params={"peer_id": self.peer_id},
-                    headers={"Authorization": f"Bearer {self._authorization}"},
+                    headers={"Authorization": f"Bearer {self._current_authorization()}"},
                     json=body,
                 )
             except (httpx.ConnectError, httpx.TimeoutException) as exc:

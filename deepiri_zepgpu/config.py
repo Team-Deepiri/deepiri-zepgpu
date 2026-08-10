@@ -181,6 +181,8 @@ class Settings(BaseSettings):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(default="INFO")
     environment: Literal["development", "staging", "production"] = Field(default="development")
 
+    training_image: str = Field(default="zepgpu-training:local")
+
     max_concurrent_tasks: int = Field(default=10)
     default_timeout_seconds: int = Field(default=3600)
     default_gpu_memory_mb: int = Field(default=1024)
