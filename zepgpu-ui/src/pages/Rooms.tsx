@@ -198,14 +198,14 @@ export default function Rooms() {
               >
                 <option value="dialout">Dial-out (recommended, no inbound ports)</option>
                 <option value="wireguard">WireGuard (UDP 51820)</option>
-                <option value="overlay">Overlay (experimental)</option>
+                <option value="overlay">Overlay (direct→relay)</option>
               </select>
               <p className="text-slate-600 text-xs mt-1">
                 {transportMode === 'dialout'
                   ? 'Providers dial out over HTTPS/WSS. No UDP 51820 required.'
                   : transportMode === 'wireguard'
                     ? 'Classic VPN mesh; providers need WireGuard UDP reachability.'
-                    : 'Experimental until Phase 19 — use only for overlay pilots.'}
+                    : 'Phase 19 overlay: try direct peer path, fall back to relay. No WG UDP required.'}
               </p>
             </div>
             <button

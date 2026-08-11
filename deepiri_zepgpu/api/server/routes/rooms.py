@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 from datetime import UTC, datetime
 from math import ceil
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
@@ -57,7 +58,7 @@ from deepiri_zepgpu.rooms.models import (
 from deepiri_zepgpu.rooms.path_obs import PathReport, build_path_report, record_path_metrics
 from deepiri_zepgpu.rooms.transport import InvalidTransportModeError
 from deepiri_zepgpu.vpn.config import vpn_settings
-from deepiri_zepgpu.vpn.crypto import encrypt_value
+from deepiri_zepgpu.vpn.crypto import decrypt_value, encrypt_value
 from deepiri_zepgpu.vpn.keygen import generate_keypair
 from deepiri_zepgpu.vpn.remote_gpu_lock import RemoteGpuLock
 from deepiri_zepgpu.vpn.repositories import (
@@ -66,7 +67,13 @@ from deepiri_zepgpu.vpn.repositories import (
     VpnInviteRepository,
     VpnNetworkRepository,
 )
-from deepiri_zepgpu.vpn.wg_config import allocate_vpn_ip, generate_peer_config
+from deepiri_zepgpu.vpn.wg_config import (
+    allocate_vpn_ip,
+    allowed_ips_for_cidr,
+    generate_peer_config,
+    generate_relay_config,
+    hub_endpoint_configured,
+)
 
 router = APIRouter(prefix="/rooms", tags=["GPU Rooms"])
 
@@ -846,24 +853,45 @@ async def get_room_config(
     if not peer:
         raise HTTPException(status_code=404, detail="Room config is not available yet")
 
-    private_key = await peer_repo.get_private_key(peer)
-    if not private_key:
-        raise HTTPException(status_code=404, detail="Room config is not available yet")
-
-    config_text = generate_peer_config(
-        vpn_ip=peer.vpn_ip,
-        private_key=private_key,
-        relay_public_key=room.relay_public_key or "",
-        relay_endpoint=f"{room.relay_endpoint}:{room.listen_port}",
-    )
-
     transport_mode = getattr(room, "transport_mode", None) or "wireguard"
+    private_key = await peer_repo.get_private_key(peer)
+    hub_ok = hub_endpoint_configured(relay_host=room.relay_endpoint, listen_port=room.listen_port)
+    if transport_mode == "wireguard":
+        if not private_key:
+            raise HTTPException(status_code=404, detail="Room config is not available yet")
+        config_text = generate_peer_config(
+            vpn_ip=peer.vpn_ip,
+            private_key=private_key,
+            relay_public_key=room.relay_public_key or "",
+            relay_endpoint=f"{room.relay_endpoint}:{room.listen_port}",
+            allowed_ips=allowed_ips_for_cidr(room.cidr),
+        )
+        filename = None
+    elif transport_mode == "overlay":
+        config_text = (
+            "# overlay room — no WireGuard config\n"
+            "# Data plane: iroh/quic UDP with coordinator HTTP relay fallback.\n"
+            "# coordinator: join via zepgpu-node; overlay_backend=iroh\n"
+        )
+        filename = f"room-{room_id}-overlay.txt"
+    else:
+        config_text = (
+            "# dial-out room — outbound HTTPS/WSS only\n"
+            "# No WireGuard UDP or inbound ports required.\n"
+            "# Use: zepgpu-node join --invite <code> --provider-mode dialout\n"
+        )
+        filename = f"room-{room_id}-dialout.txt"
+
     response = peer_config_to_room_config_response(
         room_id=UUID(str(room_id)),
         peer_id=UUID(str(peer.id)),
         config_text=config_text,
+        filename=filename,
         transport_mode=transport_mode,
     )
+    response.vpn_ip = peer.vpn_ip
+    response.hub_reachable = hub_ok if transport_mode == "wireguard" else False
+    response.overlay_backend = "iroh" if transport_mode == "overlay" else None
     if getattr(peer, "revoked_at", None) is not None:
         raise HTTPException(status_code=403, detail="Provider has been revoked")
     try:
@@ -877,6 +905,50 @@ async def get_room_config(
         else getattr(peer, "token_expires_at", None)
     )
     return response
+
+
+@router.get("/{room_id}/hub-config")
+async def get_room_hub_config(
+    room_id: str,
+    user: User = Depends(get_required_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> dict[str, Any]:
+    """Host-only WireGuard hub config regenerated from live (non-revoked) peers."""
+
+    network_repo = VpnNetworkRepository(db)
+    room = await _ensure_room_member(network_repo, str(user.id), room_id)
+    if str(room.host_id) != str(user.id):
+        raise HTTPException(status_code=403, detail="Only the room host can fetch hub config")
+    transport_mode = getattr(room, "transport_mode", None) or "wireguard"
+    if transport_mode != "wireguard":
+        raise HTTPException(status_code=409, detail="Hub config is WireGuard rooms only")
+    if not room.private_key_encrypted:
+        raise HTTPException(status_code=404, detail="Hub private key is not available")
+    peer_repo = PeerRepository(db)
+    all_peers = await peer_repo.get_by_network(room_id)
+    live = [
+        item
+        for item in all_peers
+        if getattr(item, "revoked_at", None) is None and not item.is_relay
+    ]
+    relay_peer = next((item for item in all_peers if item.is_relay), None)
+    hub_ip = relay_peer.vpn_ip if relay_peer and relay_peer.vpn_ip else "10.8.0.1"
+    hub_conf = generate_relay_config(
+        vpn_ip=hub_ip,
+        private_key=decrypt_value(room.private_key_encrypted),
+        listen_port=room.listen_port,
+        peers=[(item.wireguard_public_key, item.vpn_ip) for item in live],
+        allowed_ips=allowed_ips_for_cidr(room.cidr),
+    )
+    return {
+        "transport_mode": "wireguard",
+        "hub_reachable": hub_endpoint_configured(
+            relay_host=room.relay_endpoint, listen_port=room.listen_port
+        ),
+        "peer_count": len(live),
+        "config": hub_conf,
+        "cidr": room.cidr,
+    }
 
 
 async def _attach_room_gpu_shares(

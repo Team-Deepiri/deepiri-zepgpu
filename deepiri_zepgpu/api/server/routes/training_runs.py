@@ -27,7 +27,7 @@ from deepiri_zepgpu.database.models.training_run import (
     TrainingRunState,
     TrainingWorker,
 )
-from deepiri_zepgpu.database.models.vpn_models import GpuShare, Peer
+from deepiri_zepgpu.database.models.vpn_models import GpuShare, Peer, VpnNetwork
 from deepiri_zepgpu.database.repositories.training_reservation_repository import (
     TrainingReservationError,
     TrainingReservationRepository,
@@ -43,6 +43,8 @@ from deepiri_zepgpu.training.config import TrainingRunConfig
 from deepiri_zepgpu.training.credentials import (
     RunCredential,
     credential_id_hash,
+    issue_data_plane_secret,
+    issue_room_mac_key,
     issue_run_credential,
     verify_run_credential,
 )
@@ -453,6 +455,19 @@ async def list_training_runs(
     return [_response(run) for run in runs]
 
 
+class TrainingRunDashboardResponse(BaseModel):
+    """Phase 19 training-run dashboard aggregate for UI/export."""
+
+    run: TrainingRunResponse
+    placement: dict[str, Any] | None = None
+    islands: list[dict[str, Any]] = Field(default_factory=list)
+    reservations: list[dict[str, Any]] = Field(default_factory=list)
+    first_failure: str | None = None
+    communication: dict[str, Any] = Field(default_factory=dict)
+    checkpoints: list[dict[str, Any]] = Field(default_factory=list)
+    export: dict[str, Any] = Field(default_factory=dict)
+
+
 @router.get("/{run_id}", response_model=TrainingRunResponse)
 async def inspect_training_run(
     run_id: UUID,
@@ -460,6 +475,93 @@ async def inspect_training_run(
     user: User = Depends(get_required_user),
 ) -> TrainingRunResponse:
     return _response(await _owned_run(db, str(run_id), user))
+
+
+@router.get("/{run_id}/dashboard", response_model=TrainingRunDashboardResponse)
+async def training_run_dashboard(
+    run_id: UUID,
+    db: AsyncSession = Depends(get_db_session),
+    user: User = Depends(get_required_user),
+) -> TrainingRunDashboardResponse:
+    """Aggregate job, placement, islands, workers, failure, and checkpoint hints."""
+    run = await _owned_run(db, str(run_id), user)
+    run_resp = _response(run)
+    islands_result = await db.execute(
+        select(TrainingIsland).where(TrainingIsland.run_id == run.id).order_by(TrainingIsland.id)
+    )
+    islands = [
+        {
+            "id": str(island.id),
+            "classification": island.classification,
+            "provider_ids": island.provider_ids,
+            "gpu_share_ids": island.gpu_share_ids,
+            "strategy_eligibility": island.strategy_eligibility,
+            "topology": island.topology,
+            "explanation": island.explanation,
+        }
+        for island in islands_result.scalars().all()
+    ]
+    reservations_result = await db.execute(
+        select(TrainingGpuReservation)
+        .where(TrainingGpuReservation.run_id == run.id)
+        .order_by(TrainingGpuReservation.id)
+    )
+    reservations = [
+        {
+            "id": str(item.id),
+            "state": item.state.value if hasattr(item.state, "value") else str(item.state),
+            "peer_id": str(item.peer_id) if item.peer_id else None,
+            "gpu_share_id": str(item.gpu_share_id) if item.gpu_share_id else None,
+            "island_id": str(item.island_id) if item.island_id else None,
+            "worker_id": str(item.worker_id) if item.worker_id else None,
+            "expires_at": (
+                item.expires_at.isoformat() if getattr(item, "expires_at", None) else None
+            ),
+        }
+        for item in reservations_result.scalars().all()
+    ]
+    first_failure = run.error
+    if first_failure is None:
+        for worker in run_resp.workers:
+            if worker.error:
+                first_failure = worker.error
+                break
+    checkpoints = [
+        {
+            "worker_id": worker.id,
+            "peer_id": worker.peer_id,
+            "bootstrap_checkpoint": worker.bootstrap_checkpoint,
+            "restart_count": worker.restart_count,
+        }
+        for worker in run_resp.workers
+        if worker.bootstrap_checkpoint is not None or worker.restart_count
+    ]
+    communication = {
+        "current_outer_round": run_resp.current_outer_round,
+        "worker_rounds": {worker.id: worker.current_round for worker in run_resp.workers},
+        "worker_progress": {worker.id: worker.progress for worker in run_resp.workers},
+    }
+    export = {
+        "run_id": run_resp.id,
+        "room_id": run_resp.room_id,
+        "state": run_resp.state,
+        "current_outer_round": run_resp.current_outer_round,
+        "island_count": len(islands),
+        "worker_count": len(run_resp.workers),
+        "reservation_count": len(reservations),
+        "first_failure": first_failure,
+        "artifacts": run_resp.artifacts,
+    }
+    return TrainingRunDashboardResponse(
+        run=run_resp,
+        placement=run.placement_plan,
+        islands=islands,
+        reservations=reservations,
+        first_failure=first_failure,
+        communication=communication,
+        checkpoints=checkpoints,
+        export=export,
+    )
 
 
 @router.get("/{run_id}/placement", response_model=PlacementPlan)
@@ -548,6 +650,13 @@ async def launch_training_run(
             if item.credential is None:
                 raise HTTPException(status_code=500, detail="worker launch credential is missing")
             processes = [asdict(process) for process in item.processes]
+            network = await db.get(VpnNetwork, run.vpn_network_id)
+            transport_mode = str(getattr(network, "transport_mode", None) or "dialout")
+            peer_row = await db.get(Peer, item.provider_id)
+            peer_worker_ids = [
+                str(other.id) for other in run.workers if str(other.id) != item.worker_id
+            ]
+            overlay_backend = "iroh" if transport_mode == "overlay" else None
             delivered = await manager.send_provider_message(
                 item.provider_id,
                 {
@@ -567,6 +676,17 @@ async def launch_training_run(
                     "config": item.config,
                     "processes": processes,
                     "rendezvous": item.rendezvous,
+                    "transport_mode": transport_mode,
+                    "vpn_ip": getattr(peer_row, "vpn_ip", None),
+                    "data_plane_secret": issue_data_plane_secret(
+                        str(run.id), settings.auth.secret_key.encode("utf-8")
+                    ),
+                    "room_mac_key": issue_room_mac_key(
+                        str(run.vpn_network_id), settings.auth.secret_key.encode("utf-8")
+                    ),
+                    "peer_worker_id": peer_worker_ids[0] if peer_worker_ids else None,
+                    "peer_worker_ids": peer_worker_ids,
+                    "overlay_backend": overlay_backend,
                 },
             )
             worker = workers_by_id[item.worker_id]
@@ -810,6 +930,30 @@ async def inspect_worker_startup(
         bootstrap_checkpoint=worker.bootstrap_checkpoint,
         processes=list(worker.progress.get("phase18_processes") or []),
     )
+
+
+@router.get("/{run_id}/workers/{worker_id}/peers/{peer_worker_id}/data-plane")
+async def inspect_peer_data_plane(
+    run_id: UUID,
+    worker_id: UUID,
+    peer_worker_id: UUID,
+    peer: Peer = Depends(get_verified_training_peer),
+    db: AsyncSession = Depends(get_db_session),
+) -> dict[str, Any]:
+    """Return a peer worker's published data-plane endpoint (no secrets)."""
+
+    run, _worker = await _assigned_worker(db, str(run_id), str(worker_id), peer)
+    peer_worker = next((item for item in run.workers if str(item.id) == str(peer_worker_id)), None)
+    if peer_worker is None:
+        raise HTTPException(status_code=404, detail="peer worker not found")
+    payload = peer_worker.progress.get("data_plane")
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=404, detail="peer data-plane not published yet")
+    return {
+        "host": payload.get("host"),
+        "port": payload.get("port"),
+        "kind": payload.get("kind") or "lan",
+    }
 
 
 @router.post("/{run_id}/workers/{worker_id}/events", response_model=TrainingRunResponse)

@@ -13,6 +13,7 @@ import asyncio
 import contextlib
 import json
 import os
+import secrets
 import signal
 import subprocess
 import sys
@@ -32,6 +33,7 @@ from training_e2e_common import (  # noqa: E402
     run_reached_success,
     smoke_training_config,
 )
+from deepiri_zepgpu.training.worker_identity import persist_worker_identity  # noqa: E402
 
 DEFAULT_OUTPUT = Path("/tmp/zepgpu-two-process-wan")
 
@@ -44,6 +46,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--timeout", type=float, default=600.0)
     parser.add_argument("--compressor", choices=["zep", "demo", "none"], default="zep")
     parser.add_argument("--overlap", choices=["blocking", "eager"], default="eager")
+    parser.add_argument(
+        "--transport-mode",
+        choices=["dialout", "overlay", "wireguard"],
+        default="dialout",
+        help="Room transport + worker data-plane selection (overlay/WG prefer direct)",
+    )
+    parser.add_argument(
+        "--force-relay",
+        action="store_true",
+        help="Force TransferManager relay even when overlay/WG direct is available",
+    )
     parser.add_argument(
         "--python",
         default=sys.executable,
@@ -61,7 +74,7 @@ def write_worker_files(
     provider_token: str,
 ) -> None:
     work.mkdir(parents=True, exist_ok=True)
-    (work / "identity.json").write_text(json.dumps(identity, indent=2), encoding="utf-8")
+    persist_worker_identity(work, identity)
     (work / "config.json").write_text(json.dumps(config_json, indent=2), encoding="utf-8")
     (work / "run.cred").write_text(credential, encoding="utf-8")
     (work / "provider.token").write_text(provider_token, encoding="utf-8")
@@ -117,7 +130,7 @@ async def main_async(args: argparse.Namespace) -> int:
             json={
                 "name": f"two-process-wan-{suffix}",
                 "description": "Phase 17 two-process LoRA",
-                "transport_mode": "dialout",
+                "transport_mode": args.transport_mode,
             },
         )
         room.raise_for_status()
@@ -170,6 +183,11 @@ async def main_async(args: argparse.Namespace) -> int:
         processes: list[subprocess.Popen[Any]] = []
         work_dirs: list[Path] = []
         log_files: list[Any] = []
+        endpoint_dir = output / "endpoints"
+        endpoint_dir.mkdir(parents=True, exist_ok=True)
+        # Same-host WG smoke: mock VPN IPs so LanDirect binds on loopback aliases conceptually.
+        vpn_ips = ["127.0.0.1", "127.0.0.1"]
+        data_plane_secret = secrets.token_hex(32)
         try:
             for index, peer_id in enumerate(peer_ids):
                 work = output / f"worker-{index}"
@@ -180,15 +198,26 @@ async def main_async(args: argparse.Namespace) -> int:
                     headers=auth_headers(peer_auths[index]),
                 )
                 cred.raise_for_status()
+                identity: dict[str, Any] = {
+                    "run_id": run_id,
+                    "room_id": room_id,
+                    "worker_id": workers[peer_id],
+                    "peer_id": peer_id,
+                    "peer_worker_id": peer_worker[peer_id],
+                    "transport_mode": args.transport_mode,
+                    "endpoint_dir": str(endpoint_dir),
+                    "force_relay": bool(args.force_relay),
+                    "data_plane_secret": data_plane_secret,
+                }
+                if args.transport_mode == "overlay":
+                    identity["overlay_backend"] = "iroh"
+                    identity["data_plane_listen_host"] = "127.0.0.1"
+                elif args.transport_mode == "wireguard":
+                    identity["vpn_ip"] = vpn_ips[index]
+                    identity["data_plane_listen_host"] = vpn_ips[index]
                 write_worker_files(
                     work,
-                    identity={
-                        "run_id": run_id,
-                        "room_id": room_id,
-                        "worker_id": workers[peer_id],
-                        "peer_id": peer_id,
-                        "peer_worker_id": peer_worker[peer_id],
-                    },
+                    identity=identity,
                     config_json=config.to_public_dict(),
                     credential=str(cred.json()["credential"]),
                     provider_token=peer_auths[index],

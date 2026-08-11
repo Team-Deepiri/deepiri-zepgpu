@@ -232,6 +232,10 @@ async def root() -> dict[str, str]:
 @app.get("/metrics", tags=["Monitoring"])
 async def metrics() -> Response:
     """Prometheus metrics endpoint."""
+    # Ensure Phase 19 training/overlay metric collectors are registered.
+    import deepiri_zepgpu.training.prom_metrics  # noqa: F401
+    import deepiri_zepgpu.vpn.overlay.metrics  # noqa: F401
+
     return Response(
         content=generate_latest(),
         media_type=CONTENT_TYPE_LATEST,

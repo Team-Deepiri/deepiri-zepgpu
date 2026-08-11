@@ -20,6 +20,13 @@ from deepiri_zepgpu.training.adapter_utils import (
     delta_from_snapshots,
 )
 from deepiri_zepgpu.training.binary import BinaryEnvelope
+from deepiri_zepgpu.training.channel_select import (
+    DataPlaneEndpoint,
+    build_worker_data_plane,
+    ensure_peer_connected,
+    normalize_worker_transport_mode,
+    publish_endpoint,
+)
 from deepiri_zepgpu.training.config import DistributedStrategy, OverlapMode, TrainingRunConfig
 from deepiri_zepgpu.training.diloco import DiLoCoWorkerRuntime
 from deepiri_zepgpu.training.example import EXAMPLE_TEXTS
@@ -31,6 +38,11 @@ from deepiri_zepgpu.training.metrics import (
     runtime_versions,
 )
 from deepiri_zepgpu.training.placement import PlacementPlan
+from deepiri_zepgpu.training.prom_metrics import (
+    record_checkpoint,
+    record_sync_round,
+    record_training_failure,
+)
 from deepiri_zepgpu.training.runner import (
     NvmlSampler,
     _accumulate_step,
@@ -45,8 +57,13 @@ from deepiri_zepgpu.training.sync import (
     SyncOrchestrator,
     deterministic_transfer_id,
 )
-from deepiri_zepgpu.training.transport import HttpRelayChannel, PcclDirectChannel, TransferManager
+from deepiri_zepgpu.training.transport import (
+    DirectUnavailable,
+    HttpRelayChannel,
+    TransferManager,
+)
 from deepiri_zepgpu.training.worker import HttpWorkerCoordinator, PersistentTrainingWorker
+from deepiri_zepgpu.training.worker_identity import hydrate_worker_identity
 
 
 def _read_run_credential(work_dir: Path) -> str:
@@ -204,6 +221,11 @@ async def _run_phase18_diloco(
     )
     if start_step != 0:
         raise RuntimeError("Phase 18 process worker does not resume mid-interval")
+    identity_path = work_dir / "identity.json"
+    identity_blob: dict[str, Any] = {}
+    if identity_path.is_file():
+        identity_blob = json.loads(identity_path.read_text(encoding="utf-8"))
+        hydrate_worker_identity(work_dir, identity_blob)
     local_runtime = DiLoCoWorkerRuntime(
         room_id=room_id,
         run_id=run_id,
@@ -211,6 +233,7 @@ async def _run_phase18_diloco(
         config=config,
         initial_state=adapter_state_dict(model),
     )
+    local_runtime.room_mac_key = str(identity_blob.get("room_mac_key") or "") or None
     registration = await _phase18_register(
         client,
         base_url=base_url,
@@ -338,6 +361,7 @@ async def _run_phase18_diloco(
                         run_id=run_id,
                         step=checkpoint_round * local_runtime.job.diloco_h,
                     )
+                    record_checkpoint(room_id=room_id, operation="save", result="ok")
 
                 await worker.checkpoint(_ckpt)
 
@@ -487,6 +511,7 @@ async def _run_phase18_island(
 
 def load_worker_identity(work_dir: Path) -> dict[str, Any]:
     identity = json.loads((work_dir / "identity.json").read_text(encoding="utf-8"))
+    hydrate_worker_identity(work_dir, identity)
     credential = (work_dir / "run.cred").read_text(encoding="utf-8").strip()
     provider_token = (work_dir / "provider.token").read_text(encoding="utf-8").strip()
     config = TrainingRunConfig.model_validate(
@@ -628,6 +653,9 @@ async def run_worker(work_dir: Path, *, base_url: str) -> TrainingMetrics:
                 )
             try:
                 return await operation
+            except Exception:
+                record_training_failure(room_id=room_id, cause="worker_crash")
+                raise
             finally:
                 if lease_heartbeat is not None:
                     lease_heartbeat.cancel()
@@ -636,6 +664,26 @@ async def run_worker(work_dir: Path, *, base_url: str) -> TrainingMetrics:
 
         # Schema-v2 remains the exact Phase 17 two-worker runner.
         peer_worker_id = str(identity["peer_worker_id"])
+        transport_mode = normalize_worker_transport_mode(
+            str(identity.get("transport_mode") or "dialout")
+        )
+        force_relay = bool(identity.get("force_relay", False))
+        vpn_ip = identity.get("vpn_ip")
+        listen_host = str(identity.get("data_plane_listen_host") or vpn_ip or "127.0.0.1")
+        listen_port = int(identity.get("data_plane_listen_port") or 0)
+        overlay_backend = str(identity.get("overlay_backend") or "iroh")
+        # Per-worker run.cred tokens differ; peer HMAC needs a shared data-plane secret.
+        data_plane_credential = str(identity.get("data_plane_secret") or "").strip() or credential
+        endpoint_dir = (
+            Path(str(identity["endpoint_dir"]))
+            if identity.get("endpoint_dir")
+            else work_dir / "endpoints"
+        )
+        identity_peer = DataPlaneEndpoint.from_dict(
+            identity.get("peer_data_plane")
+            if isinstance(identity.get("peer_data_plane"), dict)
+            else None
+        )
 
         torch, transformers, peft = _imports()
         device = _resolve_device(config, torch)
@@ -648,8 +696,30 @@ async def run_worker(work_dir: Path, *, base_url: str) -> TrainingMetrics:
             chunk_size=64 * 1024,
             client=client,
         )
+        data_plane = await build_worker_data_plane(
+            transport_mode=transport_mode,
+            credential=data_plane_credential,
+            worker_id=worker_id,
+            peer_id=peer_id,
+            peer_worker_id=peer_worker_id,
+            listen_host=listen_host,
+            listen_port=listen_port,
+            advertise_host=str(vpn_ip).strip() if vpn_ip else None,
+            peer_endpoint=identity_peer,
+            overlay_backend=overlay_backend,
+            force_relay=force_relay,
+        )
+        publish_endpoint(endpoint_dir, worker_id, data_plane.local_endpoint)
+        await worker.progress(
+            {
+                "data_plane": (
+                    data_plane.local_endpoint.to_dict() if data_plane.local_endpoint else None
+                ),
+                "transport_mode": transport_mode,
+            }
+        )
         manager = TransferManager(
-            direct=PcclDirectChannel(sender=None),
+            direct=data_plane.channel,
             relay=relay,
             max_retries=0,
         )
@@ -667,6 +737,34 @@ async def run_worker(work_dir: Path, *, base_url: str) -> TrainingMetrics:
                 run_id, round_number, worker_id
             ),
         )
+
+        async def _on_direct_bytes(encoded: bytes) -> None:
+            orchestrator.receive_encoded(encoded)
+
+        # Register before peer attach so early frames are not dropped.
+        register = getattr(data_plane.channel, "register", None)
+        if callable(register):
+            register(worker_id, _on_direct_bytes)
+        else:
+            register_receiver = getattr(data_plane.channel, "register_receiver", None)
+            if callable(register_receiver):
+                register_receiver(_on_direct_bytes)
+
+        # Leave peer unattached on timeout; TransferManager falls back to HTTP relay.
+        with contextlib.suppress(TimeoutError, DirectUnavailable):
+            await ensure_peer_connected(
+                data_plane,
+                peer_worker_id=peer_worker_id,
+                endpoint_dir=endpoint_dir,
+                identity_peer=identity_peer,
+                timeout_seconds=min(60.0, float(config.startup_timeout_seconds)),
+                http_client=client,
+                base_url=base_url,
+                run_id=run_id,
+                worker_id=worker_id,
+                peer_id=peer_id,
+                credential=credential,
+            )
 
         tokenizer, model, optimizer, start_step, _ = _load_model(
             config, torch, transformers, peft, run_id, device
@@ -750,6 +848,12 @@ async def run_worker(work_dir: Path, *, base_url: str) -> TrainingMetrics:
                         prefer_relay_download=True,
                         overlap_work=_overlap,
                     )
+                    record_sync_round(
+                        room_id=room_id,
+                        path_type=result.path,
+                        result="ok",
+                        nbytes=result.bytes_sent + result.bytes_received,
+                    )
                     applied = {
                         name: (round_before[name] + result.averaged[name]).astype(np.float32)
                         for name in round_before
@@ -798,6 +902,7 @@ async def run_worker(work_dir: Path, *, base_url: str) -> TrainingMetrics:
                         run_id=run_id,
                         step=checkpoint_round * config.distributed.local_steps_per_round,
                     )
+                    record_checkpoint(room_id=room_id, operation="save", result="ok")
 
                 if (
                     round_number % max(1, config.checkpoint_every_steps) == 0
@@ -839,7 +944,7 @@ async def run_worker(work_dir: Path, *, base_url: str) -> TrainingMetrics:
                 peak_reserved_vram_bytes=peak_reserved,
                 artifact_ref=str(final_dir),
                 compressor_backend=config.distributed.compression.backend.value,
-                direct_backend="relay",
+                direct_backend=transport_mode if data_plane.needs_peer else "relay",
             )
             assert_catastrophic_quality(metrics)
             metrics.write_json(config.output_dir / "metrics.json")
@@ -851,6 +956,7 @@ async def run_worker(work_dir: Path, *, base_url: str) -> TrainingMetrics:
         finally:
             if nvml is not None:
                 nvml.shutdown()
+            await data_plane.stop()
 
 
 def main() -> None:

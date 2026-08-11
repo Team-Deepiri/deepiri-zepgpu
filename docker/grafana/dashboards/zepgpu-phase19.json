@@ -1,0 +1,75 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Overlay joins",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (result, backend) (rate(zepgpu_overlay_joins_total[5m]))",
+          "legendFormat": "{{backend}} {{result}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Training sync rounds",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (path_type, result) (rate(zepgpu_training_sync_rounds_total[5m]))",
+          "legendFormat": "{{path_type}} {{result}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Training failures / rejoins",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (cause) (rate(zepgpu_training_failures_total[5m]))",
+          "legendFormat": "fail {{cause}}"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (result) (rate(zepgpu_training_rejoins_total[5m]))",
+          "legendFormat": "rejoin {{result}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Checkpoint events",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (operation, result) (rate(zepgpu_training_checkpoints_total[5m]))",
+          "legendFormat": "{{operation}} {{result}}"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["zepgpu", "phase19"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1h", "to": "now" },
+  "timezone": "browser",
+  "title": "ZepGPU Phase 19 Training / Overlay",
+  "uid": "zepgpu-phase19",
+  "version": 1
+}

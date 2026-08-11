@@ -15,6 +15,7 @@ from deepiri_zepgpu.training.checkpoint import CheckpointMetadata, make_checkpoi
 from deepiri_zepgpu.training.config import Precision, TrainingRunConfig
 from deepiri_zepgpu.training.example import EXAMPLE_TEXTS
 from deepiri_zepgpu.training.metrics import StepMetric, TrainingMetrics, runtime_versions
+from deepiri_zepgpu.training.recovery import write_checkpoint_json_sidecar
 
 
 class MissingTrainingDependency(RuntimeError):
@@ -126,6 +127,7 @@ def _checkpoint(
         config=config.model_dump(mode="json"),
     )
     metadata.save(directory)
+    write_checkpoint_json_sidecar(directory)
     return metadata
 
 

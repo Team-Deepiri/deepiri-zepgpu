@@ -114,7 +114,7 @@ class RoomJoinResponse(BaseModel):
 
 
 class RoomConnectionConfigResponse(BaseModel):
-    """WireGuard/client configuration response for the current user."""
+    """Mode-specific connection configuration for the current user."""
 
     room_id: UUID
     peer_id: UUID
@@ -122,6 +122,9 @@ class RoomConnectionConfigResponse(BaseModel):
     filename: str
     transport_mode: str = "wireguard"
     requires_wireguard_udp: bool = True
+    vpn_ip: str | None = None
+    hub_reachable: bool = False
+    overlay_backend: str | None = None
     auth_token: str | None = Field(
         default=None,
         description=(

@@ -28,6 +28,33 @@ def credential_id_hash(credential_id: str) -> str:
     return hashlib.sha256(uuid.UUID(credential_id).bytes).hexdigest()
 
 
+def _hkdf_sha256(*, ikm: bytes, info: bytes, length: int = 32) -> bytes:
+    """RFC 5869 HKDF-SHA256 with a fixed application salt (Python 3.11 compatible)."""
+
+    salt = b"zepgpu-hkdf-v1"
+    prk = hmac.new(salt, ikm, hashlib.sha256).digest()
+    okm = b""
+    previous = b""
+    counter = 1
+    while len(okm) < length:
+        previous = hmac.new(prk, previous + info + bytes([counter]), hashlib.sha256).digest()
+        okm += previous
+        counter += 1
+    return okm[:length]
+
+
+def issue_data_plane_secret(run_id: str, secret: bytes) -> str:
+    """Deterministic run-scoped HMAC key shared by all workers on a run."""
+
+    return _hkdf_sha256(ikm=secret, info=f"zepgpu-data-plane:{run_id}".encode()).hex()
+
+
+def issue_room_mac_key(room_id: str, secret: bytes) -> str:
+    """Deterministic room-scoped MAC key for outer-update integrity."""
+
+    return _hkdf_sha256(ikm=secret, info=f"zepgpu-room-mac:{room_id}".encode()).hex()
+
+
 def issue_run_credential(credential: RunCredential, secret: bytes) -> str:
     body = _BODY.pack(
         _VERSION,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import uuid
 from typing import Any
 
@@ -16,10 +17,35 @@ pytestmark = pytest.mark.e2e
 E2E_ENABLED = os.getenv("E2E_ROOMS_BACKEND") == "1"
 BASE_URL = os.getenv("E2E_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
 PASSWORD = os.getenv("E2E_PASSWORD", "e2e-rooms-backend-password")
+DB_CONTAINER = os.getenv("E2E_DB_CONTAINER", "zepgpu-db")
 
 
 def _auth(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
+
+
+def _elevate_to_researcher(username: str) -> None:
+    """Task submit on the live stack requires researcher; promote via Compose Postgres."""
+
+    sql = f"UPDATE users SET role = 'researcher' WHERE username = '{username}'"
+    subprocess.run(
+        [
+            "docker",
+            "exec",
+            "-i",
+            DB_CONTAINER,
+            "psql",
+            "-U",
+            "zepgpu",
+            "-d",
+            "zepgpu",
+            "-c",
+            sql,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
 
 
 async def _register_and_login(client: httpx.AsyncClient, username: str) -> str:
@@ -34,6 +60,10 @@ async def _register_and_login(client: httpx.AsyncClient, username: str) -> str:
         },
     )
     assert register.is_success, f"register failed: {register.status_code} {register.text}"
+    return await _login(client, username)
+
+
+async def _login(client: httpx.AsyncClient, username: str) -> str:
     login = await client.post(
         "/api/v1/auth/login",
         json={"username": username, "password": PASSWORD},
@@ -67,8 +97,9 @@ async def _lifecycle(
     reason="Set E2E_ROOMS_BACKEND=1 with Docker Compose running (API on :8000)",
 )
 @pytest.mark.asyncio
-async def test_room_auto_dispatch_happy_path() -> None:
-    """Live stack: dial-out room → provider heartbeat → room_auto assign → claim/complete."""
+@pytest.mark.parametrize("transport_mode", ["dialout", "wireguard", "overlay"])
+async def test_room_auto_dispatch_happy_path(transport_mode: str) -> None:
+    """Live stack: room → provider heartbeat → room_auto assign → claim/complete."""
     suffix = uuid.uuid4().hex[:10]
     async with httpx.AsyncClient(base_url=BASE_URL, timeout=45.0) as client:
         try:
@@ -81,7 +112,11 @@ async def test_room_auto_dispatch_happy_path() -> None:
         assert health.is_success, f"health failed: {health.status_code} {health.text}"
         assert health.json().get("status") == "healthy", health.json()
 
-        owner_token = await _register_and_login(client, f"e2e-owner-{suffix}")
+        owner_username = f"e2e-owner-{suffix}"
+        owner_token = await _register_and_login(client, owner_username)
+        _elevate_to_researcher(owner_username)
+        # JWT embeds role at login; re-login after elevation.
+        owner_token = await _login(client, owner_username)
         provider_token = await _register_and_login(client, f"e2e-provider-{suffix}")
 
         room = await client.post(
@@ -90,7 +125,7 @@ async def test_room_auto_dispatch_happy_path() -> None:
             json={
                 "name": f"E2E Room {suffix}",
                 "description": "room_auto e2e",
-                "transport_mode": "dialout",
+                "transport_mode": transport_mode,
             },
         )
         assert room.is_success, f"create room failed: {room.status_code} {room.text}"
@@ -110,7 +145,7 @@ async def test_room_auto_dispatch_happy_path() -> None:
             json={
                 "invite_code": invite_code,
                 "node_name": "e2e-provider",
-                "provider_mode": "dialout",
+                "provider_mode": transport_mode,
             },
         )
         assert join.is_success, f"join failed: {join.status_code} {join.text}"
@@ -134,7 +169,7 @@ async def test_room_auto_dispatch_happy_path() -> None:
                 "endpoint": "e2e://provider",
                 "agent_version": "0.2.0",
                 "node_name": "e2e-provider",
-                "provider_mode": "dialout",
+                "provider_mode": transport_mode,
                 "gpu_status": build_fake_gpu_payload(FakeGpuConfig(gpu_count=1)),
                 "capabilities": {
                     "runtime": {"cuda_version": "12.1", "pytorch_version": "2.3.0"},
@@ -157,7 +192,8 @@ async def test_room_auto_dispatch_happy_path() -> None:
             headers=_auth(owner_token),
             json={
                 "name": "E2E room_auto no-op",
-                "func_name": "random.seed",
+                "func_name": "math.sqrt",
+                "args": [4],
                 "dispatch_mode": "room_auto",
                 "room_id": room_id,
                 "gpu_memory_mb": 0,

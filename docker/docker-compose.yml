@@ -175,9 +175,32 @@ services:
     volumes:
       - grafana-data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
     depends_on:
       - prometheus
     restart: unless-stopped
+
+  wireguard-hub:
+    profiles: ["wireguard"]
+    image: linuxserver/wireguard:latest
+    container_name: zepgpu-wireguard-hub
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=UTC
+    volumes:
+      - wireguard-hub-config:/config
+      - /lib/modules:/lib/modules:ro
+    ports:
+      - "51820:51820/udp"
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+    restart: unless-stopped
+    devices:
+      - /dev/net/tun:/dev/net/tun
 
 volumes:
   zepgpu-data:
@@ -186,3 +209,4 @@ volumes:
   postgres-data:
   prometheus-data:
   grafana-data:
+  wireguard-hub-config:

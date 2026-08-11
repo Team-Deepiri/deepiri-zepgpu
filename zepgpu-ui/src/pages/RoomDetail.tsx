@@ -3,9 +3,10 @@ import { Link, useNavigate, useParams } from 'react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import clsx from 'clsx'
-import { ArrowLeft, Home, LogOut, UserPlus, Users, Shield } from 'lucide-react'
+import { ArrowLeft, Home, LogOut, UserPlus, Users, Shield, Activity } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { getRoomErrorMessage, getRoomErrorStatus } from '@/utils/roomErrors'
+import api from '@/api/client'
 import { roomsApi } from '@/api/rooms'
 import InvitePanel from '@/components/rooms/InvitePanel'
 import RoomConfigPanel from '@/components/rooms/RoomConfigPanel'
@@ -33,6 +34,52 @@ function MemberStatusBadge({ status }: { status: RoomMemberStatus }) {
     >
       {status}
     </span>
+  )
+}
+
+function RoomTrainingRuns({ roomId }: { roomId: string }) {
+  const query = useQuery({
+    queryKey: ['room-training-runs', roomId],
+    queryFn: async () => {
+      const { data } = await api.get<Array<{ id: string; state: string; current_outer_round?: number }>>(
+        '/training-runs',
+        { params: { room_id: roomId, limit: 20 } },
+      )
+      return Array.isArray(data) ? data : []
+    },
+    enabled: Boolean(roomId),
+    refetchInterval: 8000,
+  })
+  const runs = query.data ?? []
+  return (
+    <section className="rounded-xl border border-slate-700/80 bg-slate-800/40 p-5">
+      <h2 className="text-sm font-semibold text-slate-200 flex items-center gap-2 mb-3">
+        <Activity className="w-4 h-4 text-amber-400" />
+        Training runs
+      </h2>
+      {query.isLoading ? (
+        <p className="text-slate-500 text-sm">Loading runs…</p>
+      ) : runs.length === 0 ? (
+        <p className="text-slate-500 text-sm">No training runs in this room yet.</p>
+      ) : (
+        <ul className="space-y-2">
+          {runs.map((run) => (
+            <li key={run.id}>
+              <Link
+                to={`/training-runs/${run.id}`}
+                className="flex items-center justify-between rounded-lg border border-slate-700/60 px-3 py-2 text-sm hover:bg-slate-800"
+              >
+                <span className="font-mono text-cyan-300">{run.id.slice(0, 8)}</span>
+                <span className="text-slate-400">
+                  {run.state}
+                  {run.current_outer_round != null ? ` · round ${run.current_outer_round}` : ''}
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   )
 }
 
@@ -275,6 +322,8 @@ export default function RoomDetail() {
         enablePolling={enablePolling}
         canRevokeProviders={!!currentUser && currentUser.id === room.host_id}
       />
+
+      <RoomTrainingRuns roomId={roomId} />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="rounded-xl border border-slate-700/80 bg-slate-800/40 p-5">

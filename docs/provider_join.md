@@ -10,7 +10,17 @@ Hosts create an invite in the room UI. The invite copy includes a one-liner:
 zepgpu-node join --invite <CODE> --coordinator https://gpu.example.com
 ```
 
-Authenticate with `--username` / `--password` or `--token <human-jwt>`. Optional: `--node-name`, `--provider-mode dialout`.
+Authenticate with `--username` / `--password` or `--token <human-jwt>`. Optional: `--node-name`, `--provider-mode dialout|wireguard|overlay` (must match the room).
+
+## Transport-specific join
+
+| Mode | After join |
+|---|---|
+| `dialout` | Outbound HTTPS/WSS only. No tunnel. `zepgpu-node serve` immediately. |
+| `wireguard` | Linux/macOS: agent applies `wg-quick` when tools and `/dev/net/tun` exist. Windows: agent **exports** `~/.zepgpu/wg0.conf` and prints numbered import steps (WireGuard app → Add Tunnel → import file → activate → `zepgpu-node serve`). It does not silent-mock. Logout runs `wg-quick down` on Linux/macOS; deactivate the Windows app tunnel manually. |
+| `overlay` | Agent publishes overlay node/ticket hints. Data plane is iroh/QUIC UDP with HTTP relay fallback. Logout closes overlay state with identity. |
+
+`zepgpu-node status --probe` reports `tunnel_state` (`dialout` / `up` / `mock` / `exported_conf` / `overlay`) and `vpn_ip` when assigned.
 
 ## Persist identity
 

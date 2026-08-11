@@ -19,6 +19,7 @@ import numpy as np
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from deepiri_zepgpu.config import get_settings
 from deepiri_zepgpu.database.models.training_run import (
     TrainingOuterRound,
     TrainingOuterRoundState,
@@ -34,6 +35,7 @@ from deepiri_zepgpu.database.repositories.training_run_repository import (
 from deepiri_zepgpu.training.binary import BinaryEnvelope
 from deepiri_zepgpu.training.checkpoint import Phase18CheckpointMetadata
 from deepiri_zepgpu.training.config import DistributedStrategy, TrainingRunConfig
+from deepiri_zepgpu.training.credentials import issue_room_mac_key
 from deepiri_zepgpu.training.diloco import (
     ElasticDiLoCoCoordinator,
     MembershipState,
@@ -379,6 +381,9 @@ class Phase18CoordinatorRuntime:
                 initial_state=initial_state,
                 worker_ids=worker_ids,
                 placement=run.placement_plan,
+            )
+            coordinator.room_mac_key = issue_room_mac_key(
+                str(run.vpn_network_id), get_settings().auth.secret_key.encode("utf-8")
             )
             for worker_id in worker_ids:
                 coordinator.mark_failed(worker_id, reason="worker has not registered")

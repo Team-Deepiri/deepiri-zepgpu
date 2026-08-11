@@ -97,6 +97,15 @@ poetry run python scripts/run_two_process_wan_lora.py --base-url http://127.0.0.
 Workers authenticate, emit `ready`, wait for `running`, then train with HTTP relay sync using
 deterministic transfer IDs so peers can download without an in-memory bus.
 
+Pass `--transport-mode dialout|wireguard|overlay`. Production workers launched by
+`zepgpu-node` receive a **run-scoped** `data_plane_secret` (shared HMAC for all workers
+on the run — not per-worker `run.cred`), plus `transport_mode`, `vpn_ip` (WG), and
+`overlay_backend=iroh` (overlay). Peers publish `{host,port,kind}` over the training
+worker API so discovery does not need a shared filesystem.
+
+WireGuard LoRA uses LanDirect to the peer `vpn_ip` inside the UDP tunnel.
+Overlay LoRA uses iroh/quic UDP; `--force-relay` still completes over HTTP.
+
 ## Metrics (schema v2)
 
 Fields include `blocked_sync_seconds`, `overlapped_sync_seconds`, uncompressed/compressed

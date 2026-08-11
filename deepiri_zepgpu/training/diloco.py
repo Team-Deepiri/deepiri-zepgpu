@@ -30,6 +30,13 @@ from deepiri_zepgpu.training.config import (
     OuterOptimizerKind,
     TrainingRunConfig,
 )
+from deepiri_zepgpu.training.integrity import (
+    FileReplayGuard,
+    ReplayGuard,
+    envelope_to_neutral,
+    sign_live_outer_extensions,
+)
+from deepiri_zepgpu.training.prom_metrics import record_checkpoint, record_rejoin
 from deepiri_zepgpu.training.sync import validate_matching_shapes
 
 
@@ -263,6 +270,7 @@ def _encode_outer_update(
     global_state: dict[str, np.ndarray],
     compressor: UpdateCompressor,
     compressor_state: CompressorState,
+    room_mac_key: str | None = None,
 ) -> bytes:
     """Shared provider/test encoder for the coordinator's sole update format."""
 
@@ -275,7 +283,8 @@ def _encode_outer_update(
             f"zepgpu-diloco:{run_id}:{round_number}:{worker_id}",
         )
     )
-    return BinaryEnvelope(
+    extensions = str(update.uncompressed_bytes).encode("ascii")
+    envelope = BinaryEnvelope(
         room_id=room_id,
         run_id=run_id,
         worker_id=str(uuid.UUID(worker_id)),
@@ -286,8 +295,29 @@ def _encode_outer_update(
         dtype="uint8",
         compression=update.codec,
         payload=update.payload,
-        extensions=str(update.uncompressed_bytes).encode("ascii"),
-    ).encode()
+        extensions=extensions,
+    )
+    if room_mac_key:
+        envelope = BinaryEnvelope(
+            room_id=envelope.room_id,
+            run_id=envelope.run_id,
+            worker_id=envelope.worker_id,
+            transfer_id=envelope.transfer_id,
+            round=envelope.round,
+            payload_type=envelope.payload_type,
+            shape=envelope.shape,
+            dtype=envelope.dtype,
+            compression=envelope.compression,
+            payload=envelope.payload,
+            timestamp_ns=envelope.timestamp_ns,
+            extensions=sign_live_outer_extensions(
+                uncompressed_bytes=update.uncompressed_bytes,
+                update=envelope_to_neutral(envelope, room_id=room_id, run_id=run_id),
+                room_mac_key=room_mac_key,
+            ),
+            version=envelope.version,
+        )
+    return envelope.encode()
 
 
 class DiLoCoWorkerRuntime:
@@ -318,6 +348,7 @@ class DiLoCoWorkerRuntime:
         self.compressor = get_compressor(config.distributed.compression)
         self.compressor_state = CompressorState()
         self.applied_round = 0
+        self.room_mac_key: str | None = None
 
     def initial_state_envelope(self) -> bytes:
         return encode_state_envelope(
@@ -351,6 +382,7 @@ class DiLoCoWorkerRuntime:
             global_state=self.global_state,
             compressor=self.compressor,
             compressor_state=self.compressor_state,
+            room_mac_key=self.room_mac_key,
         )
 
     def apply_global_state(self, encoded: bytes) -> dict[str, np.ndarray]:
@@ -412,6 +444,9 @@ class ElasticDiLoCoCoordinator:
         self.placement = dict(placement or {})
         self.metrics: list[OuterRoundMetric] = []
         self.events: list[dict[str, Any]] = []
+        self.room_mac_key: str | None = None
+        replay_path = Path(self.config.output_dir) / "replay-guard.json"
+        self.replay_guard: ReplayGuard = FileReplayGuard(replay_path)
 
     @property
     def active_worker_ids(self) -> list[str]:
@@ -472,6 +507,7 @@ class ElasticDiLoCoCoordinator:
             global_state=self.global_state,
             compressor=self.compressor,
             compressor_state=self.compressor_states[worker_id],
+            room_mac_key=self.room_mac_key,
         )
 
     def submit_encoded(self, encoded: bytes) -> UpdateReceipt:  # noqa: C901
@@ -517,6 +553,24 @@ class ElasticDiLoCoCoordinator:
             )
         if envelope.payload_type != "diloco_outer_delta":
             raise DiLoCoError("unexpected binary payload type")
+        if self.room_mac_key and b"|mac=" in (envelope.extensions or b""):
+            from deepiri_zepgpu.training.integrity import (
+                UpdateIntegrityError,
+                accept_live_outer_envelope,
+            )
+
+            try:
+                accept_live_outer_envelope(
+                    envelope,
+                    room_id=self.room_id,
+                    run_id=self.run_id,
+                    room_mac_key=self.room_mac_key,
+                    replay_guard=self.replay_guard,
+                )
+            except UpdateIntegrityError as exc:
+                return self._reject(
+                    UpdateDisposition.STALE, worker_id, round_number, f"integrity: {exc}"
+                )
         if envelope.compression != self.config.codec_id():
             raise DiLoCoError("outer update compressor does not match run config")
         compressed = CompressedUpdate(
@@ -536,7 +590,8 @@ class ElasticDiLoCoCoordinator:
         active.updates[worker_id] = decoded
         active.transfer_ids.add(envelope.transfer_id)
         try:
-            uncompressed_bytes = int(envelope.extensions.decode("ascii"))
+            ext = envelope.extensions.decode("ascii").split("|", 1)[0]
+            uncompressed_bytes = int(ext)
         except (UnicodeDecodeError, ValueError):
             uncompressed_bytes = sum(item.nbytes for item in decoded.values())
         active.uncompressed_bytes += uncompressed_bytes
@@ -673,6 +728,7 @@ class ElasticDiLoCoCoordinator:
         # pre-failure residuals must not leak into the rejoined worker's update.
         self.compressor_states[worker_id] = CompressorState()
         self.events.append({"kind": "worker_join_requested", "worker_id": worker_id})
+        record_rejoin(room_id=self.room_id, result="ok")
         return self.latest_checkpoint
 
     def bootstrap_worker(
@@ -717,7 +773,17 @@ class ElasticDiLoCoCoordinator:
             island_ids=list(self.placement.get("selected_island_ids", [])),
         )
         if save:
-            checkpoint.save(directory)
+            from deepiri_zepgpu.training.recovery import write_checkpoint_integrity
+
+            write_checkpoint_integrity(directory, checkpoint)
+            record_checkpoint(room_id=self.room_id, operation="save", result="ok")
+        return checkpoint
+
+    def restore_verified_checkpoint(self, directory: Path) -> Phase18CheckpointMetadata:
+        from deepiri_zepgpu.training.recovery import load_verified_checkpoint
+
+        checkpoint = load_verified_checkpoint(directory)
+        self.restore_checkpoint(checkpoint)
         return checkpoint
 
     def restore_checkpoint(self, checkpoint: Phase18CheckpointMetadata) -> None:

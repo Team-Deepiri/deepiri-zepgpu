@@ -30,4 +30,4 @@ Dial-out providers talk to the coordinator over outbound HTTPS (and optionally W
 
 A coordinator can host WireGuard rooms and dial-out rooms at the same time. Existing networks default to `wireguard` after migration; new cloud rooms default to `dialout` (`VPN__DEFAULT_TRANSPORT_MODE`). Soft agent-version gate: `VPN__MIN_COMPATIBLE_AGENT_VERSION`.
 
-Overlay mode is accepted but marked experimental until Phase 19.
+Overlay mode is a first-class room transport (iroh/QUIC UDP dial with HTTP relay fallback). TCP overlay is a CI/LAN helper only.
