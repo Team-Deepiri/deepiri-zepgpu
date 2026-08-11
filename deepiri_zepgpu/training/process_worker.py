@@ -704,6 +704,7 @@ async def run_worker(work_dir: Path, *, base_url: str) -> TrainingMetrics:
             peer_worker_id=peer_worker_id,
             listen_host=listen_host,
             listen_port=listen_port,
+            advertise_host=str(vpn_ip).strip() if vpn_ip else None,
             peer_endpoint=identity_peer,
             overlay_backend=overlay_backend,
             force_relay=force_relay,

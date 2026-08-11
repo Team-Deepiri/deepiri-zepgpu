@@ -29,6 +29,15 @@ from deepiri_zepgpu.vpn.overlay.metrics import (
 
 logger = logging.getLogger(__name__)
 
+
+def _log_overlay_receiver_error(task: asyncio.Task[None]) -> None:
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.error("overlay UDP receiver failed", exc_info=exc)
+
+
 BACKEND = "quic"
 _MAGIC = b"ZQ1U"
 _HEADER = struct.Struct("!4s16sHH32s")  # magic, msg_id, index, total, hmac
@@ -136,7 +145,8 @@ class UdpOverlayTransport:
         if body_payload == _PROBE:
             return
         if self._receiver is not None:
-            asyncio.create_task(self._receiver(peer_name, body_payload))
+            task = asyncio.create_task(self._receiver(peer_name, body_payload))
+            task.add_done_callback(_log_overlay_receiver_error)
 
     async def connect(self, peer: OverlayPeer) -> None:
         self._ensure_open()

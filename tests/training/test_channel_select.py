@@ -40,6 +40,24 @@ def _envelope(payload: bytes = b"hello") -> BinaryEnvelope:
     )
 
 
+@pytest.mark.asyncio
+async def test_advertise_wildcard_prefers_vpn_ip() -> None:
+    plane = await build_worker_data_plane(
+        transport_mode="wireguard",
+        credential="cred-wg",
+        worker_id="w0",
+        peer_id="p0",
+        peer_worker_id="w1",
+        listen_host="0.0.0.0",
+        advertise_host="10.8.0.12",
+    )
+    try:
+        assert plane.local_endpoint is not None
+        assert plane.local_endpoint.host == "10.8.0.12"
+    finally:
+        await plane.stop()
+
+
 def test_select_direct_backend_matrix() -> None:
     assert select_direct_backend("dialout") == "none"
     assert select_direct_backend("wireguard") == "lan"

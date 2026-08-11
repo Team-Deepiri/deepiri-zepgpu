@@ -110,7 +110,7 @@ class TcpOverlayTransport:
             return
         finally:
             writer.close()
-            with suppress(Exception):
+            with suppress(ConnectionError, OSError, TimeoutError, asyncio.CancelledError):
                 await writer.wait_closed()
 
     async def connect(self, peer: OverlayPeer) -> None:
@@ -191,7 +191,7 @@ class TcpOverlayTransport:
             await writer.drain()
         finally:
             writer.close()
-            with suppress(Exception):
+            with suppress(ConnectionError, OSError, TimeoutError, asyncio.CancelledError):
                 await writer.wait_closed()
 
     def _ensure_open(self) -> None:

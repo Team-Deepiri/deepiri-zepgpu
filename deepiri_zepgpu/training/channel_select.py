@@ -118,6 +118,7 @@ async def build_worker_data_plane(
     peer_worker_id: str,
     listen_host: str = "127.0.0.1",
     listen_port: int = 0,
+    advertise_host: str | None = None,
     peer_endpoint: DataPlaneEndpoint | None = None,
     overlay_backend: str = "iroh",
     force_relay: bool = False,
@@ -141,7 +142,11 @@ async def build_worker_data_plane(
         lan = LanDirectChannel(credential=credential, host=listen_host, port=listen_port)
         bound = await lan.start()
         kind = "vpn" if mode == "wireguard" else "lan"
-        endpoint = DataPlaneEndpoint(host=_advertise_host(listen_host), port=bound, kind=kind)
+        endpoint = DataPlaneEndpoint(
+            host=_advertise_host(listen_host, advertise_host=advertise_host),
+            port=bound,
+            kind=kind,
+        )
         plane = WorkerDataPlane(
             channel=lan,
             transport_mode=mode,
@@ -174,7 +179,9 @@ async def build_worker_data_plane(
     overlay_endpoint: DataPlaneEndpoint | None = None
     if bound_port is not None:
         overlay_endpoint = DataPlaneEndpoint(
-            host=_advertise_host(listen_host), port=bound_port, kind="overlay"
+            host=_advertise_host(listen_host, advertise_host=advertise_host),
+            port=bound_port,
+            kind="overlay",
         )
     plane = WorkerDataPlane(
         channel=adapter,
@@ -225,11 +232,15 @@ async def wait_for_peer_endpoint(
     raise TimeoutError(f"timed out waiting for peer data-plane endpoint at {path}")
 
 
-def _advertise_host(listen_host: str) -> str:
+def _advertise_host(listen_host: str, *, advertise_host: str | None = None) -> str:
+    """Peers cannot connect to 0.0.0.0; prefer vpn_ip / explicit advertise address."""
     host = str(listen_host or "").strip() or "127.0.0.1"
-    if host in {"0.0.0.0", "::", "[::]"}:
-        return "127.0.0.1"
-    return host
+    if host not in {"0.0.0.0", "::", "[::]"}:
+        return host
+    advertised = str(advertise_host or "").strip()
+    if advertised and advertised not in {"0.0.0.0", "::", "[::]"}:
+        return advertised
+    return "127.0.0.1"
 
 
 async def wait_for_peer_endpoint_http(

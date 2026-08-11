@@ -1,3 +1,5 @@
+import hashlib
+import hmac
 import time
 import uuid
 from pathlib import Path
@@ -32,6 +34,17 @@ def test_short_lived_run_credentials() -> None:
         verify_run_credential(token, b"coordinator-secret", now=credential.expires_at)
     with pytest.raises(ValueError, match="malformed"):
         verify_run_credential(token + "!", b"coordinator-secret")
+
+
+def test_derived_keys_use_hkdf_isolation() -> None:
+    secret = b"coordinator-secret"
+    shared_id = str(uuid.uuid4())
+    plane = issue_data_plane_secret(shared_id, secret)
+    mac = issue_room_mac_key(shared_id, secret)
+    assert plane != mac
+    assert len(bytes.fromhex(plane)) == 32
+    legacy = hmac.new(secret, f"zepgpu-data-plane:{shared_id}".encode(), hashlib.sha256).hexdigest()
+    assert plane != legacy
 
 
 def test_run_scoped_data_plane_secret_is_shared() -> None:
