@@ -157,8 +157,10 @@ def build_direct_channel(
     *,
     credential: str | None = None,
     pccl_sender: Callable[[str, bytes], Awaitable[None]] | None = None,
+    local_peer_id: str | None = None,
+    overlay_backend: str = "memory",
 ) -> object:
-    """Factory for memory / lan / pccl direct backends."""
+    """Factory for memory / lan / pccl / overlay direct backends."""
     from deepiri_zepgpu.training.transport import InMemoryDirectChannel, PcclDirectChannel
 
     if backend == "memory":
@@ -169,4 +171,15 @@ def build_direct_channel(
         return LanDirectChannel(credential=credential)
     if backend == "pccl":
         return PcclDirectChannel(sender=pccl_sender)
+    if backend == "overlay":
+        from deepiri_zepgpu.vpn.overlay import OverlayDirectAdapter, build_overlay_transport
+
+        if not local_peer_id:
+            raise ValueError("overlay direct backend requires local_peer_id")
+        transport = build_overlay_transport(
+            overlay_backend,
+            local_peer_id=local_peer_id,
+            credential=credential,
+        )
+        return OverlayDirectAdapter(overlay=transport)
     raise ValueError(f"unknown direct backend: {backend}")

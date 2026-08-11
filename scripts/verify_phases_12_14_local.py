@@ -17,7 +17,7 @@ import uuid
 from typing import Any
 
 import httpx
-from utils import auth_headers
+from utils import auth_headers, elevate_to_researcher
 
 from deepiri_zepgpu.node_agent.fake_gpu_metrics import FakeGpuConfig, build_fake_gpu_payload
 
@@ -29,6 +29,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--base-url", default="http://127.0.0.1:8000")
     parser.add_argument("--password", default="phases-12-14-local-password")
     parser.add_argument("--timeout", type=float, default=45.0)
+    parser.add_argument(
+        "--transport-mode",
+        default="dialout",
+        choices=("dialout", "wireguard", "overlay"),
+        help="Primary room transport for the full join/heartbeat/claim/revoke matrix",
+    )
     return parser.parse_args()
 
 
@@ -48,7 +54,7 @@ async def register_and_login(client: httpx.AsyncClient, username: str, password:
             "last_name": "Gate",
         },
     )
-    if register.is_error:
+    if register.is_error and register.status_code not in {400, 409}:
         raise RuntimeError(f"Registration failed ({register.status_code}): {register.text}")
     login = await client.post(
         "/api/v1/auth/login",
@@ -58,6 +64,17 @@ async def register_and_login(client: httpx.AsyncClient, username: str, password:
     token = login.json().get("access_token")
     require(bool(token), "Login response did not include access_token")
     return str(token)
+
+
+async def register_researcher(client: httpx.AsyncClient, username: str, password: str) -> str:
+    await register_and_login(client, username, password)
+    elevate_to_researcher(username)
+    login = await client.post(
+        "/api/v1/auth/login",
+        json={"username": username, "password": password},
+    )
+    login.raise_for_status()
+    return str(login.json()["access_token"])
 
 
 async def post_lifecycle(
@@ -91,13 +108,13 @@ async def wait_for_completed_task(
     raise RuntimeError(f"Task {task_id} did not become completed through polling")
 
 
-def heartbeat_payload(*, rtt_ms: float = 12.5) -> dict[str, Any]:
+def heartbeat_payload(*, rtt_ms: float = 12.5, provider_mode: str = "dialout") -> dict[str, Any]:
     return {
         "is_online": True,
         "endpoint": "simulation://phases-12-14",
         "agent_version": "0.2.0",
         "node_name": "phases-12-14-provider",
-        "provider_mode": "dialout",
+        "provider_mode": provider_mode,
         "gpu_status": build_fake_gpu_payload(FakeGpuConfig(gpu_count=1)),
         "capabilities": {
             "runtime": {
@@ -131,30 +148,33 @@ async def run_gate(args: argparse.Namespace) -> None:
         require(health.json().get("status") == "healthy", "Coordinator is not healthy")
         print("[PASS] coordinator health")
 
-        owner_token = await register_and_login(client, owner_username, args.password)
+        owner_token = await register_researcher(client, owner_username, args.password)
         provider_token = await register_and_login(client, provider_username, args.password)
         provider2_token = await register_and_login(client, provider2_username, args.password)
         print("[PASS] owner + two providers registered")
 
-        # --- Dial-out room (Phase 14 transport_mode) ---
-        dialout = await client.post(
+        # --- Primary room (parameterized transport_mode) ---
+        primary = await client.post(
             "/api/v1/rooms",
             headers=auth_headers(owner_token),
             json={
-                "name": f"Dialout Gate {suffix}",
+                "name": f"{args.transport_mode} Gate {suffix}",
                 "description": "Phases 12-14 local gate",
-                "transport_mode": "dialout",
+                "transport_mode": args.transport_mode,
             },
         )
-        dialout.raise_for_status()
-        dialout_body = dict(dialout.json())
-        room_id = str(dialout_body["id"])
-        require(dialout_body.get("transport_mode") == "dialout", "Room transport_mode != dialout")
+        primary.raise_for_status()
+        primary_body = dict(primary.json())
+        room_id = str(primary_body["id"])
         require(
-            dialout_body.get("requires_wireguard_udp") is False,
-            "Dial-out room should not require WireGuard UDP",
+            primary_body.get("transport_mode") == args.transport_mode,
+            f"Room transport_mode != {args.transport_mode}",
         )
-        print(f"[PASS] dial-out room created ({room_id})")
+        require(
+            primary_body.get("requires_wireguard_udp") is (args.transport_mode == "wireguard"),
+            "requires_wireguard_udp mismatch",
+        )
+        print(f"[PASS] {args.transport_mode} room created ({room_id})")
 
         invite = await client.post(
             f"/api/v1/rooms/{room_id}/invites",
@@ -174,7 +194,7 @@ async def run_gate(args: argparse.Namespace) -> None:
             json={
                 "invite_code": invite_code,
                 "node_name": "phases-12-14-provider",
-                "provider_mode": "dialout",
+                "provider_mode": args.transport_mode,
             },
         )
         join.raise_for_status()
@@ -189,7 +209,7 @@ async def run_gate(args: argparse.Namespace) -> None:
         jwt_hb = await client.post(
             f"/api/v1/rooms/{room_id}/nodes/{peer_id}/heartbeat",
             headers=auth_headers(provider_token),
-            json=heartbeat_payload(),
+            json=heartbeat_payload(provider_mode=args.transport_mode),
         )
         require(jwt_hb.status_code in {401, 403}, "Human JWT must not authorize heartbeat")
         print("[PASS] human JWT rejected on provider heartbeat")
@@ -197,7 +217,7 @@ async def run_gate(args: argparse.Namespace) -> None:
         hb = await client.post(
             f"/api/v1/rooms/{room_id}/nodes/{peer_id}/heartbeat",
             headers=auth_headers(peer_auth),
-            json=heartbeat_payload(),
+            json=heartbeat_payload(provider_mode=args.transport_mode),
         )
         hb.raise_for_status()
         hb_body = dict(hb.json())
@@ -227,14 +247,18 @@ async def run_gate(args: argparse.Namespace) -> None:
             headers=auth_headers(owner_token),
             json={
                 "name": "Phases 12-14 remote no-op",
-                "func_name": "random.seed",
+                "func_name": "math.sqrt",
+                "args": [4],
                 "dispatch_mode": "room_auto",
                 "room_id": room_id,
                 "gpu_memory_mb": 0,
                 "timeout_seconds": 60,
             },
         )
-        task_response.raise_for_status()
+        if task_response.status_code >= 400:
+            raise RuntimeError(
+                f"task create failed: {task_response.status_code} {task_response.text}"
+            )
         task = dict(task_response.json())
         assignment_id = str(task["assignment"]["assignment_id"])
         task_id = str(task["id"])
@@ -337,25 +361,28 @@ async def run_gate(args: argparse.Namespace) -> None:
         hb_after = await client.post(
             f"/api/v1/rooms/{room_id}/nodes/{peer_id}/heartbeat",
             headers=auth_headers(peer_auth),
-            json=heartbeat_payload(),
+            json=heartbeat_payload(provider_mode=args.transport_mode),
         )
         require(hb_after.status_code in {401, 403}, "Revoked provider token must fail heartbeat")
         print("[PASS] host revoke stops provider heartbeat")
 
-        # --- WireGuard coexistence (Phase 14) ---
-        wg = await client.post(
-            "/api/v1/rooms",
-            headers=auth_headers(owner_token),
-            json={"name": f"WG Coexist {suffix}", "transport_mode": "wireguard"},
-        )
-        wg.raise_for_status()
-        wg_body = dict(wg.json())
-        require(wg_body.get("transport_mode") == "wireguard", "WireGuard room mode wrong")
-        require(
-            wg_body.get("requires_wireguard_udp") is True,
-            "WireGuard room should require UDP",
-        )
-        print("[PASS] WireGuard room coexistence on same coordinator")
+        # --- Coexistence: remaining transport modes on the same coordinator ---
+        for mode in ("dialout", "wireguard", "overlay"):
+            if mode == args.transport_mode:
+                continue
+            other = await client.post(
+                "/api/v1/rooms",
+                headers=auth_headers(owner_token),
+                json={"name": f"{mode} Coexist {suffix}", "transport_mode": mode},
+            )
+            other.raise_for_status()
+            body = dict(other.json())
+            require(body.get("transport_mode") == mode, f"{mode} room mode wrong")
+            require(
+                body.get("requires_wireguard_udp") is (mode == "wireguard"),
+                f"{mode} UDP flag wrong",
+            )
+        print("[PASS] dialout/wireguard/overlay coexistence on same coordinator")
 
 
 def main() -> int:

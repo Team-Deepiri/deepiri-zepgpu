@@ -5,6 +5,8 @@ import pytest
 
 from deepiri_zepgpu.training.credentials import (
     RunCredential,
+    issue_data_plane_secret,
+    issue_room_mac_key,
     issue_run_credential,
     verify_run_credential,
 )
@@ -29,3 +31,14 @@ def test_short_lived_run_credentials() -> None:
         verify_run_credential(token, b"coordinator-secret", now=credential.expires_at)
     with pytest.raises(ValueError, match="malformed"):
         verify_run_credential(token + "!", b"coordinator-secret")
+
+
+def test_run_scoped_data_plane_secret_is_shared() -> None:
+    run_id = str(uuid.uuid4())
+    secret = b"coordinator-secret"
+    a = issue_data_plane_secret(run_id, secret)
+    b = issue_data_plane_secret(run_id, secret)
+    assert a == b
+    assert a != issue_data_plane_secret(str(uuid.uuid4()), secret)
+    room = str(uuid.uuid4())
+    assert issue_room_mac_key(room, secret) == issue_room_mac_key(room, secret)

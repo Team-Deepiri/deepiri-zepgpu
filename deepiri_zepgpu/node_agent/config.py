@@ -47,6 +47,10 @@ class NodeAgentConfig(BaseModel):
     provider_mode: str = "dialout"
     agent_version: str = AGENT_VERSION
     token_expires_at: str | None = None
+    transport_mode: str | None = None
+    vpn_ip: str | None = None
+    wireguard_interface: str | None = None
+    wireguard_mock: bool = False
 
     @field_validator("api_base_url")
     @classmethod
@@ -287,6 +291,17 @@ def identity_status_dict(
     """Redacted status payload for `zepgpu-node status`."""
 
     status = config.redacted_dict()
+    if config.transport_mode == "wireguard":
+        if config.wireguard_mock:
+            status["tunnel_state"] = "mock"
+        elif config.wireguard_interface:
+            status["tunnel_state"] = "up"
+        else:
+            status["tunnel_state"] = "exported_conf"
+    elif config.transport_mode == "overlay":
+        status["tunnel_state"] = "overlay"
+    else:
+        status["tunnel_state"] = "dialout"
     if config.token_expires_at:
         try:
             expires = datetime.fromisoformat(config.token_expires_at.replace("Z", "+00:00"))

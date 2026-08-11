@@ -49,6 +49,15 @@ ARTIFACT_DIR = Path("/tmp/zepgpu-phase17")
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Verify Phase 17 WAN LoRA foundations locally")
     parser.add_argument("--output-dir", type=Path, default=ARTIFACT_DIR)
+    parser.add_argument(
+        "--base-url",
+        default=None,
+        help=(
+            "Optional coordinator URL. In-process gates always run; for live two-process "
+            "training against a coordinator use scripts/run_two_process_wan_lora.py "
+            "--base-url ..."
+        ),
+    )
     parser.add_argument("--run-training", action="store_true", help="Run tiny two-worker LoRA")
     parser.add_argument(
         "--compressor",
@@ -223,10 +232,16 @@ def main() -> int:
     report: dict[str, Any] = {
         "generated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "phase": 17,
+        "base_url": args.base_url,
     }
     report["compressors"] = test_compressors()
     report["transport"] = asyncio.run(test_direct_and_relay())
     report["trust"] = test_trust_policy()
+    if args.base_url:
+        print(
+            f"[INFO] --base-url={args.base_url} noted; live coordinator training uses "
+            "scripts/run_two_process_wan_lora.py (this gate is in-process)."
+        )
 
     if args.run_training:
         config = TrainingRunConfig(

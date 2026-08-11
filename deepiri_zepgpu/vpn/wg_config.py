@@ -29,7 +29,7 @@ class WireGuardConfigGenerator:
         self,
         public_key: str,
         endpoint: str | None = None,
-        allowed_ips: str = "0.0.0.0/0, ::/0",
+        allowed_ips: str = "10.8.0.0/24",
         persistent_keepalive: int = 25,
     ) -> WireGuardConfigGenerator:
         self._peers.append(
@@ -85,17 +85,42 @@ def allocate_vpn_ip(cidr: str = "10.8.0.0/24", used_ips: set[str] | None = None)
     raise RuntimeError(f"No available IPs in {cidr}")
 
 
+def allowed_ips_for_cidr(cidr: str = "10.8.0.0/24") -> str:
+    """Room-CIDR AllowedIPs (never full-tunnel 0.0.0.0/0)."""
+
+    network = ipaddress.ip_network(cidr, strict=False)
+    return str(network)
+
+
+def hub_endpoint_configured(*, relay_host: str | None, listen_port: int | None) -> bool:
+    host = str(relay_host or "").strip()
+    if not host or host in {"localhost", "127.0.0.1", "::1"}:
+        return False
+    return int(listen_port or 0) > 0
+
+
 def generate_relay_config(
     vpn_ip: str,
     private_key: str,
     listen_port: int = 51820,
+    *,
+    peers: list[tuple[str, str | None]] | None = None,
+    allowed_ips: str | None = None,
 ) -> str:
-    """Generate a relay server WireGuard config (no peers pre-configured)."""
+    """Generate a hub WireGuard config including live peers (regen on join/revoke)."""
+    cidr_ips = allowed_ips or "10.8.0.0/24"
     gen = WireGuardConfigGenerator(
         vpn_ip=vpn_ip,
         private_key=private_key,
         listen_port=listen_port,
     )
+    for public_key, peer_ip in peers or []:
+        gen.add_peer(
+            public_key=public_key,
+            endpoint=None,
+            allowed_ips=peer_ip or cidr_ips,
+            persistent_keepalive=0,
+        )
     return gen.generate()
 
 
@@ -105,6 +130,8 @@ def generate_peer_config(
     relay_public_key: str,
     relay_endpoint: str,
     dns: str = "1.1.1.1,8.8.8.8",
+    *,
+    allowed_ips: str | None = None,
 ) -> str:
     """Generate a peer WireGuard config pointing to the relay."""
     gen = WireGuardConfigGenerator(
@@ -116,7 +143,7 @@ def generate_peer_config(
     gen.add_peer(
         public_key=relay_public_key,
         endpoint=relay_endpoint,
-        allowed_ips="0.0.0.0/0, ::/0",
+        allowed_ips=allowed_ips or "10.8.0.0/24",
         persistent_keepalive=25,
     )
     return gen.generate()

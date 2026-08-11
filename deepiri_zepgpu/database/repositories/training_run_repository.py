@@ -673,7 +673,7 @@ class TrainingRunRepository:
         worker.state = TrainingWorkerState.CHECKPOINTING
         await self.transition(run, TrainingRunState.CHECKPOINTING)
 
-    async def _handle_checkpoint_completed_event(  # noqa: C901
+    async def _handle_checkpoint_completed_event(
         self,
         run: TrainingRun,
         worker: TrainingWorker,

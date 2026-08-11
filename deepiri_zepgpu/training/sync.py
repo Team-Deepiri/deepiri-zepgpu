@@ -315,6 +315,10 @@ class SyncOrchestrator:
 
         if peer_encoded is not None:
             peer_envelope = self._take_peer_envelope(round_number, peer_encoded)
+        elif metric.path == "direct":
+            # Direct send delivered bytes to the peer channel; wait on the local inbox.
+            # Do not hit HTTP relay — the peer never uploaded there.
+            peer_envelope = await self._wait_peer_envelope(round_number)
         elif prefer_relay_download or (metric.path == "relay" and self.transfer_bus is not None):
             peer_envelope = await self._download_peer_envelope(round_number)
         else:

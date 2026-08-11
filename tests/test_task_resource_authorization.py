@@ -173,17 +173,17 @@ async def test_task_result_retry_cancel_and_missing_statuses(
     repo = SimpleNamespace(
         get_by_id=AsyncMock(return_value=task),
         mark_cancelled=AsyncMock(),
-)
+    )
     assignment_repo = SimpleNamespace(
         get_by_task_id=AsyncMock(return_value=None),
-)
+    )
 
     monkeypatch.setattr(tasks, "TaskRepository", lambda _db: repo)
     monkeypatch.setattr(
         tasks,
         "NodeTaskRepository",
         lambda _db: assignment_repo,
-)
+    )
 
     result = await tasks.get_task_result(str(task.id), AsyncMock(), owner)  # type: ignore[arg-type]
     assert result.task_id == str(task.id)

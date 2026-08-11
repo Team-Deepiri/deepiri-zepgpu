@@ -100,7 +100,6 @@ def test_legacy_pickle_quarantined_to_wireguard() -> None:
         assert_legacy_pickle_router_allowed("dialout")
 
 
-
 def test_task_router_does_not_accept_arbitrary_callable_payloads() -> None:
     signature = inspect.signature(TaskRouter.execute_on_peer)
 

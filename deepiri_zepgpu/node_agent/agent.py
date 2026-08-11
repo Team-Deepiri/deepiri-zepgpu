@@ -271,6 +271,71 @@ def join_room(
         else:
             token_expires_at = None
 
+        transport_mode = str(room.get("transport_mode") or provider_mode or "dialout").lower()
+        vpn_ip: str | None = member.get("vpn_ip")
+        vpn_ip = vpn_ip.strip() or None if isinstance(vpn_ip, str) else None
+        wireguard_interface: str | None = None
+        wireguard_mock = False
+
+        if transport_mode == "wireguard":
+            room_id = str(room["id"])
+            peer_id = str(member["id"])
+            config_resp = client.get(
+                f"{coordinator}/api/v1/rooms/{room_id}/config",
+                headers=headers,
+            )
+            if config_resp.status_code < 400:
+                cfg_body = config_resp.json()
+                config_text = cfg_body.get("config") or cfg_body.get("config_text")
+                if not vpn_ip:
+                    maybe_ip = cfg_body.get("vpn_ip")
+                    vpn_ip = str(maybe_ip).strip() if maybe_ip else None
+                if config_text:
+                    from deepiri_zepgpu.vpn.cli import (
+                        apply_wireguard_config,
+                        check_wireguard_installed,
+                        export_wireguard_config,
+                        is_windows,
+                        windows_import_instructions,
+                    )
+                    from deepiri_zepgpu.vpn.mock_tunnel import bring_up_mock_tunnel
+
+                    if is_windows():
+                        conf_path = export_wireguard_config(str(config_text), "wg0")
+                        logger.warning("%s", windows_import_instructions(conf_path))
+                        wireguard_interface = None
+                        wireguard_mock = False
+                    elif check_wireguard_installed():
+                        if apply_wireguard_config(str(config_text), "wg0"):
+                            wireguard_interface = "wg0"
+                        else:
+                            logger.warning(
+                                "WireGuard tools present but apply failed; using mock tunnel"
+                            )
+                            mock = bring_up_mock_tunnel(
+                                room_id=room_id,
+                                peer_id=peer_id,
+                                vpn_ip=vpn_ip,
+                                config_text=str(config_text),
+                            )
+                            vpn_ip = mock.vpn_ip
+                            wireguard_interface = mock.interface
+                            wireguard_mock = True
+                    else:
+                        mock = bring_up_mock_tunnel(
+                            room_id=room_id,
+                            peer_id=peer_id,
+                            vpn_ip=vpn_ip,
+                            config_text=str(config_text),
+                        )
+                        vpn_ip = mock.vpn_ip
+                        wireguard_interface = mock.interface
+                        wireguard_mock = True
+                        logger.info(
+                            "WireGuard tools not installed; mock tunnel up at %s",
+                            vpn_ip,
+                        )
+
         config = NodeAgentConfig(
             api_base_url=coordinator,
             room_id=str(room["id"]),
@@ -279,9 +344,17 @@ def join_room(
             heartbeat_interval_seconds=int(payload.get("heartbeat_interval_seconds") or 30),
             enable_task_worker=True,
             node_name=node_name,
-            provider_mode=provider_mode,
+            provider_mode=(
+                transport_mode
+                if transport_mode in {"dialout", "wireguard", "overlay"}
+                else provider_mode
+            ),
             agent_version=AGENT_VERSION,
             token_expires_at=token_expires_at,
+            transport_mode=transport_mode,
+            vpn_ip=vpn_ip,
+            wireguard_interface=wireguard_interface,
+            wireguard_mock=wireguard_mock,
         )
         path = save_agent_identity(config, path=identity_path)
         logger.info(
@@ -487,7 +560,20 @@ def status_cmd(identity_path: str | None, probe: bool) -> None:
     type=click.Path(dir_okay=False),
 )
 def logout_cmd(identity_path: str | None) -> None:
-    """Clear local provider credentials."""
+    """Clear local provider credentials and tear down WireGuard/mock tunnel if present."""
+    try:
+        config = load_agent_identity(identity_path)
+    except FileNotFoundError:
+        config = None
+    if config is not None:
+        if config.wireguard_mock:
+            from deepiri_zepgpu.vpn.mock_tunnel import tear_down_mock_tunnel
+
+            tear_down_mock_tunnel()
+        elif config.wireguard_interface:
+            from deepiri_zepgpu.vpn.cli import remove_wireguard_config
+
+            remove_wireguard_config(config.wireguard_interface)
     removed = clear_agent_identity(identity_path)
     if removed:
         click.echo("Local provider credentials cleared.")

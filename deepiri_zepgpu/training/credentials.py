@@ -28,6 +28,18 @@ def credential_id_hash(credential_id: str) -> str:
     return hashlib.sha256(uuid.UUID(credential_id).bytes).hexdigest()
 
 
+def issue_data_plane_secret(run_id: str, secret: bytes) -> str:
+    """Deterministic run-scoped HMAC key shared by all workers on a run."""
+
+    return hmac.new(secret, f"zepgpu-data-plane:{run_id}".encode(), hashlib.sha256).hexdigest()
+
+
+def issue_room_mac_key(room_id: str, secret: bytes) -> str:
+    """Deterministic room-scoped MAC key for outer-update integrity."""
+
+    return hmac.new(secret, f"zepgpu-room-mac:{room_id}".encode(), hashlib.sha256).hexdigest()
+
+
 def issue_run_credential(credential: RunCredential, secret: bytes) -> str:
     body = _BODY.pack(
         _VERSION,

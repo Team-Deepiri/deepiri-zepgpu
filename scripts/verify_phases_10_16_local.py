@@ -43,6 +43,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Skip training-run / relay checks if Redis is unavailable.",
     )
+    parser.add_argument(
+        "--transport-mode",
+        default="dialout",
+        choices=("dialout", "wireguard", "overlay"),
+    )
     return parser.parse_args()
 
 
@@ -135,13 +140,13 @@ async def wait_for_completed_task(
     raise RuntimeError(f"Task {task_id} did not become completed through polling")
 
 
-def heartbeat_payload(*, rtt_ms: float = 12.5) -> dict[str, Any]:
+def heartbeat_payload(*, rtt_ms: float = 12.5, provider_mode: str = "dialout") -> dict[str, Any]:
     return {
         "is_online": True,
         "endpoint": "simulation://phases-10-16",
         "agent_version": "0.2.0",
         "node_name": "phases-10-16-provider",
-        "provider_mode": "dialout",
+        "provider_mode": provider_mode,
         "gpu_status": build_fake_gpu_payload(FakeGpuConfig(gpu_count=1)),
         "capabilities": {
             "runtime": {
@@ -162,16 +167,27 @@ def heartbeat_payload(*, rtt_ms: float = 12.5) -> dict[str, Any]:
 
 
 async def create_dialout_room(
-    client: httpx.AsyncClient, owner_token: str, name: str
+    client: httpx.AsyncClient,
+    owner_token: str,
+    name: str,
+    *,
+    transport_mode: str = "dialout",
 ) -> dict[str, Any]:
     response = await client.post(
         "/api/v1/rooms",
         headers=auth_headers(owner_token),
-        json={"name": name, "description": "Phases 10-16 local gate", "transport_mode": "dialout"},
+        json={
+            "name": name,
+            "description": "Phases 10-16 local gate",
+            "transport_mode": transport_mode,
+        },
     )
     response.raise_for_status()
     body = dict(response.json())
-    require(body.get("transport_mode") == "dialout", "Room transport_mode != dialout")
+    require(
+        body.get("transport_mode") == transport_mode,
+        f"Room transport_mode != {transport_mode}",
+    )
     return body
 
 
@@ -183,6 +199,7 @@ async def invite_and_join(
     room_id: str,
     node_name: str,
     max_uses: int = 2,
+    provider_mode: str = "dialout",
 ) -> tuple[str, str, dict[str, Any]]:
     invite = await client.post(
         f"/api/v1/rooms/{room_id}/invites",
@@ -197,7 +214,7 @@ async def invite_and_join(
         json={
             "invite_code": invite_body["code"],
             "node_name": node_name,
-            "provider_mode": "dialout",
+            "provider_mode": provider_mode,
         },
     )
     join.raise_for_status()
@@ -445,10 +462,15 @@ async def run_gate(args: argparse.Namespace) -> None:
         provider2_token = await register_and_login(client, provider2_username, args.password)
         print("[PASS] owner + two providers registered")
 
-        dialout = await create_dialout_room(client, owner_token, f"Dialout Gate {suffix}")
+        dialout = await create_dialout_room(
+            client,
+            owner_token,
+            f"{args.transport_mode} Gate {suffix}",
+            transport_mode=args.transport_mode,
+        )
         room_id = str(dialout["id"])
-        print(f"[PASS] dial-out room created ({room_id})")
-        artifact["checks"]["room"] = {"room_id": room_id, "transport_mode": "dialout"}
+        print(f"[PASS] {args.transport_mode} room created ({room_id})")
+        artifact["checks"]["room"] = {"room_id": room_id, "transport_mode": args.transport_mode}
 
         peer_id, peer_auth, invite_body = await invite_and_join(
             client,
@@ -456,6 +478,7 @@ async def run_gate(args: argparse.Namespace) -> None:
             provider_token=provider_token,
             room_id=room_id,
             node_name="phases-10-16-provider",
+            provider_mode=args.transport_mode,
         )
         invite_code = str(invite_body["code"])
         require(bool(invite_body.get("join_command")), "Invite missing join_command")
@@ -464,7 +487,7 @@ async def run_gate(args: argparse.Namespace) -> None:
         hb = await client.post(
             f"/api/v1/rooms/{room_id}/nodes/{peer_id}/heartbeat",
             headers=auth_headers(peer_auth),
-            json=heartbeat_payload(),
+            json=heartbeat_payload(provider_mode=args.transport_mode),
         )
         hb.raise_for_status()
         hb_body = dict(hb.json())
@@ -565,13 +588,18 @@ async def run_gate(args: argparse.Namespace) -> None:
             json={
                 "invite_code": invite2.json()["code"],
                 "node_name": "phases-10-16-train-b",
-                "provider_mode": "dialout",
+                "provider_mode": args.transport_mode,
             },
         )
         # Provider2 may already be in other room only; join primary room for training.
         if join_train.status_code >= 400:
             # Create a dedicated training room with both providers.
-            train_room = await create_dialout_room(client, owner_token, f"Train Room {suffix}")
+            train_room = await create_dialout_room(
+                client,
+                owner_token,
+                f"Train Room {suffix}",
+                transport_mode=args.transport_mode,
+            )
             train_room_id = str(train_room["id"])
             p1_id, p1_auth, _ = await invite_and_join(
                 client,
@@ -579,6 +607,7 @@ async def run_gate(args: argparse.Namespace) -> None:
                 provider_token=provider_token,
                 room_id=train_room_id,
                 node_name="train-a",
+                provider_mode=args.transport_mode,
             )
             p2_id, p2_auth, _ = await invite_and_join(
                 client,
@@ -587,6 +616,7 @@ async def run_gate(args: argparse.Namespace) -> None:
                 room_id=train_room_id,
                 node_name="train-b",
                 max_uses=1,
+                provider_mode=args.transport_mode,
             )
             for pid, auth in ((p1_id, p1_auth), (p2_id, p2_auth)):
                 await client.post(

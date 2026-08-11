@@ -43,7 +43,7 @@ export default function RoomConfigPanel({
   } = useQuery({
     queryKey: ['room-config', roomId],
     queryFn: () => roomsApi.getRoomConfig(roomId),
-    enabled: !isDialout,
+    enabled: Boolean(roomId),
     retry: (failureCount, err) => {
       const status = getRoomErrorStatus(err)
       if (status === 403 || status === 404) {
@@ -78,7 +78,7 @@ export default function RoomConfigPanel({
           Transport mode:{' '}
           <span className="text-slate-200 font-medium">{mode}</span>
           {isOverlay && (
-            <span className="ml-2 text-amber-400">(experimental until Phase 19)</span>
+            <span className="ml-2 text-cyan-400">(iroh/QUIC + HTTP relay fallback)</span>
           )}
         </p>
         {isDialout ? (
@@ -91,13 +91,7 @@ export default function RoomConfigPanel({
         ) : null}
       </div>
 
-      {isDialout ? (
-        <p className="text-slate-400 text-sm">
-          Use <code className="text-cyan-300">zepgpu-node join</code> /{' '}
-          <code className="text-cyan-300">serve</code> with your invite. WireGuard config download
-          is not required for dial-out rooms.
-        </p>
-      ) : isLoading || isFetching ? (
+      {isLoading || isFetching ? (
         <p className="text-slate-500 text-sm">Loading connection config…</p>
       ) : notAvailable ? (
         <p className="text-slate-400 text-sm">
@@ -120,7 +114,11 @@ export default function RoomConfigPanel({
       ) : config ? (
         <>
           <p className="text-slate-400 text-sm">
-            WireGuard config for this room. Copy or download to connect your machine.
+            {isOverlay
+              ? 'Overlay room hints (not a WireGuard .conf). Join with zepgpu-node; data plane is iroh/QUIC with HTTP relay fallback.'
+              : needsUdp
+                ? 'WireGuard config for this room. Copy or download, then apply with wg-quick or import in the Windows WireGuard app.'
+                : 'Connection notes for this room. WireGuard .conf is not used for dial-out.'}
           </p>
           <div className="flex flex-wrap gap-2">
             <button

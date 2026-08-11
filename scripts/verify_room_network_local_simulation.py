@@ -27,7 +27,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--transport-mode",
         default="dialout",
-        choices=("dialout", "wireguard"),
+        choices=("dialout", "wireguard", "overlay"),
         help="Room transport mode for this gate (default: dialout)",
     )
     return parser.parse_args()

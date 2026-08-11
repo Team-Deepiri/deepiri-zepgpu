@@ -12,8 +12,8 @@ VALID_TRANSPORT_MODES: Final = frozenset(
     {TRANSPORT_WIREGUARD, TRANSPORT_DIALOUT, TRANSPORT_OVERLAY}
 )
 
-# Overlay remains experimental until Phase 19.
-EXPERIMENTAL_TRANSPORT_MODES: Final = frozenset({TRANSPORT_OVERLAY})
+# Overlay is a first-class Phase 19 transport (direct→relay QUIC/TCP path).
+EXPERIMENTAL_TRANSPORT_MODES: Final[frozenset[str]] = frozenset()
 
 # Legacy pickle TaskRouter is WireGuard-only.
 LEGACY_PICKLE_ALLOWED_TRANSPORTS: Final = frozenset({TRANSPORT_WIREGUARD})
