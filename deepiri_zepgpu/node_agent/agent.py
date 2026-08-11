@@ -302,7 +302,9 @@ def join_room(
 
                     if is_windows():
                         conf_path = export_wireguard_config(str(config_text), "wg0")
-                        logger.warning("%s", windows_import_instructions(conf_path))
+                        instructions = windows_import_instructions(conf_path)
+                        logger.warning("%s", instructions)
+                        click.echo(instructions, err=True)
                         wireguard_interface = None
                         wireguard_mock = False
                     elif check_wireguard_installed():

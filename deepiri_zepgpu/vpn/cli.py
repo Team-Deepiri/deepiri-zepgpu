@@ -86,8 +86,12 @@ def export_wireguard_config(config_text: str, interface: str = "wg0") -> Path:
 
 def windows_import_instructions(conf_path: Path) -> str:
     return (
-        "WireGuard CLI apply is not supported on Windows. Import this file in the "
-        f"WireGuard app, then run `zepgpu-node serve`: {conf_path}"
+        "WireGuard cannot be applied from the CLI on Windows. Import the config, then serve:\n"
+        f"  1. Install WireGuard from https://www.wireguard.com/install/\n"
+        f"  2. Open WireGuard → Add Tunnel → Import tunnel(s) from file\n"
+        f"  3. Select: {conf_path}\n"
+        "  4. Activate the tunnel, then run: zepgpu-node serve --enable-task-worker\n"
+        "Logout does not remove a Windows app tunnel; deactivate it in WireGuard if needed."
     )
 
 

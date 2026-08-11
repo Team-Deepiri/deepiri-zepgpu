@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import hmac
+import logging
 import os
 import struct
 from collections.abc import Awaitable, Callable
@@ -25,6 +26,8 @@ from deepiri_zepgpu.vpn.overlay.metrics import (
     record_overlay_join,
     record_overlay_path,
 )
+
+logger = logging.getLogger(__name__)
 
 BACKEND = "quic"
 _MAGIC = b"ZQ1U"
@@ -92,15 +95,25 @@ class UdpOverlayTransport:
         self._bound_port = int(sockname[1])
         return self._bound_port
 
-    def _on_datagram(self, data: bytes, _addr: tuple[str, int]) -> None:
+    def _on_datagram(self, data: bytes, addr: tuple[str, int]) -> None:
         if len(data) < _HEADER.size:
+            logger.debug("overlay UDP drop from %s: truncated header (%s bytes)", addr, len(data))
             return
         magic, msg_id, index, total, digest = _HEADER.unpack(data[: _HEADER.size])
         if magic != _MAGIC or total < 1 or index >= total:
+            logger.debug(
+                "overlay UDP drop from %s: bad magic or chunk index=%s total=%s",
+                addr,
+                index,
+                total,
+            )
             return
         chunk = data[_HEADER.size :]
         body = msg_id + struct.pack("!HH", index, total) + chunk
         if not hmac.compare_digest(digest, self._mac(body)):
+            logger.warning(
+                "overlay UDP drop from %s: HMAC mismatch (wrong data-plane secret?)", addr
+            )
             return
         slots = self._partial.setdefault(msg_id, [None] * total)
         if len(slots) != total:
@@ -112,9 +125,11 @@ class UdpOverlayTransport:
         payload = b"".join(item for item in slots if item is not None)
         del self._partial[msg_id]
         if len(payload) < 2:
+            logger.debug("overlay UDP drop from %s: empty reassembled payload", addr)
             return
         name_len = int.from_bytes(payload[:2], "big")
         if name_len < 1 or 2 + name_len > len(payload):
+            logger.warning("overlay UDP drop from %s: malformed peer-id prefix", addr)
             return
         peer_name = payload[2 : 2 + name_len].decode("utf-8", errors="replace")
         body_payload = payload[2 + name_len :]

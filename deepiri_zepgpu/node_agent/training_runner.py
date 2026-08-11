@@ -20,6 +20,7 @@ import httpx
 from deepiri_zepgpu.config import settings
 from deepiri_zepgpu.training.config import DistributedStrategy, TrainingRunConfig
 from deepiri_zepgpu.training.runtime import RuntimeHandle, TrainingRuntime
+from deepiri_zepgpu.training.worker_identity import persist_worker_identity
 from deepiri_zepgpu.training.workload import TrainingWorkloadSpec
 
 logger = logging.getLogger(__name__)
@@ -100,9 +101,7 @@ class TrainingAgentRunner:
                     "overlay_backend": message.get("overlay_backend") or "iroh",
                     "data_plane_listen_host": message.get("vpn_ip") or "0.0.0.0",
                 }
-                (process_dir / "identity.json").write_text(
-                    json.dumps(identity, sort_keys=True), encoding="utf-8"
-                )
+                persist_worker_identity(process_dir, identity)
                 (process_dir / "config.json").write_text(
                     json.dumps(config.to_public_dict(), sort_keys=True), encoding="utf-8"
                 )

@@ -17,7 +17,7 @@ Authenticate with `--username` / `--password` or `--token <human-jwt>`. Optional
 | Mode | After join |
 |---|---|
 | `dialout` | Outbound HTTPS/WSS only. No tunnel. `zepgpu-node serve` immediately. |
-| `wireguard` | Linux/macOS: agent applies `wg-quick` when tools and `/dev/net/tun` exist. Windows: agent **exports** `~/.zepgpu/wg0.conf` and prints import instructions — it does not silent-mock. Import in the WireGuard app, then `serve`. Logout runs `wg-quick down` / clears mock state. |
+| `wireguard` | Linux/macOS: agent applies `wg-quick` when tools and `/dev/net/tun` exist. Windows: agent **exports** `~/.zepgpu/wg0.conf` and prints numbered import steps (WireGuard app → Add Tunnel → import file → activate → `zepgpu-node serve`). It does not silent-mock. Logout runs `wg-quick down` on Linux/macOS; deactivate the Windows app tunnel manually. |
 | `overlay` | Agent publishes overlay node/ticket hints. Data plane is iroh/QUIC UDP with HTTP relay fallback. Logout closes overlay state with identity. |
 
 `zepgpu-node status --probe` reports `tunnel_state` (`dialout` / `up` / `mock` / `exported_conf` / `overlay`) and `vpn_ip` when assigned.

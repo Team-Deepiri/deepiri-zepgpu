@@ -33,6 +33,7 @@ from training_e2e_common import (  # noqa: E402
     run_reached_success,
     smoke_training_config,
 )
+from deepiri_zepgpu.training.worker_identity import persist_worker_identity  # noqa: E402
 
 DEFAULT_OUTPUT = Path("/tmp/zepgpu-two-process-wan")
 
@@ -73,7 +74,7 @@ def write_worker_files(
     provider_token: str,
 ) -> None:
     work.mkdir(parents=True, exist_ok=True)
-    (work / "identity.json").write_text(json.dumps(identity, indent=2), encoding="utf-8")
+    persist_worker_identity(work, identity)
     (work / "config.json").write_text(json.dumps(config_json, indent=2), encoding="utf-8")
     (work / "run.cred").write_text(credential, encoding="utf-8")
     (work / "provider.token").write_text(provider_token, encoding="utf-8")

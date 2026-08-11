@@ -77,5 +77,6 @@ def test_windows_export_does_not_mock(tmp_path: Path, monkeypatch: pytest.Monkey
     assert conf == tmp_path / "wg0.conf"
     assert "PrivateKey" in conf.read_text(encoding="utf-8")
     text = vpn_cli.windows_import_instructions(conf)
-    assert "WireGuard app" in text
+    assert "Import tunnel" in text
+    assert "zepgpu-node serve" in text
     assert str(conf) in text

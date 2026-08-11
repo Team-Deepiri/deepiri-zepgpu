@@ -79,41 +79,39 @@ class TcpOverlayTransport:
             assert self._bound_port is not None
             return self._bound_port
 
-        async def _handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
-            peer_name = "unknown"
-            try:
-                header = await reader.readexactly(_HEADER.size)
-                length, digest = _HEADER.unpack(header)
-                if length > self.max_frame_bytes:
-                    return
-                payload = await reader.readexactly(length)
-                if not hmac.compare_digest(digest, self._mac(payload)):
-                    return
-                # First frame after connect may include peer id length-prefixed UTF-8.
-                if len(payload) < 2:
-                    return
-                name_len = int.from_bytes(payload[:2], "big")
-                if name_len < 1 or 2 + name_len > len(payload):
-                    return
-                peer_name = payload[2 : 2 + name_len].decode("utf-8")
-                body = payload[2 + name_len :]
-                if body == _PROBE_BODY:
-                    return
-                if self._receiver is not None:
-                    await self._receiver(peer_name, body)
-            except (asyncio.IncompleteReadError, ConnectionResetError, BrokenPipeError):
-                return
-            finally:
-                writer.close()
-                with suppress(Exception):
-                    await writer.wait_closed()
-
-        self._server = await asyncio.start_server(_handle, host=self.host, port=self.port)
+        self._server = await asyncio.start_server(self._on_client, host=self.host, port=self.port)
         sockets: list[socket.socket] = list(self._server.sockets or [])
         if not sockets:
             raise OverlayUnavailable("TCP overlay server failed to bind")
         self._bound_port = int(sockets[0].getsockname()[1])
         return self._bound_port
+
+    async def _on_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        try:
+            header = await reader.readexactly(_HEADER.size)
+            length, digest = _HEADER.unpack(header)
+            if length > self.max_frame_bytes:
+                return
+            payload = await reader.readexactly(length)
+            if not hmac.compare_digest(digest, self._mac(payload)):
+                return
+            if len(payload) < 2:
+                return
+            name_len = int.from_bytes(payload[:2], "big")
+            if name_len < 1 or 2 + name_len > len(payload):
+                return
+            peer_name = payload[2 : 2 + name_len].decode("utf-8")
+            body = payload[2 + name_len :]
+            if body == _PROBE_BODY:
+                return
+            if self._receiver is not None:
+                await self._receiver(peer_name, body)
+        except (asyncio.IncompleteReadError, ConnectionResetError, BrokenPipeError):
+            return
+        finally:
+            writer.close()
+            with suppress(Exception):
+                await writer.wait_closed()
 
     async def connect(self, peer: OverlayPeer) -> None:
         self._ensure_open()

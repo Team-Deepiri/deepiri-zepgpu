@@ -33,6 +33,7 @@ from training_e2e_common import (  # noqa: E402
 
 from deepiri_zepgpu.training.image_trust import ImageTrustPolicy
 from deepiri_zepgpu.training.runtime import TrainingRuntime, TrainingRuntimeError
+from deepiri_zepgpu.training.worker_identity import persist_worker_identity
 from deepiri_zepgpu.training.workload import TrainingWorkloadSpec
 
 DEFAULT_OUTPUT = Path("/tmp/zepgpu-docker-wan")
@@ -85,7 +86,7 @@ def write_worker_files(
     (work / "artifacts").mkdir(exist_ok=True)
     (work / "checkpoints").mkdir(exist_ok=True)
     (work / "logs").mkdir(exist_ok=True)
-    (work / "identity.json").write_text(json.dumps(identity, indent=2), encoding="utf-8")
+    persist_worker_identity(work, identity)
     (work / "config.json").write_text(json.dumps(config_json, indent=2), encoding="utf-8")
     (work / "run.cred").write_text(credential, encoding="utf-8")
     (work / "provider.token").write_text(provider_token, encoding="utf-8")

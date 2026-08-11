@@ -1,5 +1,6 @@
 import time
 import uuid
+from pathlib import Path
 
 import pytest
 
@@ -42,3 +43,25 @@ def test_run_scoped_data_plane_secret_is_shared() -> None:
     assert a != issue_data_plane_secret(str(uuid.uuid4()), secret)
     room = str(uuid.uuid4())
     assert issue_room_mac_key(room, secret) == issue_room_mac_key(room, secret)
+
+
+def test_worker_identity_keeps_hmac_out_of_json(tmp_path: Path) -> None:
+    from deepiri_zepgpu.training.worker_identity import (
+        hydrate_worker_identity,
+        persist_worker_identity,
+    )
+
+    persist_worker_identity(
+        tmp_path,
+        {
+            "run_id": "run",
+            "data_plane_secret": "hmac-material",
+            "room_mac_key": "mac-material",
+        },
+    )
+    raw = (tmp_path / "identity.json").read_text(encoding="utf-8")
+    assert "hmac-material" not in raw
+    assert "mac-material" not in raw
+    loaded = hydrate_worker_identity(tmp_path, {"run_id": "run"})
+    assert loaded["data_plane_secret"] == "hmac-material"
+    assert loaded["room_mac_key"] == "mac-material"

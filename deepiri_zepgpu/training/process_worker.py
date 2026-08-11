@@ -63,6 +63,7 @@ from deepiri_zepgpu.training.transport import (
     TransferManager,
 )
 from deepiri_zepgpu.training.worker import HttpWorkerCoordinator, PersistentTrainingWorker
+from deepiri_zepgpu.training.worker_identity import hydrate_worker_identity
 
 
 def _read_run_credential(work_dir: Path) -> str:
@@ -224,6 +225,7 @@ async def _run_phase18_diloco(
     identity_blob: dict[str, Any] = {}
     if identity_path.is_file():
         identity_blob = json.loads(identity_path.read_text(encoding="utf-8"))
+        hydrate_worker_identity(work_dir, identity_blob)
     local_runtime = DiLoCoWorkerRuntime(
         room_id=room_id,
         run_id=run_id,
@@ -509,6 +511,7 @@ async def _run_phase18_island(
 
 def load_worker_identity(work_dir: Path) -> dict[str, Any]:
     identity = json.loads((work_dir / "identity.json").read_text(encoding="utf-8"))
+    hydrate_worker_identity(work_dir, identity)
     credential = (work_dir / "run.cred").read_text(encoding="utf-8").strip()
     provider_token = (work_dir / "provider.token").read_text(encoding="utf-8").strip()
     config = TrainingRunConfig.model_validate(
