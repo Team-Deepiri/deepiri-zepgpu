@@ -29,7 +29,7 @@ def require(cond: bool, msg: str) -> None:
 def verify_in_process(tmp: Path) -> dict[str, str]:
     require(requires_wireguard_udp("wireguard") is True, "WG must require UDP")
     gen = WireGuardConfigGenerator(vpn_ip="10.8.0.2", private_key="PRIVKEY")
-    gen.add_peer("PUBKEY", endpoint="127.0.0.1:51820")
+    gen.add_peer("PUBKEY", endpoint="127.0.0.1:51820", allowed_ips="10.8.0.0/24")
     text = gen.generate()
     require("10.8.0.0/24" in text, "room CIDR AllowedIPs missing")
     state = bring_up_mock_tunnel(

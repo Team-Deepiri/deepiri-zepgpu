@@ -199,6 +199,112 @@ def _login_human(
     return str(token)
 
 
+def _token_expires_at(expires: object) -> str | None:
+    if isinstance(expires, str):
+        return expires
+    if expires is not None:
+        return str(expires)
+    return None
+
+
+def _join_overlay_room(*, vpn_ip: str | None) -> tuple[str | None, str | None, bool]:
+    """Overlay rooms have no WireGuard interface; identity keeps vpn_ip if present."""
+
+    return vpn_ip, None, False
+
+
+def _join_dialout_room(*, vpn_ip: str | None) -> tuple[str | None, str | None, bool]:
+    """Dial-out rooms use outbound HTTPS/WSS only."""
+
+    return vpn_ip, None, False
+
+
+def _join_wireguard_room(
+    *,
+    client: httpx.Client,
+    coordinator: str,
+    headers: dict[str, str],
+    room_id: str,
+    peer_id: str,
+    vpn_ip: str | None,
+) -> tuple[str | None, str | None, bool]:
+    """Apply room WireGuard config: Windows export, wg-quick, or mock tunnel.
+
+    Returns ``(vpn_ip, interface, mock)``.
+    """
+
+    from deepiri_zepgpu.vpn.cli import (
+        apply_wireguard_config,
+        check_wireguard_installed,
+        export_wireguard_config,
+        is_windows,
+        windows_import_instructions,
+    )
+    from deepiri_zepgpu.vpn.mock_tunnel import bring_up_mock_tunnel
+
+    config_resp = client.get(
+        f"{coordinator}/api/v1/rooms/{room_id}/config",
+        headers=headers,
+    )
+    if config_resp.status_code >= 400:
+        return vpn_ip, None, False
+
+    cfg_body = config_resp.json()
+    config_text = cfg_body.get("config") or cfg_body.get("config_text")
+    if not vpn_ip:
+        maybe_ip = cfg_body.get("vpn_ip")
+        vpn_ip = str(maybe_ip).strip() if maybe_ip else None
+    if not config_text:
+        return vpn_ip, None, False
+
+    if is_windows():
+        conf_path = export_wireguard_config(str(config_text), "wg0")
+        instructions = windows_import_instructions(conf_path)
+        logger.warning("%s", instructions)
+        click.echo(instructions, err=True)
+        return vpn_ip, None, False
+
+    installed = check_wireguard_installed()
+    if installed and apply_wireguard_config(str(config_text), "wg0"):
+        return vpn_ip, "wg0", False
+
+    if installed:
+        logger.warning("WireGuard tools present but apply failed; using mock tunnel")
+    mock = bring_up_mock_tunnel(
+        room_id=room_id,
+        peer_id=peer_id,
+        vpn_ip=vpn_ip,
+        config_text=str(config_text),
+    )
+    if not installed:
+        logger.info("WireGuard tools not installed; mock tunnel up at %s", mock.vpn_ip)
+    return mock.vpn_ip, mock.interface, True
+
+
+def _apply_transport_after_join(
+    *,
+    transport_mode: str,
+    client: httpx.Client,
+    coordinator: str,
+    headers: dict[str, str],
+    room_id: str,
+    peer_id: str,
+    vpn_ip: str | None,
+) -> tuple[str | None, str | None, bool]:
+    if transport_mode == "wireguard":
+        return _join_wireguard_room(
+            client=client,
+            coordinator=coordinator,
+            headers=headers,
+            room_id=room_id,
+            peer_id=peer_id,
+            vpn_ip=vpn_ip,
+        )
+    if transport_mode == "overlay":
+        return _join_overlay_room(vpn_ip=vpn_ip)
+    return _join_dialout_room(vpn_ip=vpn_ip)
+
+
 def join_room(
     *,
     invite: str,
@@ -263,80 +369,19 @@ def join_room(
         if not auth_token:
             raise click.ClickException("Join succeeded but no provider token was issued")
 
-        expires = payload.get("token_expires_at")
-        if isinstance(expires, str):
-            token_expires_at = expires
-        elif expires is not None:
-            token_expires_at = str(expires)
-        else:
-            token_expires_at = None
-
+        token_expires_at = _token_expires_at(payload.get("token_expires_at"))
         transport_mode = str(room.get("transport_mode") or provider_mode or "dialout").lower()
         vpn_ip: str | None = member.get("vpn_ip")
         vpn_ip = vpn_ip.strip() or None if isinstance(vpn_ip, str) else None
-        wireguard_interface: str | None = None
-        wireguard_mock = False
-
-        if transport_mode == "wireguard":
-            room_id = str(room["id"])
-            peer_id = str(member["id"])
-            config_resp = client.get(
-                f"{coordinator}/api/v1/rooms/{room_id}/config",
-                headers=headers,
-            )
-            if config_resp.status_code < 400:
-                cfg_body = config_resp.json()
-                config_text = cfg_body.get("config") or cfg_body.get("config_text")
-                if not vpn_ip:
-                    maybe_ip = cfg_body.get("vpn_ip")
-                    vpn_ip = str(maybe_ip).strip() if maybe_ip else None
-                if config_text:
-                    from deepiri_zepgpu.vpn.cli import (
-                        apply_wireguard_config,
-                        check_wireguard_installed,
-                        export_wireguard_config,
-                        is_windows,
-                        windows_import_instructions,
-                    )
-                    from deepiri_zepgpu.vpn.mock_tunnel import bring_up_mock_tunnel
-
-                    if is_windows():
-                        conf_path = export_wireguard_config(str(config_text), "wg0")
-                        instructions = windows_import_instructions(conf_path)
-                        logger.warning("%s", instructions)
-                        click.echo(instructions, err=True)
-                        wireguard_interface = None
-                        wireguard_mock = False
-                    elif check_wireguard_installed():
-                        if apply_wireguard_config(str(config_text), "wg0"):
-                            wireguard_interface = "wg0"
-                        else:
-                            logger.warning(
-                                "WireGuard tools present but apply failed; using mock tunnel"
-                            )
-                            mock = bring_up_mock_tunnel(
-                                room_id=room_id,
-                                peer_id=peer_id,
-                                vpn_ip=vpn_ip,
-                                config_text=str(config_text),
-                            )
-                            vpn_ip = mock.vpn_ip
-                            wireguard_interface = mock.interface
-                            wireguard_mock = True
-                    else:
-                        mock = bring_up_mock_tunnel(
-                            room_id=room_id,
-                            peer_id=peer_id,
-                            vpn_ip=vpn_ip,
-                            config_text=str(config_text),
-                        )
-                        vpn_ip = mock.vpn_ip
-                        wireguard_interface = mock.interface
-                        wireguard_mock = True
-                        logger.info(
-                            "WireGuard tools not installed; mock tunnel up at %s",
-                            vpn_ip,
-                        )
+        vpn_ip, wireguard_interface, wireguard_mock = _apply_transport_after_join(
+            transport_mode=transport_mode,
+            client=client,
+            coordinator=coordinator,
+            headers=headers,
+            room_id=str(room["id"]),
+            peer_id=str(member["id"]),
+            vpn_ip=vpn_ip,
+        )
 
         config = NodeAgentConfig(
             api_base_url=coordinator,

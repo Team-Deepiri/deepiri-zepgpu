@@ -7,6 +7,7 @@ bytes so CI can exercise the mixed-hardware schema path.
 
 from __future__ import annotations
 
+import importlib
 from dataclasses import dataclass
 from typing import Any
 
@@ -23,7 +24,7 @@ class MlxUnavailableError(RuntimeError):
 
 def mlx_available() -> bool:
     try:
-        import mlx.core  # noqa: F401
+        importlib.import_module("mlx.core")
     except ImportError:
         return False
     return True
@@ -65,7 +66,7 @@ def export_real_mlx_adapter(*, model_revision: str, tensors: dict[str, Any]) -> 
     """Export real MLX arrays to bytes. Requires ``mlx`` installed."""
     if not mlx_available():
         raise MlxUnavailableError("mlx is not installed")
-    import mlx.core as mx
+    mx = importlib.import_module("mlx.core")
     import numpy as np
 
     names: list[str] = []

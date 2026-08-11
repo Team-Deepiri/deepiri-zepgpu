@@ -20,9 +20,16 @@ from deepiri_zepgpu.vpn.wg_config import (
 
 
 @pytest.mark.unit
+def test_add_peer_requires_allowed_ips() -> None:
+    gen = WireGuardConfigGenerator(vpn_ip="10.8.0.2", private_key="PRIV")
+    with pytest.raises(TypeError):
+        gen.add_peer(public_key="PUB", endpoint="1.2.3.4:51820")  # type: ignore[call-arg]
+
+
+@pytest.mark.unit
 def test_allowed_ips_default_is_room_cidr() -> None:
     gen = WireGuardConfigGenerator(vpn_ip="10.8.0.2", private_key="PRIV")
-    gen.add_peer(public_key="PUB", endpoint="1.2.3.4:51820")
+    gen.add_peer(public_key="PUB", endpoint="1.2.3.4:51820", allowed_ips="10.8.0.0/24")
     text = gen.generate()
     assert "AllowedIPs = 10.8.0.0/24" in text
     assert "0.0.0.0/0" not in text

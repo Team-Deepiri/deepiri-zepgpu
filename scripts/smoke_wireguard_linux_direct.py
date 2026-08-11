@@ -138,7 +138,11 @@ async def main_async(args: argparse.Namespace) -> int:
             notes.append("wg-quick/CAP_NET_ADMIN unavailable or --force-mock; using mock tunnel")
             for index, vpn_ip in enumerate(("10.8.0.2", "10.8.0.3")):
                 gen = WireGuardConfigGenerator(vpn_ip=vpn_ip, private_key=f"PRIV{index}")
-                gen.add_peer("HUBPUB", endpoint=args.hub_endpoint or "127.0.0.1:51820")
+                gen.add_peer(
+                    "HUBPUB",
+                    endpoint=args.hub_endpoint or "127.0.0.1:51820",
+                    allowed_ips="10.8.0.0/24",
+                )
                 state_path = tmp_path / f"mock-{index}.json"
                 bring_up_mock_tunnel(
                     room_id=room_id,

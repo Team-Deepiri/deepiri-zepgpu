@@ -28,10 +28,12 @@ class WireGuardConfigGenerator:
     def add_peer(
         self,
         public_key: str,
+        *,
+        allowed_ips: str,
         endpoint: str | None = None,
-        allowed_ips: str = "10.8.0.0/24",
         persistent_keepalive: int = 25,
     ) -> WireGuardConfigGenerator:
+        """Append a peer. ``allowed_ips`` is required so callers never inherit a hidden CIDR."""
         self._peers.append(
             {
                 "public_key": public_key,

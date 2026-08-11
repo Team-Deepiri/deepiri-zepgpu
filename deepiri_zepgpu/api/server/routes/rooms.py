@@ -855,14 +855,13 @@ async def get_room_config(
 
     transport_mode = getattr(room, "transport_mode", None) or "wireguard"
     private_key = await peer_repo.get_private_key(peer)
-    if transport_mode == "wireguard" and not private_key:
-        raise HTTPException(status_code=404, detail="Room config is not available yet")
-
     hub_ok = hub_endpoint_configured(relay_host=room.relay_endpoint, listen_port=room.listen_port)
     if transport_mode == "wireguard":
+        if not private_key:
+            raise HTTPException(status_code=404, detail="Room config is not available yet")
         config_text = generate_peer_config(
             vpn_ip=peer.vpn_ip,
-            private_key=str(private_key),
+            private_key=private_key,
             relay_public_key=room.relay_public_key or "",
             relay_endpoint=f"{room.relay_endpoint}:{room.listen_port}",
             allowed_ips=allowed_ips_for_cidr(room.cidr),
