@@ -43,7 +43,7 @@ export default function RoomConfigPanel({
   } = useQuery({
     queryKey: ['room-config', roomId],
     queryFn: () => roomsApi.getRoomConfig(roomId),
-    enabled: Boolean(roomId),
+    enabled: Boolean(roomId) && !isDialout,
     retry: (failureCount, err) => {
       const status = getRoomErrorStatus(err)
       if (status === 403 || status === 404) {
@@ -91,7 +91,11 @@ export default function RoomConfigPanel({
         ) : null}
       </div>
 
-      {isLoading || isFetching ? (
+      {isDialout ? (
+        <p className="text-slate-400 text-sm">
+          WireGuard config download is not required for dial-out providers.
+        </p>
+      ) : isLoading || isFetching ? (
         <p className="text-slate-500 text-sm">Loading connection config…</p>
       ) : notAvailable ? (
         <p className="text-slate-400 text-sm">
