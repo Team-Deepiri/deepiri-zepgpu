@@ -9,8 +9,6 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
-import cloudpickle
-
 
 class TaskStatus(Enum):
     """Task execution status."""
@@ -45,6 +43,15 @@ class TaskResources:
     timeout_seconds: int = 3600
     gpu_type: str | None = None
     allow_fallback_cpu: bool = True
+    container_memory_mb: int = 1024
+
+    def __post_init__(self) -> None:
+        if (
+            isinstance(self.container_memory_mb, bool)
+            or not isinstance(self.container_memory_mb, int)
+            or not 64 <= self.container_memory_mb <= 262_144
+        ):
+            raise ValueError("container_memory_mb must be an integer between 64 and 262144")
 
 
 @dataclass
@@ -82,15 +89,6 @@ class Task:
         if self.name is None:
             self.name = f"task_{self.task_id[:8]}"
 
-    def serialize_func(self) -> bytes:
-        """Serialize the task function using cloudpickle."""
-        return cloudpickle.dumps(self.func)  # type: ignore[no-any-return]
-
-    @classmethod
-    def deserialize_func(cls, serialized: bytes) -> Callable[..., Any]:
-        """Deserialize a task function."""
-        return cloudpickle.loads(serialized)  # type: ignore[no-any-return]
-
     def to_dict(self) -> dict[str, Any]:
         """Convert task to dictionary representation."""
         return {
@@ -105,6 +103,7 @@ class Task:
                 "timeout_seconds": self.resources.timeout_seconds,
                 "gpu_type": self.resources.gpu_type,
                 "allow_fallback_cpu": self.resources.allow_fallback_cpu,
+                "container_memory_mb": self.resources.container_memory_mb,
             },
             "metadata": self.metadata,
             "created_at": self.created_at.isoformat() if self.created_at else None,

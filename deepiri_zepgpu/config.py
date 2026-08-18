@@ -30,6 +30,9 @@ class RedisSettings(BaseSettings):
     celery_result_backend: str = Field(
         default_factory=lambda: os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/2")
     )
+    training_relay_ttl_seconds: int = Field(default=300, ge=30, le=86400)
+    training_relay_max_transfer_bytes: int = Field(default=64 * 1024 * 1024, ge=1024)
+    training_relay_max_chunk_bytes: int = Field(default=4 * 1024 * 1024, ge=1024)
 
 
 class S3Settings(BaseSettings):
@@ -75,7 +78,8 @@ class GPUSettings(BaseSettings):
 class AuthSettings(BaseSettings):
     """Authentication configuration."""
 
-    secret_key: str = Field(default="changeme-in-production")
+    # ≥32 bytes so HS256 (PyJWT) does not warn; override in every real deployment.
+    secret_key: str = Field(default="changeme-in-production-use-a-real-secret")
     algorithm: str = Field(default="HS256")
     access_token_expire_minutes: int = Field(default=1440)
     refresh_token_expire_days: int = Field(default=7)
@@ -120,6 +124,18 @@ class VPNSettings(BaseSettings):
     invite_code_length: int = Field(default=8)
     invite_expiry_days: int = Field(default=7)
     invite_max_uses: int = Field(default=10)
+    provider_token_expire_days: int = Field(default=90)
+    default_provider_mode: str = Field(default="dialout")
+    # New cloud rooms default to dial-out; existing DB rows stay wireguard via migration.
+    default_transport_mode: str = Field(default="dialout")
+    # Soft minimum agent version for "incompatible" health (empty = skip check).
+    min_compatible_agent_version: str = Field(default="")
+    # Phase 13 assignment lease / timeout controls (seconds).
+    assignment_lease_seconds: int = Field(default=300, ge=30)
+    accepted_start_timeout_seconds: int = Field(default=120, ge=10)
+    # When None, running timeout falls back to the parent task.timeout_seconds.
+    running_timeout_seconds: int | None = Field(default=None)
+    assignment_sweep_interval_seconds: int = Field(default=30, ge=5)
 
 
 class LedgerSettings(BaseSettings):
@@ -165,9 +181,24 @@ class Settings(BaseSettings):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(default="INFO")
     environment: Literal["development", "staging", "production"] = Field(default="development")
 
+    training_image: str = Field(default="zepgpu-training:local")
+
     max_concurrent_tasks: int = Field(default=10)
     default_timeout_seconds: int = Field(default=3600)
     default_gpu_memory_mb: int = Field(default=1024)
+
+    task_callback_allowed_hosts: str = Field(default="")
+    task_callback_allow_localhost: bool = Field(default=False)
+    task_callback_connect_timeout_seconds: float = Field(default=2.0, ge=0.1, le=10.0)
+    task_callback_read_timeout_seconds: float = Field(default=5.0, ge=0.1, le=15.0)
+    task_callback_write_timeout_seconds: float = Field(default=5.0, ge=0.1, le=15.0)
+    task_callback_pool_timeout_seconds: float = Field(default=2.0, ge=0.1, le=10.0)
+
+    def parsed_task_callback_allowed_hosts(self) -> tuple[str, ...]:
+        """Return the configured exact or wildcard callback host allowlist."""
+        return tuple(
+            host.strip() for host in self.task_callback_allowed_hosts.split(",") if host.strip()
+        )
 
 
 @lru_cache

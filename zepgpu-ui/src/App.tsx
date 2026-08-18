@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate } from 'react-router'
 import { useAuthStore } from '@/stores/authStore'
 import Layout from '@/components/Layout'
 import RouteErrorBoundary from '@/components/RouteErrorBoundary'
@@ -22,6 +22,7 @@ import Vpn from '@/pages/Vpn'
 import Ledger from '@/pages/Ledger'
 import Rooms from '@/pages/Rooms'
 import RoomDetail from '@/pages/RoomDetail'
+import TrainingRunDetail from '@/pages/TrainingRunDetail'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((state) => state.token)
@@ -68,6 +69,7 @@ function App() {
                 <Route path="/cloud" element={<Cloud />} />
                 <Route path="/rooms" element={<Rooms />} />
                 <Route path="/rooms/:roomId" element={<RoomDetail />} />
+                <Route path="/training-runs/:runId" element={<TrainingRunDetail />} />
                 <Route path="/vpn" element={<Vpn />} />
                 <Route path="/ledger" element={<Ledger />} />
                 <Route path="/users" element={<Users />} />

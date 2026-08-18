@@ -21,6 +21,14 @@ def test_assignment_status_values() -> None:
     assert NodeAssignmentStatus.CANCELLED.value == "cancelled"
 
 
+def test_terminal_reason_values() -> None:
+    from deepiri_zepgpu.database.models.node_task_assignment import NodeTerminalReason
+
+    assert NodeTerminalReason.LEASE_EXPIRED.value == "lease_expired"
+    assert NodeTerminalReason.ACCEPTED_TIMEOUT.value == "accepted_timeout"
+    assert NodeTerminalReason.RUNNING_TIMEOUT.value == "running_timeout"
+
+
 def test_assignment_model_fields() -> None:
     now = datetime.now(UTC)
     assignment = NodeTaskAssignment(
@@ -31,11 +39,16 @@ def test_assignment_model_fields() -> None:
         gpu_share_id=str(uuid4()),
         status=NodeAssignmentStatus.ASSIGNED,
         assigned_at=now,
+        claim_generation=0,
         retry_count=0,
     )
     assert assignment.status == NodeAssignmentStatus.ASSIGNED
     assert assignment.retry_count == 0
     assert assignment.assigned_at == now
+    assert assignment.claim_generation == 0
+    assert assignment.claimed_at is None
+    assert assignment.lease_expires_at is None
+    assert assignment.terminal_reason is None
 
 
 def test_assignment_failed_state_fields() -> None:

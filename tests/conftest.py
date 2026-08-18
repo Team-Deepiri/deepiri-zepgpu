@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 TEST_DATABASE_URL = os.getenv(
     "TEST_DATABASE_URL",
-    "postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5433/zepgpu_test",
+    "postgresql+asyncpg://zepgpu:zepgpu@127.0.0.1:5444/zepgpu_test",
 )
 
 
@@ -32,6 +32,9 @@ def pytest_configure(config: pytest.Config) -> None:
 
 TRUNCATE_SQL = """
 TRUNCATE TABLE
+    training_worker_events,
+    training_workers,
+    training_runs,
     ledger_bridge_receipts,
     ledger_transactions,
     ledger_blocks,
@@ -208,7 +211,7 @@ async def api_client(integration_engine, auth_user, unique_chain_id: str):
 @pytest_asyncio.fixture
 async def regression_client(integration_engine, auth_user, unique_chain_id: str, monkeypatch):
     """ASGI client for full-system regression: auth + DB + side-effect stubs."""
-    from datetime import datetime
+    from datetime import UTC, datetime
 
     from httpx import ASGITransport, AsyncClient
 
@@ -221,7 +224,6 @@ async def regression_client(integration_engine, auth_user, unique_chain_id: str,
     from deepiri_zepgpu.config import get_settings, settings
     from deepiri_zepgpu.database.models.user import User
     from deepiri_zepgpu.database.models.user_quota import UserQuota
-    from datetime import datetime
 
     get_settings.cache_clear()
     settings.ledger.enabled = True
@@ -248,10 +250,13 @@ async def regression_client(integration_engine, auth_user, unique_chain_id: str,
         session.add(
             UserQuota(
                 user_id=auth_user.id,
-                period_start=datetime.utcnow(),
+                period_start=datetime.now(UTC),
             )
         )
         await session.commit()
+
+    # Satisfy PyJWT's HS256 minimum key length (≥32 bytes) for local regression auth.
+    settings.auth.secret_key = "zepgpu-regression-test-secret-key-32b"
 
     async def _noop_task(_task_id: str) -> None:
         return None

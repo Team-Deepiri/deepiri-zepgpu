@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router'
 import { useMutation } from '@tanstack/react-query'
 import { authApi } from '@/api/client'
 import toast from 'react-hot-toast'

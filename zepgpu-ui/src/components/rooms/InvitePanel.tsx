@@ -1,20 +1,41 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
-import { Copy, UserPlus, Ban } from 'lucide-react'
+import { Copy, UserPlus, Ban, Terminal } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { roomsApi } from '@/api/rooms'
 import { getRoomErrorMessage } from '@/utils/roomErrors'
+import type { RoomInvite } from '@/types'
 
 interface InvitePanelProps {
   roomId: string
+}
+
+function resolveCoordinatorUrl(): string {
+  const envUrl = import.meta.env.VITE_COORDINATOR_URL as string | undefined
+  if (envUrl && envUrl.trim()) {
+    return envUrl.replace(/\/$/, '')
+  }
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return window.location.origin.replace(/\/$/, '')
+  }
+  return 'https://coordinator.example'
+}
+
+function buildJoinCommand(code: string, invite?: RoomInvite | null): string {
+  const coordinator = invite?.coordinator_url || resolveCoordinatorUrl()
+  return `zepgpu-node join --invite ${code} --coordinator ${coordinator}`
 }
 
 export default function InvitePanel({ roomId }: InvitePanelProps) {
   const queryClient = useQueryClient()
   const [maxUses, setMaxUses] = useState(10)
   const [expiresInDays, setExpiresInDays] = useState(7)
-  const [lastCreatedCode, setLastCreatedCode] = useState<string | null>(null)
+  const [lastCreated, setLastCreated] = useState<RoomInvite | null>(null)
+
+  useEffect(() => {
+    setLastCreated(null)
+  }, [roomId])
 
   const { data: invites, isLoading } = useQuery({
     queryKey: ['room-invites', roomId],
@@ -34,7 +55,7 @@ export default function InvitePanel({ roomId }: InvitePanelProps) {
       })
     },
     onSuccess: (invite) => {
-      setLastCreatedCode(invite.code)
+      setLastCreated(invite)
       toast.success(`Invite created: ${invite.code}`)
       queryClient.invalidateQueries({ queryKey: ['room-invites', roomId] })
     },
@@ -54,9 +75,13 @@ export default function InvitePanel({ roomId }: InvitePanelProps) {
     },
   })
 
-  const copyCode = async (code: string) => {
-    await navigator.clipboard.writeText(code)
-    toast.success('Invite code copied')
+  const copyText = async (text: string, successMessage: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      toast.success(successMessage)
+    } catch {
+      toast.error('Failed to copy to clipboard')
+    }
   }
 
   return (
@@ -99,18 +124,42 @@ export default function InvitePanel({ roomId }: InvitePanelProps) {
         </button>
       </div>
 
-      {lastCreatedCode && (
-        <div className="flex items-center gap-2 p-3 rounded-lg bg-violet-500/10 border border-violet-500/30">
-          <span className="text-sm text-slate-300">New code:</span>
-          <code className="text-violet-200 font-mono text-sm">{lastCreatedCode}</code>
-          <button
-            type="button"
-            onClick={() => void copyCode(lastCreatedCode)}
-            className="ml-auto inline-flex items-center gap-1 px-2 py-1 rounded bg-slate-700 text-xs text-white hover:bg-slate-600"
-          >
-            <Copy className="w-3 h-3" />
-            Copy
-          </button>
+      {lastCreated && (
+        <div className="space-y-2 p-3 rounded-lg bg-violet-500/10 border border-violet-500/30">
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-slate-300">New code:</span>
+            <code className="text-violet-200 font-mono text-sm">{lastCreated.code}</code>
+            <button
+              type="button"
+              onClick={() => void copyText(lastCreated.code, 'Invite code copied')}
+              className="ml-auto inline-flex items-center gap-1 px-2 py-1 rounded bg-slate-700 text-xs text-white hover:bg-slate-600"
+            >
+              <Copy className="w-3 h-3" />
+              Copy code
+            </button>
+          </div>
+          <div className="flex items-start gap-2">
+            <Terminal className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
+            <code
+              data-testid="invite-join-command"
+              className="text-xs text-cyan-100 font-mono break-all flex-1"
+            >
+              {buildJoinCommand(lastCreated.code, lastCreated)}
+            </code>
+            <button
+              type="button"
+              onClick={() =>
+                void copyText(
+                  buildJoinCommand(lastCreated.code, lastCreated),
+                  'Join command copied',
+                )
+              }
+              className="inline-flex items-center gap-1 px-2 py-1 rounded bg-slate-700 text-xs text-white hover:bg-slate-600 shrink-0"
+            >
+              <Copy className="w-3 h-3" />
+              Copy command
+            </button>
+          </div>
         </div>
       )}
 
@@ -134,11 +183,21 @@ export default function InvitePanel({ roomId }: InvitePanelProps) {
                     <code className="text-slate-200 font-mono">{invite.code}</code>
                     <button
                       type="button"
-                      onClick={() => void copyCode(invite.code)}
+                      onClick={() => void copyText(invite.code, 'Invite code copied')}
                       className="p-1 rounded text-slate-500 hover:text-cyan-400"
                       title="Copy code"
                     >
                       <Copy className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void copyText(buildJoinCommand(invite.code, invite), 'Join command copied')
+                      }
+                      className="p-1 rounded text-slate-500 hover:text-cyan-400"
+                      title="Copy join command"
+                    >
+                      <Terminal className="w-3.5 h-3.5" />
                     </button>
                   </div>
                   <p className="text-slate-500 text-xs mt-1">

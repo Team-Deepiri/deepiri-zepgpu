@@ -48,14 +48,39 @@ class NodeTaskClient:
         return {"Authorization": f"Bearer {self.token}"}
 
     async def poll_pending(self, *, limit: int = 1) -> list[dict[str, Any]]:
+        """Legacy pending list (may include cancel-flagged active assignments)."""
         response = await self._client.get(
             f"{self.base_url}/api/v1/node-tasks/rooms/"
             f"{self.room_id}/nodes/{self.peer_id}/tasks/pending",
-            params={"limit": limit},
+            params={"limit": limit, "include_cancels": "true"},
             headers=self._headers(),
         )
         response.raise_for_status()
         return list(response.json())
+
+    async def poll(self, *, limit: int = 1) -> dict[str, Any]:
+        """Structured poll fallback: assignments + cancel_requested."""
+        response = await self._client.get(
+            f"{self.base_url}/api/v1/node-tasks/rooms/"
+            f"{self.room_id}/nodes/{self.peer_id}/tasks/poll",
+            params={"limit": limit},
+            headers=self._headers(),
+        )
+        response.raise_for_status()
+        return dict(response.json())
+
+    async def reconcile(self, assignment_ids: list[str]) -> dict[str, Any]:
+        response = await self._client.post(
+            f"{self.base_url}/api/v1/node-tasks/rooms/"
+            f"{self.room_id}/nodes/{self.peer_id}/reconcile",
+            json={"assignment_ids": assignment_ids},
+            headers=self._headers(),
+        )
+        response.raise_for_status()
+        return dict(response.json())
+
+    async def claim(self, assignment_id: str) -> dict[str, Any]:
+        return await self._post_lifecycle(assignment_id, "claim", {})
 
     async def accept(self, assignment_id: str) -> dict[str, Any]:
         return await self._post_lifecycle(assignment_id, "accept", {})
@@ -98,6 +123,20 @@ class NodeTaskClient:
                 "message": message,
                 "payload": payload or {},
             },
+            headers=self._headers(),
+        )
+        response.raise_for_status()
+        return dict(response.json())
+
+    async def log_batch(
+        self,
+        assignment_id: str,
+        logs: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        response = await self._client.post(
+            f"{self.base_url}/api/v1/node-tasks/{assignment_id}/logs/batch",
+            params={"peer_id": self.peer_id},
+            json={"logs": logs},
             headers=self._headers(),
         )
         response.raise_for_status()

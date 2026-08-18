@@ -21,9 +21,7 @@ stack (`docker compose -f docker/docker-compose.yml up -d`).
 - Authentication endpoints are available under **both** `/api/v1/auth/*` and
   `/api/v1/users/*` (they share the same router).
 
-> Examples use `random.seed` as a harmless no-op function: it takes no required arguments
-> and returns `None`. See [Task result behavior](#task-result-behavior) for why the example
-> functions return `None`.
+> Examples use the bounded `math.sqrt` compatibility operation with primitive JSON input.
 
 **Sections:** [Authentication](#authentication) ·
 [Tasks](#tasks) ·
@@ -118,9 +116,9 @@ Response `200 OK` returns the same user shape as registration, with `last_login_
 | Field | Type | Notes |
 |-------|------|-------|
 | `name` | string | Optional display name |
-| `func_name` | string | Dotted Python path, e.g. `package.module.function` |
-| `serialized_func` | string | Alternative to `func_name` (cloudpickle payload) |
-| `args` / `kwargs` | string | Optional serialized positional/keyword args |
+| `func_name` | string | Allowlisted operation: `math.sqrt` |
+| `serialized_func` | string | Removed unsafe legacy field; requests are rejected with `410 Gone` |
+| `args` / `kwargs` | JSON array/object | Optional bounded primitive positional/keyword inputs |
 | `priority` | int (1–5) | Default `2` |
 | `gpu_memory_mb` | int ≥ 0 | `0` runs without GPU allocation |
 | `timeout_seconds` | int ≥ 1 | Default `3600` |
@@ -128,14 +126,16 @@ Response `200 OK` returns the same user shape as registration, with `last_login_
 | `allow_fallback_cpu` | bool | Default `true` |
 | `callback_url` | string | Optional webhook (see [Callbacks](#callbacks-webhooks)) |
 
-Either `func_name` or `serialized_func` is required. A `func_name` that is not a valid
-dotted path (e.g. `notdotted`) returns `400`.
+An authenticated researcher or administrator must provide an allowlisted `func_name`.
+Unknown operations return `422`; serialized Python callables are no longer accepted.
+Existing clients must migrate executable payloads to the training subsystem or a reviewed
+allowlisted operation.
 
 ```bash
 curl -s -X POST http://localhost:8000/api/v1/tasks \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"name":"Smoke test","func_name":"random.seed","gpu_memory_mb":0}'
+  -d '{"name":"Smoke test","func_name":"math.sqrt","args":[0],"gpu_memory_mb":0}'
 ```
 
 Response `201 Created`:
@@ -232,8 +232,8 @@ Re-enqueues a `failed`, `cancelled`, or `timeout` task and returns the updated t
 
 ## Task result behavior
 
-The examples in this section use functions that return `None` (such as `random.seed`).
-A task whose function returns `None` is recorded as `completed` with `result: null`.
+The examples in this section use the bounded `math.sqrt` compatibility operation.
+A successful task result is encoded as bounded strict JSON before storage.
 
 In the default local stack, a task whose function **returns a value** requires the
 Redis-backed result store to be reachable from the Celery worker. If it is not, the task
@@ -255,8 +255,8 @@ the worker sends a `POST` to that URL with a JSON body.
 curl -s -X POST http://localhost:8000/api/v1/tasks \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"name":"With callback","func_name":"random.seed","gpu_memory_mb":0,
-       "callback_url":"http://host.docker.internal:9099/hook"}'
+  -d '{"name":"With callback","func_name":"math.sqrt","args":[0],"gpu_memory_mb":0,
+       "callback_url":"https://callbacks.example.com/hook"}'
 ```
 
 Webhook payload delivered to `callback_url`:
@@ -273,9 +273,16 @@ Notes:
 
 - `task_id` is the ZepGPU database task ID (the same `id` returned by task creation).
 - `status` is `completed` or `failed`.
-- The callback is best-effort: delivery failures are logged and do not affect task state.
-- From inside the Docker network, use a host-reachable URL such as
-  `http://host.docker.internal:<port>` to receive callbacks on your host machine.
+- The callback is best-effort: delivery failures are recorded in task metadata and do not
+  affect task state or cause completed execution to be retried.
+- Callback URLs are validated at submission and again immediately before delivery. Every DNS
+  answer must be public; credentials, localhost, loopback/private/link-local/reserved addresses,
+  redirects, and proxy environment variables are rejected or disabled.
+- Production callbacks must use HTTPS. Optionally restrict them with the comma-separated
+  `TASK_CALLBACK_ALLOWED_HOSTS` setting (exact names and `*.example.com` wildcards).
+- Localhost callbacks are disabled by default. For development only, set
+  `ENVIRONMENT=development` and `TASK_CALLBACK_ALLOW_LOCALHOST=true`; this opt-in does not
+  permit arbitrary private-network destinations.
 
 ## Pipelines
 
@@ -294,8 +301,8 @@ curl -s -X POST http://localhost:8000/api/v1/pipelines \
     "name": "Demo Pipeline",
     "description": "two stage",
     "stages": [
-      {"name": "preprocess", "func_name": "random.seed"},
-      {"name": "train", "func_name": "random.seed", "depends_on": ["preprocess"]}
+      {"name": "preprocess", "func_name": "math.sqrt", "args": {"x": 0}},
+      {"name": "train", "func_name": "math.sqrt", "args": {"x": 0}, "depends_on": ["preprocess"]}
     ]
   }'
 ```
@@ -308,7 +315,7 @@ Response `201 Created`:
   "name": "Demo Pipeline",
   "description": "two stage",
   "status": "created",
-  "stages": [ {"name": "preprocess", "func_name": "random.seed", ...} ],
+  "stages": [ {"name": "preprocess", "func_name": "math.sqrt", ...} ],
   "stage_statuses": {"preprocess": "pending", "train": "pending"},
   "completed_stages": 0,
   "total_stages": 2,
@@ -384,9 +391,7 @@ Verified message exchange:
 close frame):
 
 - A **missing or empty** `token` is rejected with **HTTP `403`** during the handshake.
-- A **malformed/invalid** `token` currently returns **HTTP `500`** — the same `jwt.JWTError`
-  defect described under [Error responses](#error-responses), since WebSocket auth shares
-  the affected code path.
+- A **malformed/invalid** `token` is rejected with **HTTP `401`**.
 
 ## Error responses
 
@@ -395,15 +400,13 @@ close frame):
 | Duplicate username/email on register | `400` |
 | Invalid login credentials | `401` |
 | Login with form-encoded body | `422` |
-| Invalid `func_name` (not a dotted path) | `400` |
+| Unknown task operation | `422` |
+| Removed `serialized_func` executable payload | `410` |
 | Task/pipeline not found | `404` |
 | Accessing another user's task/pipeline | `403` |
 | Cancelling an already-terminated task | `400` |
 
-> **Known issue:** Requests to protected REST routes with a **missing or invalid** bearer
-> token currently return `500` (instead of `401`/`403`). This is a server-side defect, not a
-> client/configuration problem — a valid token returns `200`. See the
-> [troubleshooting guide](deployment_troubleshooting.md#unauthenticated-requests-return-500-instead-of-401).
+Requests to protected REST routes with a missing or invalid bearer token return `401`.
 
 ---
 
@@ -663,12 +666,17 @@ task = Task(
     kwargs={"key": "value"},
     resources=TaskResources(
         gpu_memory_mb=2048,
+        container_memory_mb=1024,
         timeout_seconds=3600,
     ),
     priority=TaskPriority.HIGH,
     user_id="user123",
 )
 ```
+
+`gpu_memory_mb` controls GPU allocation only. `container_memory_mb` is the separate,
+positive host-RAM limit passed to Docker `--memory` (default 1024 MiB; allowed range
+64–262144 MiB).
 
 ### `TaskStatus`
 

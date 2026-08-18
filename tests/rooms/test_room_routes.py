@@ -141,7 +141,7 @@ def test_room_node_heartbeat_requires_authentication() -> None:
     )
 
     assert response.status_code == 401
-    assert response.json()["detail"] == "Authentication required"
+    assert response.json()["detail"] == "Missing bearer token"
 
 
 def test_list_room_node_gpus_requires_authentication() -> None:

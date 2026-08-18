@@ -1,0 +1,42 @@
+# Training worker image for Phase 17 WAN LoRA (allowlisted as zepgpu-training:local).
+FROM nvidia/cuda:12.2.0-devel-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV POETRY_VIRTUALENVS_CREATE=false
+
+RUN apt-get update && apt-get install -y \
+    python3.11 \
+    python3.11-dev \
+    python3.11-distutils \
+    python3-pip \
+    git \
+    curl \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 && \
+    update-alternatives --set python3 /usr/bin/python3.11
+
+RUN python3 -m pip install --upgrade pip && \
+    python3 -m pip install poetry
+
+WORKDIR /app
+
+COPY pyproject.toml poetry.lock* ./
+RUN poetry config virtualenvs.create false && \
+    poetry install --no-root --no-interaction --with training
+
+COPY . .
+RUN poetry install --only-root --no-interaction
+
+RUN groupadd -r zepgpu && \
+    useradd -r -g zepgpu -d /app -s /bin/bash zepgpu && \
+    mkdir -p /workspace/run /workspace/checkpoints /workspace/artifacts /workspace/logs && \
+    chown -R zepgpu:zepgpu /app /workspace
+
+USER zepgpu
+
+# Default when run ad-hoc. TrainingRuntime clears ENTRYPOINT and supplies an
+# explicit command list, so this CMD is only a fallback outside supervised runs.
+CMD ["python3", "-m", "deepiri_zepgpu.training.cli"]

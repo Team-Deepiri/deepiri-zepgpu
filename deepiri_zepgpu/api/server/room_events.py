@@ -38,9 +38,13 @@ def assignment_payload(
     status: str,
     assignment_status: str,
     error: str | None = None,
+    terminal_reason: str | None = None,
+    claim_generation: int | None = None,
+    lease_expires_at: str | None = None,
+    cancel_requested: bool | None = None,
 ) -> dict[str, Any]:
     """Build a consistent room task lifecycle payload."""
-    return {
+    payload: dict[str, Any] = {
         "task_id": str(task_id),
         "assignment_id": str(assignment_id),
         "peer_id": str(peer_id) if peer_id else None,
@@ -49,3 +53,12 @@ def assignment_payload(
         "assignment_status": assignment_status,
         "error": error,
     }
+    if terminal_reason is not None:
+        payload["terminal_reason"] = terminal_reason
+    if claim_generation is not None:
+        payload["claim_generation"] = claim_generation
+    if lease_expires_at is not None:
+        payload["lease_expires_at"] = lease_expires_at
+    if cancel_requested is not None:
+        payload["cancel_requested"] = cancel_requested
+    return payload

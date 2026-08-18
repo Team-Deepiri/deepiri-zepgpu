@@ -2,19 +2,34 @@
 
 from __future__ import annotations
 
+import contextlib
 from datetime import UTC, datetime
 from math import ceil
+from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from deepiri_zepgpu.api.server.dependencies import get_db_session, get_required_user
+from deepiri_zepgpu.api.server.provider_auth import (
+    issue_provider_token,
+    verify_provider_credentials,
+)
+from deepiri_zepgpu.api.server.remote_task_events import notify_remote_task_terminal_state
 from deepiri_zepgpu.api.server.room_events import emit_room_event
 from deepiri_zepgpu.api.server.websocket_manager import manager
+from deepiri_zepgpu.config import settings
 from deepiri_zepgpu.database.models import User
+from deepiri_zepgpu.database.models.task import Task, TaskStatus
 from deepiri_zepgpu.database.models.vpn_models import Peer, PeerOnlineStatus, VpnInvite, VpnNetwork
+from deepiri_zepgpu.database.repositories.node_task_repository import (
+    NodeTaskRepository,
+    is_lifecycle_noop,
+)
+from deepiri_zepgpu.rooms.capabilities import normalize_capabilities
+from deepiri_zepgpu.rooms.health import HealthAssessment, assess_provider_health
 from deepiri_zepgpu.rooms.mappers import (
     gpu_share_to_room_node_gpu_response,
     gpu_shares_to_room_pool_summary,
@@ -37,18 +52,28 @@ from deepiri_zepgpu.rooms.models import (
     RoomNodeGpuResponse,
     RoomNodeHeartbeatRequest,
     RoomNodeResponse,
+    RoomProviderRevokeResponse,
     RoomResponse,
 )
+from deepiri_zepgpu.rooms.path_obs import PathReport, build_path_report, record_path_metrics
+from deepiri_zepgpu.rooms.transport import InvalidTransportModeError
 from deepiri_zepgpu.vpn.config import vpn_settings
-from deepiri_zepgpu.vpn.crypto import encrypt_value
+from deepiri_zepgpu.vpn.crypto import decrypt_value, encrypt_value
 from deepiri_zepgpu.vpn.keygen import generate_keypair
+from deepiri_zepgpu.vpn.remote_gpu_lock import RemoteGpuLock
 from deepiri_zepgpu.vpn.repositories import (
     GpuShareRepository,
     PeerRepository,
     VpnInviteRepository,
     VpnNetworkRepository,
 )
-from deepiri_zepgpu.vpn.wg_config import allocate_vpn_ip, generate_peer_config
+from deepiri_zepgpu.vpn.wg_config import (
+    allocate_vpn_ip,
+    allowed_ips_for_cidr,
+    generate_peer_config,
+    generate_relay_config,
+    hub_endpoint_configured,
+)
 
 router = APIRouter(prefix="/rooms", tags=["GPU Rooms"])
 
@@ -141,7 +166,11 @@ async def create_room(
     relay_endpoint = vpn_settings.relay_host
     private_key, public_key = generate_keypair()
 
-    room_data = room_create_to_vpn_network_data(data)
+    try:
+        room_data = room_create_to_vpn_network_data(data)
+    except InvalidTransportModeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     network = await network_repo.create(
         **room_data,
         relay_endpoint=relay_endpoint,
@@ -303,29 +332,127 @@ async def get_room_node(
     return peer_to_room_node_response(peer)
 
 
+def _apply_heartbeat_identity(peer: Peer, data: RoomNodeHeartbeatRequest) -> None:
+    if data.agent_version is not None:
+        peer.agent_version = data.agent_version
+    if data.node_name is not None:
+        peer.node_name = data.node_name
+    if data.provider_mode is not None:
+        peer.provider_mode = data.provider_mode
+
+
+def _apply_heartbeat_capabilities(
+    peer: Peer, data: RoomNodeHeartbeatRequest, *, now: datetime
+) -> None:
+    caps_payload: dict = {}
+    if data.capabilities is not None:
+        caps_payload = data.capabilities.model_dump(exclude_none=True)
+    if data.gpu_status and "gpus" not in caps_payload:
+        caps_payload["gpus"] = [gpu.model_dump() for gpu in data.gpu_status]
+    if caps_payload or data.gpu_status:
+        normalized = normalize_capabilities(caps_payload, reported_at=now)
+        peer.capabilities_json = normalized
+        peer.capabilities_reported_at = now
+
+
+def _apply_heartbeat_path(
+    peer: Peer, data: RoomNodeHeartbeatRequest, *, now: datetime
+) -> PathReport | None:
+    path_input = data.path
+    rtt_ms = data.coordinator_rtt_ms
+    if path_input is not None and path_input.coordinator_rtt_ms is not None:
+        rtt_ms = path_input.coordinator_rtt_ms
+    if path_input is None and rtt_ms is None:
+        return None
+    report = build_path_report(
+        path_type=path_input.path_type if path_input else None,
+        path_class=path_input.path_class if path_input else None,
+        coordinator_rtt_ms=rtt_ms,
+        measurement_kind=path_input.measurement_kind if path_input else None,
+        p2p_rtt_ms=path_input.p2p_rtt_ms if path_input else None,
+        bandwidth_mbps=path_input.bandwidth_mbps if path_input else None,
+        now=now,
+    )
+    peer.path_type = report.path_type
+    peer.path_class = report.path_class
+    peer.coordinator_rtt_ms = report.coordinator_rtt_ms
+    peer.path_freshness_at = report.freshness_at
+    peer.path_measurement_kind = report.measurement_kind
+    return report
+
+
+async def _resolve_heartbeat_transport_mode(
+    network_repo: VpnNetworkRepository,
+    room_id: str,
+    peer: Peer,
+) -> str:
+    transport_mode = "wireguard"
+    try:
+        room = await network_repo.get_by_id(room_id)
+        if room is not None:
+            transport_mode = getattr(room, "transport_mode", None) or "wireguard"
+    except AttributeError:
+        # Unit tests may inject a non-SQLAlchemy session stub without .execute.
+        linked = getattr(peer, "vpn_network", None)
+        if linked is not None:
+            transport_mode = getattr(linked, "transport_mode", None) or "wireguard"
+    return transport_mode
+
+
+def _apply_heartbeat_health(peer: Peer, *, now: datetime) -> HealthAssessment:
+    min_agent = (settings.vpn.min_compatible_agent_version or "").strip() or None
+    assessment = assess_provider_health(
+        online_status=peer.online_status,
+        last_seen=peer.last_seen,
+        revoked_at=getattr(peer, "revoked_at", None),
+        agent_version=getattr(peer, "agent_version", None),
+        capabilities_reported_at=getattr(peer, "capabilities_reported_at", None),
+        recent_failures=int(getattr(peer, "recent_failures", 0) or 0),
+        last_claim_at=getattr(peer, "last_claim_at", None),
+        min_compatible_agent_version=min_agent,
+        heartbeat_timeout_seconds=vpn_settings.heartbeat_timeout_seconds,
+        now=now,
+    )
+    peer.health_state = assessment.state
+    peer.health_reason = assessment.reason
+    return assessment
+
+
+async def _upsert_heartbeat_gpus(
+    gpu_repo: GpuShareRepository,
+    *,
+    peer_id: str,
+    room_id: str,
+    gpu_status: list,
+) -> None:
+    for gpu in gpu_status:
+        await gpu_repo.upsert(
+            peer_id=peer_id,
+            vpn_network_id=room_id,
+            gpu_data=gpu.model_dump(),
+        )
+
+
 @router.post("/{room_id}/nodes/{peer_id}/heartbeat", response_model=RoomNodeResponse)
 async def room_node_heartbeat(
     room_id: str,
     peer_id: str,
     data: RoomNodeHeartbeatRequest,
-    user: User = Depends(get_required_user),
+    authorization: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db_session),
 ) -> RoomNodeResponse:
-    """Update room node heartbeat and GPU metrics."""
+    """Update room node heartbeat and GPU metrics (provider token auth)."""
 
-    network_repo = VpnNetworkRepository(db)
-    await _ensure_room_member(network_repo, str(user.id), room_id)
-
-    peer_repo = PeerRepository(db)
-    peer = await peer_repo.get_by_id(peer_id)
-    if not peer or str(peer.vpn_network_id) != str(room_id):
-        raise HTTPException(status_code=404, detail="Node not found")
-
-    if str(peer.user_id) != str(user.id):
-        raise HTTPException(status_code=403, detail="You cannot update this node")
+    peer = await verify_provider_credentials(
+        peer_id=peer_id,
+        authorization=authorization,
+        db=db,
+        room_id=room_id,
+    )
 
     was_online = peer.online_status == PeerOnlineStatus.ONLINE
 
+    peer_repo = PeerRepository(db)
     updated_peer = await peer_repo.heartbeat(
         peer_id=peer_id,
         is_online=data.is_online,
@@ -335,13 +462,32 @@ async def room_node_heartbeat(
     if not updated_peer:
         raise HTTPException(status_code=404, detail="Node not found")
 
-    gpu_repo = GpuShareRepository(db)
-    for gpu in data.gpu_status:
-        await gpu_repo.upsert(
+    _apply_heartbeat_identity(updated_peer, data)
+
+    now = datetime.now(UTC)
+    _apply_heartbeat_capabilities(updated_peer, data, now=now)
+    report = _apply_heartbeat_path(updated_peer, data, now=now)
+
+    network_repo = VpnNetworkRepository(db)
+    transport_mode = await _resolve_heartbeat_transport_mode(network_repo, room_id, updated_peer)
+    assessment = _apply_heartbeat_health(updated_peer, now=now)
+
+    await db.commit()
+    await db.refresh(updated_peer)
+
+    if report is not None:
+        record_path_metrics(
+            room_id=room_id,
             peer_id=peer_id,
-            vpn_network_id=room_id,
-            gpu_data=gpu.model_dump(),
+            transport_mode=transport_mode,
+            report=report,
+            health_state=assessment.state,
         )
+
+    gpu_repo = GpuShareRepository(db)
+    await _upsert_heartbeat_gpus(
+        gpu_repo, peer_id=peer_id, room_id=room_id, gpu_status=data.gpu_status
+    )
 
     refreshed_peer = await peer_repo.get_by_id(peer_id)
     if not refreshed_peer:
@@ -359,6 +505,18 @@ async def room_node_heartbeat(
     elif data.is_online:
         await emit_room_event(room_id, "room_node_online", node_payload)
 
+    await emit_room_event(
+        room_id,
+        "room_node_health",
+        {
+            "peer_id": peer_id,
+            "health_state": assessment.state,
+            "health_reason": assessment.reason,
+            "path": node_payload.get("path"),
+            "capabilities": node_payload.get("capabilities"),
+        },
+    )
+
     if data.gpu_status:
         await emit_room_event(
             room_id,
@@ -373,6 +531,88 @@ async def room_node_heartbeat(
         )
 
     return peer_to_room_node_response(refreshed_peer)
+
+
+@router.post(
+    "/{room_id}/nodes/{peer_id}/revoke",
+    response_model=RoomProviderRevokeResponse,
+)
+async def revoke_room_provider(  # noqa: C901
+    room_id: str,
+    peer_id: str,
+    user: User = Depends(get_required_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> RoomProviderRevokeResponse:
+    """Host/admin: revoke a provider's membership and credentials."""
+
+    network_repo = VpnNetworkRepository(db)
+    room = await _ensure_room_member(network_repo, str(user.id), room_id)
+    await _ensure_room_host(room, str(user.id))
+
+    peer_repo = PeerRepository(db)
+    peer = await peer_repo.get_by_id(peer_id)
+    if not peer or str(peer.vpn_network_id) != str(room_id):
+        raise HTTPException(status_code=404, detail="Node not found")
+
+    if peer.revoked_at is not None:
+        raise HTTPException(status_code=409, detail="Provider is already revoked")
+
+    if room.host_id is not None and str(peer.user_id) == str(room.host_id):
+        raise HTTPException(status_code=409, detail="Cannot revoke the room host")
+
+    task_repo = NodeTaskRepository(db)
+    active = await task_repo.list_active_for_peer(peer_id=peer_id)
+    failed_count = 0
+    for assignment in active:
+        failed = await task_repo.mark_failed(
+            assignment_id=str(assignment.id),
+            peer_id=peer_id,
+            error="Provider revoked by room host",
+        )
+        if failed is None:
+            continue
+        if is_lifecycle_noop(failed):
+            continue
+        failed_count += 1
+        task = await db.get(Task, failed.task_id)
+        if task is not None and task.status not in {
+            TaskStatus.COMPLETED,
+            TaskStatus.FAILED,
+            TaskStatus.CANCELLED,
+        }:
+            task.status = TaskStatus.FAILED
+            task.error = "Provider revoked by room host"
+        if failed.gpu_share_id:
+            with contextlib.suppress(Exception):
+                RemoteGpuLock().release(str(failed.gpu_share_id), str(failed.task_id))
+        if task is not None:
+            await notify_remote_task_terminal_state(task=task, assignment=failed)
+
+    gpu_repo = GpuShareRepository(db)
+    await gpu_repo.deactivate_peer_gpus(peer_id)
+    revoked = await peer_repo.revoke_provider(peer)
+
+    # Eager-load shares so the mapper never touches the dynamic gpu_shares
+    # relationship (async MissingGreenlet).
+    shares = await gpu_repo.list_by_peer(peer_id)
+    revoked._room_gpu_shares = [  # type: ignore[attr-defined]
+        share for share in shares if str(share.vpn_network_id) == str(room_id)
+    ]
+    node_payload = peer_to_room_node_response(revoked).model_dump(mode="json")
+    await emit_room_event(room_id, "room_node_offline", node_payload)
+    await emit_room_event(
+        room_id,
+        "room_provider_revoked",
+        {"peer_id": peer_id, "failed_assignments": failed_count},
+    )
+
+    assert revoked.revoked_at is not None
+    return RoomProviderRevokeResponse(
+        peer_id=UUID(str(revoked.id)),
+        room_id=UUID(str(room_id)),
+        revoked_at=revoked.revoked_at,
+        failed_assignments=failed_count,
+    )
 
 
 @router.get("/{room_id}/nodes/{peer_id}/gpus", response_model=list[RoomNodeGpuResponse])
@@ -561,9 +801,25 @@ async def join_room(
         is_gpu_host=False,
     )
 
+    if data.node_name:
+        peer.node_name = data.node_name
+    provider_mode = data.provider_mode or settings.vpn.default_provider_mode
+    peer.provider_mode = provider_mode
+    await db.commit()
+    await db.refresh(peer)
+
+    auth_token = await issue_provider_token(
+        peer_repo,
+        peer,
+        provider_mode=provider_mode,
+    )
+    refreshed = await peer_repo.get_by_id(str(peer.id))
+    if refreshed is None:
+        raise HTTPException(status_code=500, detail="Failed to provision provider credentials")
+
     await invite_repo.use(invite)
 
-    member = peer_to_room_member_response(peer)
+    member = peer_to_room_member_response(refreshed)
     await manager.grant_room_membership(str(user.id), str(room.id))
     await emit_room_event(
         str(room.id),
@@ -575,6 +831,9 @@ async def join_room(
         room=vpn_network_to_room_response(room),
         member=member,
         config_available=True,
+        auth_token=auth_token,
+        token_expires_at=refreshed.token_expires_at,
+        heartbeat_interval_seconds=vpn_settings.heartbeat_interval_seconds,
     )
 
 
@@ -594,24 +853,102 @@ async def get_room_config(
     if not peer:
         raise HTTPException(status_code=404, detail="Room config is not available yet")
 
+    transport_mode = getattr(room, "transport_mode", None) or "wireguard"
     private_key = await peer_repo.get_private_key(peer)
-    if not private_key:
-        raise HTTPException(status_code=404, detail="Room config is not available yet")
-
-    config_text = generate_peer_config(
-        vpn_ip=peer.vpn_ip,
-        private_key=private_key,
-        relay_public_key=room.relay_public_key or "",
-        relay_endpoint=f"{room.relay_endpoint}:{room.listen_port}",
-    )
+    hub_ok = hub_endpoint_configured(relay_host=room.relay_endpoint, listen_port=room.listen_port)
+    if transport_mode == "wireguard":
+        if not private_key:
+            raise HTTPException(status_code=404, detail="Room config is not available yet")
+        config_text = generate_peer_config(
+            vpn_ip=peer.vpn_ip,
+            private_key=private_key,
+            relay_public_key=room.relay_public_key or "",
+            relay_endpoint=f"{room.relay_endpoint}:{room.listen_port}",
+            allowed_ips=allowed_ips_for_cidr(room.cidr),
+        )
+        filename = None
+    elif transport_mode == "overlay":
+        config_text = (
+            "# overlay room — no WireGuard config\n"
+            "# Data plane: iroh/quic UDP with coordinator HTTP relay fallback.\n"
+            "# coordinator: join via zepgpu-node; overlay_backend=iroh\n"
+        )
+        filename = f"room-{room_id}-overlay.txt"
+    else:
+        config_text = (
+            "# dial-out room — outbound HTTPS/WSS only\n"
+            "# No WireGuard UDP or inbound ports required.\n"
+            "# Use: zepgpu-node join --invite <code> --provider-mode dialout\n"
+        )
+        filename = f"room-{room_id}-dialout.txt"
 
     response = peer_config_to_room_config_response(
         room_id=UUID(str(room_id)),
         peer_id=UUID(str(peer.id)),
         config_text=config_text,
+        filename=filename,
+        transport_mode=transport_mode,
     )
-    response.auth_token = await peer_repo.get_or_create_auth_token(peer)
+    response.vpn_ip = peer.vpn_ip
+    response.hub_reachable = hub_ok if transport_mode == "wireguard" else False
+    response.overlay_backend = "iroh" if transport_mode == "overlay" else None
+    if getattr(peer, "revoked_at", None) is not None:
+        raise HTTPException(status_code=403, detail="Provider has been revoked")
+    try:
+        response.auth_token = await peer_repo.get_or_create_auth_token(peer)
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    refreshed = await peer_repo.get_by_id(str(peer.id))
+    response.token_expires_at = (
+        getattr(refreshed, "token_expires_at", None)
+        if refreshed
+        else getattr(peer, "token_expires_at", None)
+    )
     return response
+
+
+@router.get("/{room_id}/hub-config")
+async def get_room_hub_config(
+    room_id: str,
+    user: User = Depends(get_required_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> dict[str, Any]:
+    """Host-only WireGuard hub config regenerated from live (non-revoked) peers."""
+
+    network_repo = VpnNetworkRepository(db)
+    room = await _ensure_room_member(network_repo, str(user.id), room_id)
+    if str(room.host_id) != str(user.id):
+        raise HTTPException(status_code=403, detail="Only the room host can fetch hub config")
+    transport_mode = getattr(room, "transport_mode", None) or "wireguard"
+    if transport_mode != "wireguard":
+        raise HTTPException(status_code=409, detail="Hub config is WireGuard rooms only")
+    if not room.private_key_encrypted:
+        raise HTTPException(status_code=404, detail="Hub private key is not available")
+    peer_repo = PeerRepository(db)
+    all_peers = await peer_repo.get_by_network(room_id)
+    live = [
+        item
+        for item in all_peers
+        if getattr(item, "revoked_at", None) is None and not item.is_relay
+    ]
+    relay_peer = next((item for item in all_peers if item.is_relay), None)
+    hub_ip = relay_peer.vpn_ip if relay_peer and relay_peer.vpn_ip else "10.8.0.1"
+    hub_conf = generate_relay_config(
+        vpn_ip=hub_ip,
+        private_key=decrypt_value(room.private_key_encrypted),
+        listen_port=room.listen_port,
+        peers=[(item.wireguard_public_key, item.vpn_ip) for item in live],
+        allowed_ips=allowed_ips_for_cidr(room.cidr),
+    )
+    return {
+        "transport_mode": "wireguard",
+        "hub_reachable": hub_endpoint_configured(
+            relay_host=room.relay_endpoint, listen_port=room.listen_port
+        ),
+        "peer_count": len(live),
+        "config": hub_conf,
+        "cidr": room.cidr,
+    }
 
 
 async def _attach_room_gpu_shares(

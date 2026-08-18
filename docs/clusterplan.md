@@ -240,13 +240,14 @@ deepiri_zepgpu/vpn/
 - `GpuPool` class: aggregates local + remote GPUs
 - `RemoteGPUDevice` dataclass: wraps remote GPU info
 - Scheduler calls `gpu_manager.get_available_device()` spans local + remote
-- For remote execution: `TaskRouter` sends task payload to peer via REST over WireGuard VPN
+- The legacy WireGuard `TaskRouter` accepts only authenticated, room-scoped allowlisted messages;
+  arbitrary callable execution is unsupported. Normal room execution uses node-task assignments.
 
 **4.2 Task routing**
 - Task arrives at relay scheduler
 - If local GPU available → execute locally (existing flow)
-- If remote GPU available → serialize task, send to peer endpoint
-- Peer executes via local executor → returns result
+- If remote GPU available → create a room-scoped node-task assignment
+- The authenticated provider agent claims the assignment and returns a primitive result
 - Relay stores result and notifies user
 
 **4.3 GPU allocation tracking**
@@ -257,16 +258,16 @@ deepiri_zepgpu/vpn/
 
 **5.1 Task receiver on peer**
 - Lightweight HTTP server on port 9092
-- `POST /execute` - receive task payload
-- Auth via relay token
-- Execute via local `TaskExecutor`
-- Return result to relay
+- `POST /execute` - compatibility diagnostic endpoint for a fixed no-op message
+- Sender-specific bearer authentication and HMAC integrity are required
+- Pickle/base64 callable payloads are rejected without fallback
+- Supported work is delivered through the authenticated node-task workflow
 
 **5.2 Security**
-- Peers only accept connections from relay IP
-- Task functions run in sandbox (existing `sandbox.py`)
-- Network isolated except relay connection
-- Relay validates peer identity before routing
+- Peers accept only configured sender-specific bearer credentials
+- Every request and response is room/sender/recipient scoped and HMAC protected
+- The compatibility endpoint exposes only a fixed diagnostic no-op; it runs no submitted code
+- Replay, expiry, duplicate task, malformed JSON, and oversized-message checks fail closed
 
 ### Phase 6: Frontend (zepgpu-ui)
 
@@ -334,7 +335,7 @@ deepiri_zepgpu/vpn/
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| POST | `/execute` | Execute remote GPU task |
+| POST | `/execute` | Authenticated fixed no-op compatibility diagnostic |
 | GET | `/health` | Health check |
 | GET | `/gpu/status` | Local GPU status |
 
@@ -374,19 +375,19 @@ class VPNSettings(BaseSettings):
 - Invite-based auth built into the relay
 - Simplifies peer-to-peer task routing (relay decides allocation)
 
-### Why REST over WireGuard for task execution?
+### Why authenticated REST over WireGuard for compatibility diagnostics?
 - WireGuard creates a full VPN tunnel — all traffic routes through it
 - Peers get a VPN IP (e.g. 10.8.0.3), relay gets 10.8.0.1
-- Task payloads sent via HTTP over the VPN (e.g. `curl http://10.8.0.3:9092/execute`)
-- No custom protocol needed — simple, debuggable, standard
+- Strict JSON diagnostic messages are sent over the VPN; generic work uses node-task assignments
+- The application protocol adds HMAC integrity, sender credentials, scope, expiry, and replay protection
 
 ### Security model
-- Relay authenticates peers via WireGuard public key
+- Relay authenticates peers, and peer endpoints require sender-specific application credentials
 - Friends list provides social authorization layer
 - Invite codes are single-use with expiry
-- Task functions are sandboxed (existing Docker sandbox)
-- Network isolated on task execution containers
-- Peers can only execute tasks routed by relay
+- The compatibility peer endpoint never executes submitted task functions
+- Arbitrary callable/base64/pickle messages are rejected for every transport mode
+- Supported remote work uses authenticated, room-scoped node-task assignments
 
 ---
 

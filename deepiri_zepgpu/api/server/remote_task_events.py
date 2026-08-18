@@ -5,11 +5,10 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import httpx
-
 from deepiri_zepgpu.api.server.websocket_manager import manager
 from deepiri_zepgpu.database.models.node_task_assignment import NodeTaskAssignment
 from deepiri_zepgpu.database.models.task import Task
+from deepiri_zepgpu.security.callbacks import deliver_callback
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +34,7 @@ def build_remote_task_update_payload(
             if hasattr(assignment.status, "value")
             else str(assignment.status)
         ),
+        "terminal_reason": getattr(assignment, "terminal_reason", None),
         "result_ref": task.result_ref,
         "result_size_bytes": task.result_size_bytes,
         "remote_result": metadata.get("remote_result"),
@@ -72,14 +72,14 @@ async def send_remote_task_callback(
     task: Task,
     assignment: NodeTaskAssignment,
 ) -> None:
-    """Send task callback webhook when a remote task reaches a terminal state."""
+    """Send a terminal-state callback through the centralized safe delivery path."""
     if not task.callback_url:
         return
+
     payload = build_remote_task_update_payload(task=task, assignment=assignment)
+
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(str(task.callback_url), json=payload)
-            response.raise_for_status()
+        await deliver_callback(str(task.callback_url), payload)
     except Exception:
         logger.exception("Failed to send remote task callback: %s", task.id)
 

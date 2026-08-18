@@ -35,6 +35,9 @@ venv/
 ENV/
 env/
 
+# Local toolchains (e.g. extracted CPython for torch-compatible envs)
+.tools/
+
 # IDE
 .vscode/
 .idea/
@@ -52,6 +55,9 @@ env/
 .env
 .env.local
 .env.*.local
+.env.prod
+docker/.env.prod
+**/.env.prod
 
 # OS
 .DS_Store

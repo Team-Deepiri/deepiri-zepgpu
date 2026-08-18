@@ -130,7 +130,7 @@ Tasks with strict deadlines are prioritized over best-effort tasks.
 - CPU fallback when GPU unavailable
 
 ### Container Limits
-- Memory limits (--memory)
+- Host-memory limits (`--memory`) use `container_memory_mb`, never requested GPU VRAM
 - CPU limits (--cpus)
 - GPU device access (--gpus)
 

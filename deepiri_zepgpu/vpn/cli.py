@@ -70,13 +70,34 @@ def is_macos() -> bool:
     return platform.system() == "Darwin"
 
 
-def apply_wireguard_config(config_text: str, interface: str = "wg0") -> bool:
-    """Apply WireGuard config to the system."""
+def is_windows() -> bool:
+    return platform.system() == "Windows"
+
+
+def export_wireguard_config(config_text: str, interface: str = "wg0") -> Path:
+    """Write a .conf for wg-quick or Windows WireGuard app import. Never silent-mock."""
+
     config_dir = get_config_dir()
     conf_path = config_dir / f"{interface}.conf"
-
-    conf_path.write_text(config_text)
+    conf_path.write_text(config_text, encoding="utf-8")
     os.chmod(conf_path, 0o600)
+    return conf_path
+
+
+def windows_import_instructions(conf_path: Path) -> str:
+    return (
+        "WireGuard cannot be applied from the CLI on Windows. Import the config, then serve:\n"
+        f"  1. Install WireGuard from https://www.wireguard.com/install/\n"
+        f"  2. Open WireGuard → Add Tunnel → Import tunnel(s) from file\n"
+        f"  3. Select: {conf_path}\n"
+        "  4. Activate the tunnel, then run: zepgpu-node serve --enable-task-worker\n"
+        "Logout does not remove a Windows app tunnel; deactivate it in WireGuard if needed."
+    )
+
+
+def apply_wireguard_config(config_text: str, interface: str = "wg0") -> bool:
+    """Apply WireGuard config to the system."""
+    conf_path = export_wireguard_config(config_text, interface=interface)
 
     if is_linux():
         result = subprocess.run(
@@ -110,11 +131,7 @@ def apply_wireguard_config(config_text: str, interface: str = "wg0") -> bool:
         return True
 
     else:
-        print(
-            "WireGuard on Windows not yet supported via CLI. Please import the .conf file manually.",
-            file=sys.stderr,
-        )
-        print(f"Config saved to: {conf_path}", file=sys.stderr)
+        print(windows_import_instructions(conf_path), file=sys.stderr)
         return False
 
 

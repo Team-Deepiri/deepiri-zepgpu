@@ -1,0 +1,3 @@
+# Optional Apple/MLX extra (deepiri_zepgpu.training.mlx_worker).
+# Install: poetry install --extras mlx   or   pip install -r requirements-mlx.txt
+mlx>=0.18.0; sys_platform == "darwin"

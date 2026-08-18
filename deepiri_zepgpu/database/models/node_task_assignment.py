@@ -27,6 +27,34 @@ class NodeAssignmentStatus(str, enum.Enum):
     CANCELLED = "cancelled"
 
 
+class NodeTerminalReason(str, enum.Enum):
+    """Deterministic first-wins terminal cause for an assignment."""
+
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    LEASE_EXPIRED = "lease_expired"
+    ACCEPTED_TIMEOUT = "accepted_timeout"
+    RUNNING_TIMEOUT = "running_timeout"
+
+
+TERMINAL_STATUSES = frozenset(
+    {
+        NodeAssignmentStatus.COMPLETED,
+        NodeAssignmentStatus.FAILED,
+        NodeAssignmentStatus.CANCELLED,
+    }
+)
+
+ACTIVE_STATUSES = frozenset(
+    {
+        NodeAssignmentStatus.ASSIGNED,
+        NodeAssignmentStatus.ACCEPTED,
+        NodeAssignmentStatus.RUNNING,
+    }
+)
+
+
 class NodeTaskAssignment(UUIDMixin, TimestampMixin, Base):
     """Maps a task to a room GPU share on a specific peer."""
 
@@ -70,6 +98,16 @@ class NodeTaskAssignment(UUIDMixin, TimestampMixin, Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    claim_generation: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    terminal_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    cancel_requested_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
@@ -79,6 +117,14 @@ class NodeTaskAssignment(UUIDMixin, TimestampMixin, Base):
         back_populates="assignment",
         lazy="selectin",
     )
+
+    @property
+    def is_terminal(self) -> bool:
+        return self.status in TERMINAL_STATUSES
+
+    @property
+    def cancel_requested(self) -> bool:
+        return self.cancel_requested_at is not None
 
 
 class NodeTaskEvent(UUIDMixin, Base):

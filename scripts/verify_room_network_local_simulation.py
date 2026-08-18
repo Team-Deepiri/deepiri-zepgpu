@@ -1,4 +1,9 @@
-"""End-to-end local room-network simulation gate for Phase 10."""
+"""End-to-end local room-network simulation gate for Phase 10 (+ 12–14 control plane).
+
+Phases 12–14 extensions: dial-out transport_mode, provider-token heartbeat with
+capabilities/path, claim/lease fields, and host revoke. For the full 12–14 matrix
+see scripts/verify_phases_12_14_local.py.
+"""
 
 from __future__ import annotations
 
@@ -19,6 +24,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--base-url", default="http://127.0.0.1:8000")
     parser.add_argument("--password", default="local-simulation-password")
     parser.add_argument("--timeout", type=float, default=30.0)
+    parser.add_argument(
+        "--transport-mode",
+        default="dialout",
+        choices=("dialout", "wireguard", "overlay"),
+        help="Room transport mode for this gate (default: dialout)",
+    )
     return parser.parse_args()
 
 
@@ -101,11 +112,20 @@ async def run_gate(args: argparse.Namespace) -> None:
         room_response = await client.post(
             "/api/v1/rooms",
             headers=auth_headers(owner_token),
-            json={"name": f"Local Simulation {suffix}", "description": "Phase 10 gate"},
+            json={
+                "name": f"Local Simulation {suffix}",
+                "description": "Phase 10–14 gate",
+                "transport_mode": args.transport_mode,
+            },
         )
         room_response.raise_for_status()
-        room_id = str(room_response.json()["id"])
-        print(f"[PASS] room creation ({room_id})")
+        room_body = dict(room_response.json())
+        room_id = str(room_body["id"])
+        require(
+            room_body.get("transport_mode") == args.transport_mode,
+            f"Room transport_mode != {args.transport_mode}",
+        )
+        print(f"[PASS] room creation ({room_id}, mode={args.transport_mode})")
 
         invite_response = await client.post(
             f"/api/v1/rooms/{room_id}/invites",
@@ -113,36 +133,62 @@ async def run_gate(args: argparse.Namespace) -> None:
             json={"max_uses": 1},
         )
         invite_response.raise_for_status()
-        invite_code = str(invite_response.json()["code"])
+        invite_body = dict(invite_response.json())
+        invite_code = str(invite_body["code"])
+        require(bool(invite_body.get("join_command")), "Invite missing join_command")
         print("[PASS] invite creation")
 
         join_response = await client.post(
             "/api/v1/rooms/join",
             headers=auth_headers(provider_token),
-            json={"invite_code": invite_code},
+            json={
+                "invite_code": invite_code,
+                "node_name": "simulation-provider",
+                "provider_mode": "dialout" if args.transport_mode == "dialout" else "wireguard",
+            },
         )
         join_response.raise_for_status()
-        peer_id = str(join_response.json()["member"]["id"])
-
-        config_response = await client.get(
-            f"/api/v1/rooms/{room_id}/config", headers=auth_headers(provider_token)
-        )
-        config_response.raise_for_status()
-        peer_token = config_response.json().get("auth_token")
-        require(bool(peer_token), "Room config did not provide a node-agent auth token")
-        print(f"[PASS] invited provider joined ({peer_id})")
+        join_body = dict(join_response.json())
+        peer_id = str(join_body["member"]["id"])
+        peer_token = join_body.get("auth_token")
+        if not peer_token:
+            config_response = await client.get(
+                f"/api/v1/rooms/{room_id}/config", headers=auth_headers(provider_token)
+            )
+            config_response.raise_for_status()
+            peer_token = config_response.json().get("auth_token")
+        require(bool(peer_token), "Join/config did not provide a provider auth token")
+        peer_token = str(peer_token)
+        print(f"[PASS] invited provider joined with provider token ({peer_id})")
 
         heartbeat = await client.post(
             f"/api/v1/rooms/{room_id}/nodes/{peer_id}/heartbeat",
-            headers=auth_headers(provider_token),
+            headers=auth_headers(peer_token),
             json={
                 "is_online": True,
                 "endpoint": "simulation://local-provider",
+                "agent_version": "0.2.0",
+                "node_name": "simulation-provider",
+                "provider_mode": "dialout" if args.transport_mode == "dialout" else "wireguard",
                 "gpu_status": build_fake_gpu_payload(FakeGpuConfig(gpu_count=1)),
+                "capabilities": {
+                    "runtime": {"cuda_version": "12.1", "pytorch_version": "2.3.0"},
+                    "topology": {"nvlink": "unavailable"},
+                },
+                "path": {
+                    "path_type": "direct",
+                    "path_class": "same_host",
+                    "coordinator_rtt_ms": 5.0,
+                    "measurement_kind": "measured",
+                },
+                "coordinator_rtt_ms": 5.0,
             },
         )
         heartbeat.raise_for_status()
-        require(heartbeat.json().get("is_online") is True, "Provider did not become online")
+        hb_body = dict(heartbeat.json())
+        require(hb_body.get("is_online") is True, "Provider did not become online")
+        require(hb_body.get("health_state"), "Heartbeat missing health_state")
+        require(hb_body.get("path"), "Heartbeat missing path")
 
         nodes = await client.get(
             f"/api/v1/rooms/{room_id}/nodes", headers=auth_headers(owner_token)
@@ -160,7 +206,7 @@ async def run_gate(args: argparse.Namespace) -> None:
         )
         pool.raise_for_status()
         require(pool.json().get("available_gpus", 0) >= 1, "GPU pool has no available GPU")
-        print("[PASS] simulated heartbeat and GPU pool summary")
+        print("[PASS] provider-token heartbeat, capabilities/path, and GPU pool summary")
 
         task_response = await client.post(
             "/api/v1/tasks",
@@ -182,7 +228,7 @@ async def run_gate(args: argparse.Namespace) -> None:
 
         pending = await client.get(
             f"/api/v1/node-tasks/rooms/{room_id}/nodes/{peer_id}/tasks/pending",
-            headers=auth_headers(str(peer_token)),
+            headers=auth_headers(peer_token),
         )
         pending.raise_for_status()
         require(
@@ -190,13 +236,18 @@ async def run_gate(args: argparse.Namespace) -> None:
             "Assignment was not visible to the provider",
         )
 
-        accepted = await post_lifecycle(client, str(peer_token), peer_id, assignment_id, "accept")
-        accepted_retry = await post_lifecycle(
-            client, str(peer_token), peer_id, assignment_id, "accept"
+        claimed = await post_lifecycle(client, peer_token, peer_id, assignment_id, "claim")
+        claimed_retry = await post_lifecycle(client, peer_token, peer_id, assignment_id, "claim")
+        require(claimed_retry["status"] == claimed["status"], "Claim retry was not idempotent")
+        require(
+            claimed.get("lease_expires_at") is not None or claimed.get("claimed_at") is not None,
+            "Claim missing lease fields",
         )
-        require(accepted_retry["status"] == accepted["status"], "Accept retry was not idempotent")
-        await post_lifecycle(client, str(peer_token), peer_id, assignment_id, "start")
-        await post_lifecycle(client, str(peer_token), peer_id, assignment_id, "start")
+        # accept remains an alias for claim
+        accepted = await post_lifecycle(client, peer_token, peer_id, assignment_id, "accept")
+        require(accepted["status"] == claimed["status"], "Accept alias diverged from claim")
+        await post_lifecycle(client, peer_token, peer_id, assignment_id, "start")
+        await post_lifecycle(client, peer_token, peer_id, assignment_id, "start")
         result_metadata = {
             "kind": "noop",
             "status": "ok",
@@ -205,7 +256,7 @@ async def run_gate(args: argparse.Namespace) -> None:
         }
         await post_lifecycle(
             client,
-            str(peer_token),
+            peer_token,
             peer_id,
             assignment_id,
             "complete",
@@ -213,7 +264,7 @@ async def run_gate(args: argparse.Namespace) -> None:
         )
         await post_lifecycle(
             client,
-            str(peer_token),
+            peer_token,
             peer_id,
             assignment_id,
             "complete",
@@ -231,7 +282,20 @@ async def run_gate(args: argparse.Namespace) -> None:
         )
         result.raise_for_status()
         require(result.json().get("result_metadata", {}).get("kind") == "noop", "Result missing")
-        print("[PASS] node-agent completion, polling update, and result visibility")
+        print("[PASS] claim/lease, completion, polling update, and result visibility")
+
+        revoke = await client.post(
+            f"/api/v1/rooms/{room_id}/nodes/{peer_id}/revoke",
+            headers=auth_headers(owner_token),
+        )
+        revoke.raise_for_status()
+        hb_revoked = await client.post(
+            f"/api/v1/rooms/{room_id}/nodes/{peer_id}/heartbeat",
+            headers=auth_headers(peer_token),
+            json={"is_online": True, "gpu_status": []},
+        )
+        require(hb_revoked.status_code in {401, 403}, "Revoked provider must fail heartbeat")
+        print("[PASS] host revoke stops provider heartbeat")
 
         vpn_networks = await client.get("/api/v1/vpn/networks", headers=auth_headers(owner_token))
         vpn_networks.raise_for_status()

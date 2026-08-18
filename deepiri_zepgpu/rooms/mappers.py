@@ -14,15 +14,24 @@ from deepiri_zepgpu.database.models.vpn_models import (
     VpnInvite,
     VpnNetwork,
 )
+from deepiri_zepgpu.rooms.capabilities import summarize_capabilities
 from deepiri_zepgpu.rooms.models import (
     RoomConnectionConfigResponse,
     RoomCreateRequest,
     RoomGpuPoolSummary,
     RoomInviteResponse,
     RoomMemberResponse,
+    RoomNodeCapabilitiesSummary,
     RoomNodeGpuResponse,
+    RoomNodePathResponse,
     RoomNodeResponse,
     RoomResponse,
+)
+from deepiri_zepgpu.rooms.path_obs import MEASUREMENT_MEASURED
+from deepiri_zepgpu.rooms.transport import (
+    is_experimental_transport,
+    requires_wireguard_udp,
+    resolve_default_transport_mode,
 )
 
 
@@ -48,6 +57,10 @@ def _optional_uuid_value(value: Any) -> UUID | None:
     return _uuid_value(value)
 
 
+def _network_transport_mode(network: VpnNetwork) -> str:
+    return getattr(network, "transport_mode", None) or "wireguard"
+
+
 def vpn_network_to_room_response(
     network: VpnNetwork,
     host_id: UUID | None = None,
@@ -55,6 +68,7 @@ def vpn_network_to_room_response(
     """Convert an internal VpnNetwork into a room-facing response."""
 
     resolved_host_id = host_id if host_id is not None else getattr(network, "host_id", None)
+    transport_mode = _network_transport_mode(network)
 
     return RoomResponse(
         id=_uuid_value(network.id),
@@ -62,6 +76,9 @@ def vpn_network_to_room_response(
         description=None,
         host_id=_optional_uuid_value(resolved_host_id),
         status="active" if network.is_active else "archived",
+        transport_mode=transport_mode,
+        transport_experimental=is_experimental_transport(transport_mode),
+        requires_wireguard_udp=requires_wireguard_udp(transport_mode),
         created_at=network.created_at,
         updated_at=getattr(network, "updated_at", None),
     )
@@ -81,6 +98,42 @@ def peer_to_room_member_response(peer: Peer) -> RoomMemberResponse:
         status=_room_member_status(peer.online_status),
         joined_at=getattr(peer, "created_at", None),
         last_seen_at=peer.last_seen,
+    )
+
+
+def _peer_capabilities_summary(peer: Peer) -> RoomNodeCapabilitiesSummary | None:
+    caps = getattr(peer, "capabilities_json", None)
+    if not caps and not getattr(peer, "capabilities_reported_at", None):
+        return None
+    summary = summarize_capabilities(caps if isinstance(caps, dict) else None)
+    reported = summary.get("reported_at") or getattr(peer, "capabilities_reported_at", None)
+    return RoomNodeCapabilitiesSummary(
+        gpu_count=int(summary.get("gpu_count") or 0),
+        reported_at=reported,
+        cuda_version=summary.get("cuda_version"),
+        pytorch_version=summary.get("pytorch_version"),
+        driver_version=summary.get("driver_version"),
+        runtime=dict(summary.get("runtime") or {}),
+        topology=dict(summary.get("topology") or {}),
+    )
+
+
+def _peer_path_response(peer: Peer) -> RoomNodePathResponse | None:
+    path_type = getattr(peer, "path_type", None)
+    path_class = getattr(peer, "path_class", None)
+    rtt = getattr(peer, "coordinator_rtt_ms", None)
+    kind = getattr(peer, "path_measurement_kind", None)
+    freshness = getattr(peer, "path_freshness_at", None)
+    if not any((path_type, path_class, rtt is not None, kind, freshness)):
+        return None
+    measurement_kind = kind or "estimated"
+    return RoomNodePathResponse(
+        path_type=path_type or "unknown",
+        path_class=path_class or "wan",
+        coordinator_rtt_ms=rtt,
+        measurement_kind=measurement_kind,
+        freshness_at=freshness,
+        is_measured=measurement_kind == MEASUREMENT_MEASURED,
     )
 
 
@@ -108,6 +161,16 @@ def peer_to_room_node_response(peer: Peer) -> RoomNodeResponse:
         available_gpu_count=sum(1 for share in active_shares if _enum_value(share.state) == "idle"),
         total_memory_mb=sum(share.total_memory_mb for share in active_shares),
         available_memory_mb=sum(share.available_memory_mb for share in active_shares),
+        node_name=getattr(peer, "node_name", None),
+        agent_version=getattr(peer, "agent_version", None),
+        provider_mode=getattr(peer, "provider_mode", None),
+        revoked_at=getattr(peer, "revoked_at", None),
+        health_state=getattr(peer, "health_state", None),
+        health_reason=getattr(peer, "health_reason", None),
+        last_claim_at=getattr(peer, "last_claim_at", None),
+        recent_failures=int(getattr(peer, "recent_failures", 0) or 0),
+        capabilities=_peer_capabilities_summary(peer),
+        path=_peer_path_response(peer),
     )
 
 
@@ -126,6 +189,8 @@ def gpu_share_to_room_node_gpu_response(share: GpuShare) -> RoomNodeGpuResponse:
         gpu_type=share.gpu_type,
         state=_enum_value(share.state),
         utilization_percent=share.utilization_percent,
+        temperature_celsius=getattr(share, "temperature_celsius", None),
+        power_watts=getattr(share, "power_watts", None),
         is_active=share.is_active,
         last_updated=_gpu_share_last_updated(share),
     )
@@ -184,9 +249,22 @@ def gpu_shares_to_room_pool_summary(
     )
 
 
-def vpn_invite_to_room_invite_response(invite: VpnInvite) -> RoomInviteResponse:
+def build_invite_join_command(code: str, coordinator_url: str) -> str:
+    """One-line provider join command for invite copy/UI."""
+
+    return f"zepgpu-node join --invite {code} --coordinator {coordinator_url.rstrip('/')}"
+
+
+def vpn_invite_to_room_invite_response(
+    invite: VpnInvite,
+    *,
+    coordinator_url: str | None = None,
+) -> RoomInviteResponse:
     """Convert an internal VPN invite into a room invite response."""
 
+    from deepiri_zepgpu.config import settings
+
+    url = (coordinator_url or settings.api.coordinator_public_url).rstrip("/")
     return RoomInviteResponse(
         id=_uuid_value(invite.id),
         room_id=_uuid_value(invite.vpn_network_id),
@@ -197,14 +275,18 @@ def vpn_invite_to_room_invite_response(invite: VpnInvite) -> RoomInviteResponse:
         use_count=invite.used_count,
         is_revoked=invite.is_revoked,
         created_at=invite.created_at,
+        coordinator_url=url,
+        join_command=build_invite_join_command(invite.code, url),
     )
 
 
 def room_create_to_vpn_network_data(request: RoomCreateRequest) -> dict[str, Any]:
     """Convert a room create request into VpnNetworkRepository.create kwargs."""
 
+    transport_mode = resolve_default_transport_mode(request.transport_mode)
     return {
         "name": request.name,
+        "transport_mode": transport_mode,
     }
 
 
@@ -213,6 +295,8 @@ def peer_config_to_room_config_response(
     peer_id: UUID,
     config_text: str,
     filename: str | None = None,
+    *,
+    transport_mode: str = "wireguard",
 ) -> RoomConnectionConfigResponse:
     """Build a room-facing config response for a peer."""
 
@@ -221,6 +305,8 @@ def peer_config_to_room_config_response(
         peer_id=_uuid_value(peer_id),
         config=config_text,
         filename=filename or f"room-{room_id}-peer-{peer_id}.conf",
+        transport_mode=transport_mode,
+        requires_wireguard_udp=requires_wireguard_udp(transport_mode),
     )
 
 

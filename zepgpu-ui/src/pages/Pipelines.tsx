@@ -8,7 +8,7 @@ import {
 } from 'lucide-react'
 import clsx from 'clsx'
 import toast from 'react-hot-toast'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 
 export default function Pipelines() {
   const [view, setView] = useState<'list' | 'editor'>('list')
