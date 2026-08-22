@@ -40,6 +40,17 @@ describe('SafeJsonViewer', () => {
     expect(screen.getByText('Show truncated')).toBeInTheDocument()
   })
 
+  it('supports compact rendering', () => {
+    const { container } = render(
+      <SafeJsonViewer
+        value={{ status: 'ok' }}
+        compact
+      />,
+    )
+
+    expect(container.querySelector('pre')).toHaveClass('max-h-24')
+  })
+
   it('does not allow extremely large JSON to be fully rendered', () => {
     render(
       <SafeJsonViewer

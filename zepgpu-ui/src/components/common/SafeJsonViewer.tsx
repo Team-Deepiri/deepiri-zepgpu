@@ -5,6 +5,7 @@ interface SafeJsonViewerProps {
   maxInlineChars?: number
   hardRenderLimit?: number
   className?: string
+  compact?: boolean
 }
 
 export default function SafeJsonViewer({
@@ -12,6 +13,7 @@ export default function SafeJsonViewer({
   maxInlineChars = 25_000,
   hardRenderLimit = 250_000,
   className = '',
+  compact = false,
 }: SafeJsonViewerProps) {
   const [showFull, setShowFull] = useState(false)
 
@@ -38,7 +40,9 @@ export default function SafeJsonViewer({
     <div className="space-y-2">
       {isLarge && (
         <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
-          <span>~{approximateSizeKb.toLocaleString()} KB JSON payload</span>
+          <span>
+            ~{approximateSizeKb.toLocaleString()} KB JSON payload
+          </span>
 
           {canShowFull ? (
             <button
@@ -57,7 +61,9 @@ export default function SafeJsonViewer({
       )}
 
       <pre
-        className={`max-h-96 overflow-auto whitespace-pre-wrap break-all ${className}`}
+        className={`${
+          compact ? 'max-h-24' : 'max-h-96'
+        } overflow-auto whitespace-pre-wrap break-all ${className}`}
       >
         {visibleJson}
       </pre>
