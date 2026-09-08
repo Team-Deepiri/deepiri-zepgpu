@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import patch
 
 import pytest
+from deepiri_gpu_utils import GpuBackend, RuntimeCapabilities
 from pydantic import ValidationError
 
 import deepiri_zepgpu.training.runner as runner
+from deepiri_zepgpu.training.cli import maybe_fallback_cpu_for_smoke
 from deepiri_zepgpu.training.config import AdapterMode, Precision, TrainingRunConfig
 
 
@@ -105,3 +108,28 @@ def test_qlora_keeps_transformers_device_map() -> None:
     )
     assert kwargs["device_map"] == {"": 0}
     assert kwargs["quantization_config"]["load_in_4bit"] is True
+
+
+def test_smoke_fallback_uses_canonical_runtime_and_handles_broken_torch() -> None:
+    broken_runtime = RuntimeCapabilities(
+        backend=GpuBackend.CUDA,
+        hardware_detected=True,
+        tooling_detected=True,
+        torch_installed=True,
+        torch_usable=False,
+        cuda_usable=False,
+        rocm_usable=False,
+        mps_usable=False,
+        warnings=("torch import failed: OSError",),
+    )
+    with patch("deepiri_zepgpu.training.cli.resolve_runtime", return_value=broken_runtime):
+        result = maybe_fallback_cpu_for_smoke(TrainingRunConfig(), smoke=True)
+    assert result.device == "cpu"
+    assert result.precision == Precision.FP32
+
+
+def test_smoke_fallback_handles_canonical_probe_failure() -> None:
+    with patch("deepiri_zepgpu.training.cli.resolve_runtime", side_effect=OSError("broken")):
+        result = maybe_fallback_cpu_for_smoke(TrainingRunConfig(), smoke=True)
+    assert result.device == "cpu"
+    assert result.precision == Precision.FP32

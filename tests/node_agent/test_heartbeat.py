@@ -39,6 +39,28 @@ def test_builds_gpu_status_not_gpus() -> None:
     assert "topology" in payload["capabilities"]
 
 
+def test_default_heartbeat_reuses_capability_gpu_snapshot() -> None:
+    config = CONFIG.model_copy(update={"simulation_mode": False})
+    capabilities = {
+        "gpus": [{"device_index": 7, "name": "snapshot"}],
+        "runtime": {"cuda_version": "12.4"},
+        "topology": {"topology_hint": None},
+    }
+    with (
+        patch(
+            "deepiri_zepgpu.node_agent.heartbeat.collect_capability_inventory",
+            return_value=capabilities,
+        ) as collect_capabilities,
+        patch("deepiri_zepgpu.node_agent.heartbeat.collect_gpu_status") as collect_status,
+    ):
+        payload = build_heartbeat_payload(config)
+
+    collect_capabilities.assert_called_once_with(simulation_mode=False)
+    collect_status.assert_not_called()
+    assert payload["gpu_status"] == capabilities["gpus"]
+    assert payload["capabilities"]["gpus"] == capabilities["gpus"]
+
+
 def test_heartbeat_url() -> None:
     assert heartbeat_url(CONFIG) == (
         "http://localhost:8000/api/v1/rooms/22222222-2222-4222-8222-222222222222"

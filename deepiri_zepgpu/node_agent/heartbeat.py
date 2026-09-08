@@ -55,15 +55,20 @@ def build_heartbeat_payload(
     coordinator_rtt_ms: float | None = None,
     capabilities: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    gpus = (
-        gpu_status
-        if gpu_status is not None
-        else collect_gpu_status(simulation_mode=config.simulation_mode)
-    )
     caps = capabilities
     if caps is None:
         caps = collect_capability_inventory(simulation_mode=config.simulation_mode)
-        caps = {**caps, "gpus": gpus}
+        if gpu_status is None:
+            gpus = list(caps.get("gpus") or [])
+        else:
+            gpus = gpu_status
+            caps = {**caps, "gpus": gpus}
+    else:
+        gpus = (
+            gpu_status
+            if gpu_status is not None
+            else collect_gpu_status(simulation_mode=config.simulation_mode)
+        )
 
     payload: dict[str, Any] = {
         "gpu_status": gpus,

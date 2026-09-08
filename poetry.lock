@@ -1307,6 +1307,26 @@ marshmallow = ">=3.18.0,<4.0.0"
 typing-inspect = ">=0.4.0,<1"
 
 [[package]]
+name = "deepiri-gpu-utils"
+version = "0.3.0"
+description = "Reusable GPU detection, inventory, health, selection, and runtime primitives"
+optional = false
+python-versions = ">=3.11"
+groups = ["main"]
+files = []
+develop = false
+
+[package.extras]
+dev = ["pytest", "ruff"]
+torch = ["torch (>=2.0.0)"]
+
+[package.source]
+type = "git"
+url = "https://github.com/Team-Deepiri/deepiri-gpu-utils.git"
+reference = "419272f8a0d43423eb39443951ccf77d764bcd71"
+resolved_reference = "419272f8a0d43423eb39443951ccf77d764bcd71"
+
+[[package]]
 name = "dnspython"
 version = "2.8.0"
 description = "DNS toolkit"
@@ -3378,18 +3398,6 @@ files = [
     {file = "nvidia_cusparselt_cu13-0.8.1-py3-none-manylinux2014_aarch64.whl", hash = "sha256:4dca476c50bf4780d46cd0bfbd82e2bc10a08e4fef7950917ce8d7578d22a23f"},
     {file = "nvidia_cusparselt_cu13-0.8.1-py3-none-manylinux2014_x86_64.whl", hash = "sha256:786ce87568c303fadb5afcc7102d454cd3040d75f6f8626f5db460d1871f4dd0"},
     {file = "nvidia_cusparselt_cu13-0.8.1-py3-none-win_amd64.whl", hash = "sha256:dccbd362f91a7b9024d1f55ee9f548ac065027ff15d8c8b0db889ab3a8f31215"},
-]
-
-[[package]]
-name = "nvidia-ml-py"
-version = "13.610.43"
-description = "Python Bindings for the NVIDIA Management Library"
-optional = false
-python-versions = "*"
-groups = ["main"]
-files = [
-    {file = "nvidia_ml_py-13.610.43-py3-none-any.whl", hash = "sha256:f13c72698edef492f985cc225f14faafe68ae065a2e407f45bdf6f4b9b43fde8"},
-    {file = "nvidia_ml_py-13.610.43.tar.gz", hash = "sha256:65437eb73d68d0c62c931ca4d45038472faff03bd0b8729abba4b899f70d60f2"},
 ]
 
 [[package]]
@@ -6504,4 +6512,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<3.14"
-content-hash = "d340c258a1f08c3e54efbbb6404a486c92015653c05fe8ad919339d607ec65e1"
+content-hash = "167ce95b8ab50946c006b6d99a7ec68c9f461cf2833fbe4d8acaf6982c94c965"

@@ -9,12 +9,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
 
-try:
-    import pynvml
-
-    PYNVML_AVAILABLE = True
-except ImportError:
-    PYNVML_AVAILABLE = False
+from deepiri_gpu_utils import GpuBackend, discover_gpus
+from deepiri_gpu_utils import GpuDevice as HostGpuDevice
 
 
 class GPUState(Enum):
@@ -32,6 +28,7 @@ class GPUType(Enum):
 
     NVIDIA = "nvidia"
     AMD = "amd"
+    MPS = "mps"
     CPU = "cpu"
 
 
@@ -100,65 +97,90 @@ class GPUManager:
     ) -> None:
         self._devices: dict[int, GPUDevice] = {}
         self._lock = threading.RLock()
-        self._nvml_initialized = False
-        self._enable_nvml = enable_nvml and PYNVML_AVAILABLE
+        # Keep the historical argument name as part of the public constructor. It now
+        # controls canonical host discovery rather than ZepGPU-owned NVML probing.
+        self._enable_hardware_discovery = enable_nvml
         self._memory_overhead_mb = memory_overhead_mb
         self._reserve_memory_mb = reserve_memory_mb
         self._monitoring_task: asyncio.Task | None = None
 
     async def initialize(self) -> None:
         """Initialize GPU manager and discover devices."""
-        if self._enable_nvml:
-            try:
-                pynvml.nvmlInit()
-                self._nvml_initialized = True
-                await self._discover_devices()
-            except Exception as e:
-                print(f"Failed to initialize NVML: {e}. Falling back to simulation mode.")
-                await self._initialize_simulation_mode()
-        else:
+        if not self._enable_hardware_discovery:
             await self._initialize_simulation_mode()
-
-    async def _discover_devices(self) -> None:
-        """Discover available NVIDIA GPUs."""
-        if not self._nvml_initialized:
             return
 
         try:
-            device_count = pynvml.nvmlDeviceGetCount()
-            for i in range(device_count):
-                handle = pynvml.nvmlDeviceGetHandleByIndex(i)
-                name = pynvml.nvmlDeviceGetName(handle)
-                if name is None:
-                    name = f"GPU-{i}"
-
-                memory_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-                total_mb = memory_info.total // (1024 * 1024)
-
-                try:
-                    compute_cap = pynvml.nvmlDeviceGetCudaComputeCapability(handle)
-                    compute_capability = (compute_cap.major, compute_cap.minor)
-                except Exception:
-                    compute_capability = (0, 0)
-
-                try:
-                    max_cores = pynvml.nvmlDeviceGetMaxCudaConcurrentAtomiccs(handle)
-                except Exception:
-                    max_cores = 0
-
-                device = GPUDevice(
-                    device_id=i,
-                    name=name,
-                    gpu_type=GPUType.NVIDIA,
-                    total_memory_mb=total_mb,
-                    available_memory_mb=total_mb - self._reserve_memory_mb,
-                    compute_capability=compute_capability,
-                    max_cuda_cores=max_cores,
-                )
-                self._devices[i] = device
-        except Exception as e:
-            print(f"Error discovering GPUs: {e}")
+            await self._discover_devices()
+        except Exception:
+            # Canonical discovery contains its own vendor-tool error handling, but
+            # preserve the manager's historical simulation fallback for any
+            # unexpected adapter or import failure too.
             await self._initialize_simulation_mode()
+            return
+        if not self._devices:
+            await self._initialize_simulation_mode()
+
+    async def _discover_devices(self) -> None:
+        """Adapt canonical host inventory into ZepGPU's allocation model."""
+        # Initial vendor discovery has the same bounded subprocess timeouts as
+        # refresh, so keep it off the asyncio event loop as well.
+        inventory = await asyncio.to_thread(discover_gpus)
+        self._devices = {
+            device_id: self._from_host_device(host_device, device_id=device_id)
+            for device_id, host_device in self._indexed_host_devices(inventory.devices)
+        }
+
+    @staticmethod
+    def _indexed_host_devices(
+        devices: tuple[HostGpuDevice, ...],
+    ) -> list[tuple[int, HostGpuDevice]]:
+        """Return stable unique IDs while honoring vendor-provided indices."""
+        indexed: list[tuple[int, HostGpuDevice]] = []
+        used: set[int] = set()
+        for fallback_id, device in enumerate(devices):
+            device_id = device.index if device.index is not None else fallback_id
+            while device_id in used:
+                device_id += 1
+            used.add(device_id)
+            indexed.append((device_id, device))
+        return indexed
+
+    def _from_host_device(self, device: HostGpuDevice, *, device_id: int) -> GPUDevice:
+        total_mb = device.memory.total_mib or 0
+        compute_capability = self._parse_compute_capability(device.compute_capability)
+        gpu_type = {
+            GpuBackend.CUDA: GPUType.NVIDIA,
+            GpuBackend.ROCM: GPUType.AMD,
+            GpuBackend.MPS: GPUType.MPS,
+        }.get(device.backend, GPUType.CPU)
+        max_cores = device.metadata.get("max_cuda_cores", 0)
+        if not isinstance(max_cores, int) or isinstance(max_cores, bool):
+            max_cores = 0
+        return GPUDevice(
+            device_id=device_id,
+            name=device.name or f"GPU-{device_id}",
+            gpu_type=gpu_type,
+            total_memory_mb=total_mb,
+            # Preserve ZepGPU's reservation policy. Live free memory is applied by
+            # the monitoring pass once a device is allocated.
+            available_memory_mb=total_mb - self._reserve_memory_mb,
+            compute_capability=compute_capability,
+            max_cuda_cores=max_cores,
+            utilization_percent=device.utilization_percent or 0.0,
+            temperature_celsius=device.temperature_c or 0.0,
+            power_draw_watts=device.power_watts or 0.0,
+        )
+
+    @staticmethod
+    def _parse_compute_capability(value: str | None) -> tuple[int, int]:
+        if not value:
+            return (0, 0)
+        try:
+            major, minor = value.split(".", maxsplit=1)
+            return (int(major), int(minor))
+        except (TypeError, ValueError):
+            return (0, 0)
 
     async def _initialize_simulation_mode(self) -> None:
         """Initialize with simulated GPUs for testing/development."""
@@ -205,28 +227,33 @@ class GPUManager:
 
     async def _update_gpu_metrics(self) -> None:
         """Update GPU metrics from hardware."""
-        if not self._nvml_initialized:
+        if not self._enable_hardware_discovery:
             return
 
+        try:
+            inventory = await asyncio.to_thread(discover_gpus)
+        except Exception:
+            # A transient probe failure must not terminate the monitoring task or
+            # mutate allocation/reservation state.
+            return
+        host_devices = dict(self._indexed_host_devices(inventory.devices))
         with self._lock:
             for device_id, device in self._devices.items():
                 if device.state == GPUState.ALLOCATED:
-                    try:
-                        handle = pynvml.nvmlDeviceGetHandleByIndex(device_id)
-                        memory_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+                    host_device = host_devices.get(device_id)
+                    if host_device is None:
+                        continue
+                    if host_device.memory.free_mib is not None:
                         device.available_memory_mb = (
-                            memory_info.free // (1024 * 1024) - self._memory_overhead_mb
+                            host_device.memory.free_mib - self._memory_overhead_mb
                         )
-                        device.utilization_percent = pynvml.nvmlDeviceGetUtilizationRates(
-                            handle
-                        ).gpu
-                        device.temperature_celsius = pynvml.nvmlDeviceGetTemperature(
-                            handle, pynvml.NVML_TEMPERATURE_GPU
-                        )
-                        device.power_draw_watts = pynvml.nvmlDeviceGetPowerUsage(handle) / 1000.0
-                        device.last_updated = datetime.now(UTC)
-                    except Exception:
-                        pass
+                    if host_device.utilization_percent is not None:
+                        device.utilization_percent = host_device.utilization_percent
+                    if host_device.temperature_c is not None:
+                        device.temperature_celsius = host_device.temperature_c
+                    if host_device.power_watts is not None:
+                        device.power_draw_watts = host_device.power_watts
+                    device.last_updated = datetime.now(UTC)
 
     def get_available_device(
         self,
@@ -278,6 +305,3 @@ class GPUManager:
         """Shutdown GPU manager and cleanup resources."""
         if self._monitoring_task:
             asyncio.create_task(self.stop_monitoring())
-        if self._nvml_initialized:
-            with contextlib.suppress(Exception):
-                pynvml.nvmlShutdown()

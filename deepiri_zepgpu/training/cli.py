@@ -7,6 +7,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from deepiri_gpu_utils import resolve_runtime
+
 from deepiri_zepgpu.training.compare import (
     compare_runs,
     comparison_summary,
@@ -102,23 +104,20 @@ def maybe_fallback_cpu_for_smoke(config: TrainingRunConfig, *, smoke: bool) -> T
     if not (smoke and config.device.startswith("cuda")):
         return config
     try:
-        import torch
-
-        if torch.cuda.is_available():
-            return config
-        updated = config.model_copy(
-            update={
-                "device": "cpu",
-                "precision": (
-                    Precision.FP32 if config.precision.value == "fp16" else config.precision
-                ),
-            }
-        )
-        return TrainingRunConfig.model_validate(updated.model_dump(mode="python"))
-    except ImportError:
-        return TrainingRunConfig.model_validate(
-            {**config.model_dump(mode="python"), "device": "cpu"}
-        )
+        runtime = resolve_runtime()
+    except Exception:
+        # Smoke-mode fallback has always treated a broken optional GPU runtime as
+        # unavailable rather than preventing a CPU smoke run.
+        runtime = None
+    if runtime is not None and (runtime.cuda_usable or runtime.rocm_usable):
+        return config
+    updated = config.model_copy(
+        update={
+            "device": "cpu",
+            "precision": Precision.FP32 if config.precision.value == "fp16" else config.precision,
+        }
+    )
+    return TrainingRunConfig.model_validate(updated.model_dump(mode="python"))
 
 
 def run_wan_cli(config: TrainingRunConfig, args: argparse.Namespace) -> None:
