@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { usersApi } from '@/api/client'
+import SafeJsonViewer from '@/components/common/SafeJsonViewer'
 import {
   Users as UsersIcon, Award, Trophy,
   Trash2, Edit2, Search,
@@ -179,8 +180,17 @@ export default function Users() {
                     <span className="font-mono">{log.resource_type}</span>
                     {log.resource_id && <span className="text-slate-500 ml-1">#{log.resource_id.slice(0, 6)}</span>}
                   </td>
-                  <td className="px-5 py-3.5 text-slate-400 text-xs max-w-[200px] truncate">
-                    {JSON.stringify(log.details)}
+                  <td className="px-5 py-3.5 text-slate-400 text-xs max-w-[300px]">
+                    {log.details ? (
+                      <SafeJsonViewer
+                        value={log.details}
+                        maxInlineChars={500}
+                        hardRenderLimit={5_000}
+                        className="text-slate-400 text-xs"
+                      />
+                    ) : (
+                      <span className="text-slate-500">—</span>
+                    )}
                   </td>
                   <td className="px-5 py-3.5 text-slate-500 text-xs font-mono">{log.ip_address ?? '—'}</td>
                 </tr>
