@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 import httpx
+from deepiri_gpu_utils import GpuBackend, GpuInventory, discover_gpus
 from fastapi import FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel
 
@@ -65,50 +66,29 @@ _ledger_private_key: str = ""
 _ledger_public_key: str = ""
 
 
-try:
-    import pynvml
-
-    PYNVML_AVAILABLE = True
-except ImportError:
-    PYNVML_AVAILABLE = False
-
-
-def discover_local_gpus() -> list[GpuInfo]:
-    """Discover local GPUs using NVML."""
-    gpus: list[GpuInfo] = []
-    if not PYNVML_AVAILABLE:
-        return gpus
-
+def discover_local_gpus(*, inventory: GpuInventory | None = None) -> list[GpuInfo]:
+    """Adapt canonical host discovery to the stable peer heartbeat model."""
     try:
-        pynvml.nvmlInit()
-        device_count = pynvml.nvmlDeviceGetCount()
-        for i in range(device_count):
-            handle = pynvml.nvmlDeviceGetHandleByIndex(i)
-            name = pynvml.nvmlDeviceGetName(handle) or f"GPU-{i}"
-            mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-            total_mb = mem_info.total // (1024 * 1024)
-            free_mb = mem_info.free // (1024 * 1024)
-
-            try:
-                cc = pynvml.nvmlDeviceGetCudaComputeCapability(handle)
-                cc_str = f"{cc.major}.{cc.minor}"
-            except Exception:
-                cc_str = "0.0"
-
-            gpus.append(
-                GpuInfo(
-                    device_index=i,
-                    name=name,
-                    total_memory_mb=total_mb,
-                    available_memory_mb=free_mb,
-                    compute_capability=cc_str,
-                )
-            )
-        pynvml.nvmlShutdown()
+        current = inventory if inventory is not None else discover_gpus()
     except Exception:
-        pass
-
-    return gpus
+        return []
+    backend_names = {
+        GpuBackend.CUDA: "nvidia",
+        GpuBackend.ROCM: "amd",
+        GpuBackend.MPS: "mps",
+    }
+    return [
+        GpuInfo(
+            device_index=device.index if device.index is not None else fallback_index,
+            name=device.name,
+            total_memory_mb=device.memory.total_mib or 0,
+            available_memory_mb=device.memory.free_mib or 0,
+            compute_capability=device.compute_capability,
+            gpu_type=backend_names.get(device.backend, device.backend.value),
+            utilization_percent=device.utilization_percent,
+        )
+        for fallback_index, device in enumerate(current.devices)
+    ]
 
 
 @app.get("/health")

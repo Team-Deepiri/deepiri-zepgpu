@@ -1,183 +1,225 @@
-"""GPU detection and utility functions."""
+"""Backward-compatible GPU helpers backed by :mod:`deepiri_gpu_utils`.
+
+The public functions in this module predate the shared package and remain as
+compatibility wrappers for ZepGPU callers. Host detection, normalized inventory,
+runtime capability probing, and driver metadata come from deepiri-gpu-utils.
+Torch execution controls remain here because they operate on ZepGPU's process.
+"""
 
 from __future__ import annotations
 
+import importlib
+import importlib.util
 import subprocess
 from typing import Any
 
-try:
-    import pynvml
+from deepiri_gpu_utils import GpuBackend, discover_gpus, resolve_runtime
 
-    PYNVML_AVAILABLE = True
-except ImportError:
-    PYNVML_AVAILABLE = False
 
-try:
-    import torch
+def _torch() -> Any | None:
+    try:
+        return importlib.import_module("torch")
+    except Exception:
+        return None
 
-    TORCH_AVAILABLE = True
-except ImportError:
-    TORCH_AVAILABLE = False
 
-try:
-    import cupy as cp  # noqa: F401
+def _module_available(name: str) -> bool:
+    try:
+        return importlib.util.find_spec(name) is not None
+    except (ImportError, AttributeError, ValueError):
+        return False
 
-    CUPY_AVAILABLE = True
-except ImportError:
-    CUPY_AVAILABLE = False
+
+# Retained for callers that imported these historical flags directly. A broken
+# optional torch install is not considered available for execution.
+TORCH_AVAILABLE = _torch() is not None
+CUPY_AVAILABLE = _module_available("cupy")
 
 
 def get_gpu_info() -> dict[str, Any]:
-    """Get information about available GPUs."""
+    """Return the established ZepGPU GPU-info shape from canonical inventory."""
+    try:
+        inventory = discover_gpus()
+    except Exception:
+        return {
+            "cuda_available": False,
+            "gpu_count": 0,
+            "gpus": [],
+            "torch_available": TORCH_AVAILABLE,
+            "cupy_available": CUPY_AVAILABLE,
+        }
+    try:
+        runtime = resolve_runtime(inventory=inventory)
+    except Exception:
+        runtime = None
     gpus: list[dict[str, Any]] = []
-    info: dict[str, Any] = {
-        "cuda_available": False,
-        "gpu_count": 0,
+    for fallback_index, device in enumerate(inventory.devices):
+        gpu: dict[str, Any] = {
+            "index": device.index if device.index is not None else fallback_index,
+            "name": device.name,
+            "total_memory": (device.memory.total_mib or 0) * 1024 * 1024,
+        }
+        if device.memory.free_mib is not None:
+            gpu["free_memory"] = device.memory.free_mib * 1024 * 1024
+        if device.memory.used_mib is not None:
+            gpu["used_memory"] = device.memory.used_mib * 1024 * 1024
+        gpus.append(gpu)
+
+    return {
+        # Historical name: torch's ROCm build also exposes its GPU through the
+        # cuda API, so preserve True for either torch CUDA or ROCm usability.
+        "cuda_available": (
+            (
+                runtime.cuda_usable
+                or runtime.rocm_usable
+                or (
+                    not runtime.torch_installed
+                    and inventory.backend in (GpuBackend.CUDA, GpuBackend.ROCM)
+                )
+            )
+            if runtime is not None
+            else inventory.backend in (GpuBackend.CUDA, GpuBackend.ROCM)
+        ),
+        "gpu_count": inventory.count,
         "gpus": gpus,
-        "torch_available": TORCH_AVAILABLE,
+        "torch_available": runtime.torch_usable if runtime is not None else TORCH_AVAILABLE,
         "cupy_available": CUPY_AVAILABLE,
     }
 
-    if TORCH_AVAILABLE:
-        info["cuda_available"] = torch.cuda.is_available()
-        if info["cuda_available"]:
-            info["gpu_count"] = torch.cuda.device_count()
-            for i in range(info["gpu_count"]):
-                gpu_info = {
-                    "index": i,
-                    "name": torch.cuda.get_device_name(i),
-                    "total_memory": torch.cuda.get_device_properties(i).total_memory,
-                }
-                gpus.append(gpu_info)
-
-    elif PYNVML_AVAILABLE:
-        try:
-            pynvml.nvmlInit()
-            info["gpu_count"] = pynvml.nvmlDeviceGetCount()
-            info["cuda_available"] = True
-
-            for i in range(info["gpu_count"]):
-                handle = pynvml.nvmlDeviceGetHandleByIndex(i)
-                memory = pynvml.nvmlDeviceGetMemoryInfo(handle)
-
-                gpu_info = {
-                    "index": i,
-                    "name": pynvml.nvmlDeviceGetName(handle),
-                    "total_memory": memory.total,
-                    "free_memory": memory.free,
-                    "used_memory": memory.used,
-                }
-                gpus.append(gpu_info)
-
-            pynvml.nvmlShutdown()
-        except Exception:
-            pass
-
-    return info
-
 
 def get_gpu_memory_info(device_id: int = 0) -> dict[str, int]:
-    """Get memory info for a specific GPU."""
-    if TORCH_AVAILABLE and torch.cuda.is_available():
+    """Get process-specific torch memory info for a GPU."""
+    torch = _torch()
+    if torch is not None and torch.cuda.is_available():
         torch.cuda.set_device(device_id)
+        total = torch.cuda.get_device_properties(device_id).total_memory
+        allocated = torch.cuda.memory_allocated(device_id)
         return {
-            "total": torch.cuda.get_device_properties(device_id).total_memory,
-            "allocated": torch.cuda.memory_allocated(device_id),
+            "total": total,
+            "allocated": allocated,
             "cached": torch.cuda.memory_reserved(device_id),
-            "free": torch.cuda.get_device_properties(device_id).total_memory
-            - torch.cuda.memory_allocated(device_id),
+            "free": total - allocated,
         }
-
     return {"total": 0, "allocated": 0, "cached": 0, "free": 0}
 
 
 def format_memory(bytes: int) -> str:
-    """Format memory size in bytes to human-readable string."""
+    """Format memory size in bytes to the legacy human-readable form."""
+    value = float(bytes)
     for unit in ["B", "KB", "MB", "GB", "TB"]:
-        if bytes < 1024.0:
-            return f"{bytes:.2f}{unit}"
-        bytes /= 1024.0  # type: ignore[assignment]
-    return f"{bytes:.2f}PB"
+        if value < 1024.0:
+            return f"{value:.2f}{unit}"
+        value /= 1024.0
+    return f"{value:.2f}PB"
 
 
 def check_cuda_version() -> str | None:
-    """Check CUDA version."""
+    """Return CUDA runtime/toolchain version with legacy ``nvcc`` compatibility."""
+    try:
+        version = resolve_runtime().cuda_version
+    except Exception:
+        version = None
+    if version is not None:
+        return str(version)
+    # RuntimeCapabilities intentionally describes the loaded runtime. Preserve the
+    # older wrapper's toolchain-only result when torch is absent but nvcc exists.
     try:
         result = subprocess.run(
             ["nvcc", "--version"],
             capture_output=True,
             text=True,
+            check=False,
         )
-        if result.returncode == 0:
-            for line in result.stdout.split("\n"):
-                if "release" in line:
-                    return line.strip().split("release")[-1].strip()
-    except FileNotFoundError:
-        pass
+    except (FileNotFoundError, OSError):
+        return None
+    if result.returncode == 0:
+        for line in result.stdout.splitlines():
+            if "release" in line:
+                return line.strip().split("release")[-1].strip()
     return None
 
 
 def check_nvidia_driver() -> str | None:
-    """Check NVIDIA driver version."""
-    if not PYNVML_AVAILABLE:
-        return None
-
+    """Return the normalized NVIDIA driver version when available."""
     try:
-        pynvml.nvmlInit()
-        driver_version = pynvml.nvmlSystemGetDriverVersion()
-        pynvml.nvmlShutdown()
-        return driver_version  # type: ignore[no-any-return]
+        inventory = discover_gpus()
     except Exception:
         return None
+    return next(
+        (
+            device.driver_version
+            for device in inventory.devices
+            if device.backend == GpuBackend.CUDA and device.driver_version
+        ),
+        None,
+    )
 
 
 def set_gpu_device(device_id: int) -> bool:
-    """Set the current GPU device."""
-    if TORCH_AVAILABLE and torch.cuda.is_available():
+    """Set the current torch GPU device."""
+    torch = _torch()
+    if torch is not None and torch.cuda.is_available():
         torch.cuda.set_device(device_id)
         return True
     return False
 
 
 def clear_gpu_cache() -> None:
-    """Clear GPU cache."""
-    if TORCH_AVAILABLE and torch.cuda.is_available():
+    """Clear the current process's torch GPU cache."""
+    torch = _torch()
+    if torch is not None and torch.cuda.is_available():
         torch.cuda.empty_cache()
 
 
 def synchronize_gpu() -> None:
-    """Synchronize all GPU operations."""
-    if TORCH_AVAILABLE and torch.cuda.is_available():
+    """Synchronize GPU operations in the current torch process."""
+    torch = _torch()
+    if torch is not None and torch.cuda.is_available():
         torch.cuda.synchronize()
 
 
 class GPUContext:
-    """Context manager for GPU operations."""
+    """Context manager preserving ZepGPU's current-device behavior."""
 
     def __init__(self, device_id: int = 0):
         self._device_id = device_id
         self._previous_device: int | None = None
+        self._torch: Any | None = None
 
     def __enter__(self) -> GPUContext:
-        if TORCH_AVAILABLE and torch.cuda.is_available():
-            self._previous_device = torch.cuda.current_device()
-            torch.cuda.set_device(self._device_id)
+        self._torch = _torch()
+        if self._torch is not None and self._torch.cuda.is_available():
+            self._previous_device = self._torch.cuda.current_device()
+            self._torch.cuda.set_device(self._device_id)
         return self
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        if self._previous_device is not None and TORCH_AVAILABLE:
-            torch.cuda.set_device(self._previous_device)
+        if self._previous_device is not None and self._torch is not None:
+            self._torch.cuda.set_device(self._previous_device)
             self._previous_device = None
 
 
 def detect_gpu_architecture() -> str | None:
-    """Detect GPU architecture."""
-    if not TORCH_AVAILABLE or not torch.cuda.is_available():
+    """Map canonical CUDA compute capability to the historical family label."""
+    try:
+        inventory = discover_gpus()
+    except Exception:
         return None
-
-    capability = torch.cuda.get_device_capability()
-    major, minor = capability
-
+    capability = next(
+        (
+            device.compute_capability
+            for device in inventory.devices
+            if device.backend == GpuBackend.CUDA and device.compute_capability
+        ),
+        None,
+    )
+    if capability is None:
+        return None
+    try:
+        major_text, minor_text = capability.split(".", maxsplit=1)
+        major, minor = int(major_text), int(minor_text)
+    except (TypeError, ValueError):
+        return None
     arch_map = {
         (3, 0): "Kepler",
         (3, 5): "Kepler",
@@ -192,5 +234,4 @@ def detect_gpu_architecture() -> str | None:
         (8, 9): "Ada",
         (9, 0): "Hopper",
     }
-
     return arch_map.get((major, minor), f"Unknown-{major}.{minor}")

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-import contextlib
+import importlib
 import logging
 from typing import Any
+
+from deepiri_gpu_utils import GpuInventory, discover_gpus, resolve_runtime
 
 from deepiri_zepgpu.vpn.peer_node import GpuInfo, discover_local_gpus
 
@@ -81,7 +83,7 @@ def collect_gpu_status(*, simulation_mode: bool = False) -> list[dict[str, Any]]
     return [_gpu_info_to_heartbeat(gpu) for gpu in gpus]
 
 
-def _probe_runtime() -> dict[str, Any]:
+def _probe_runtime(inventory: GpuInventory | None = None) -> dict[str, Any]:
     runtime: dict[str, Any] = {
         "compute_capability": None,
         "driver_version": None,
@@ -93,21 +95,39 @@ def _probe_runtime() -> dict[str, Any]:
         "deepspeed_available": None,
     }
     try:
-        import torch
-
-        runtime["pytorch_version"] = getattr(torch, "__version__", None)
-        if torch.cuda.is_available():
-            runtime["cuda_version"] = getattr(torch.version, "cuda", None)
-            with contextlib.suppress(Exception):
-                get_driver_version = getattr(torch.cuda, "get_driver_version", None)
-                if callable(get_driver_version):
-                    runtime["driver_version"] = str(get_driver_version())
-            try:
-                major, minor = torch.cuda.get_device_capability(0)
-                runtime["compute_capability"] = f"{major}.{minor}"
-            except Exception:
-                pass
-            runtime["fsdp_available"] = True
+        current = inventory if inventory is not None else discover_gpus()
+        capabilities = resolve_runtime(inventory=current)
+        runtime.update(
+            {
+                "compute_capability": next(
+                    (
+                        device.compute_capability
+                        for device in current.devices
+                        if device.compute_capability is not None
+                    ),
+                    None,
+                ),
+                "driver_version": capabilities.driver_version,
+                # This is a legacy CUDA-specific field. Reporting a ROCm version
+                # here can make heterogeneous compatibility checks accept it as
+                # CUDA, so retain None on ROCm nodes.
+                "cuda_version": capabilities.cuda_version,
+                "pytorch_version": capabilities.torch_version,
+            }
+        )
+    except Exception:
+        logger.debug("Canonical GPU runtime probe unavailable", exc_info=False)
+    # NCCL and DeepSpeed remain supplemental ZepGPU training capabilities; the
+    # generic hardware/runtime facts above come from deepiri-gpu-utils.
+    try:
+        torch = importlib.import_module("torch")
+        try:
+            if torch.cuda.is_available():
+                # FSDP availability remains a ZepGPU training/runtime decision;
+                # canonical capabilities only provide the generic backend facts.
+                runtime["fsdp_available"] = True
+        except Exception:
+            pass
         try:
             import torch.distributed as dist  # noqa: F401
 
@@ -160,8 +180,13 @@ def collect_capability_inventory(*, simulation_mode: bool = False) -> dict[str, 
             "topology": dict(SIMULATED_TOPOLOGY),
         }
 
+    try:
+        inventory = discover_gpus()
+    except Exception:
+        inventory = GpuInventory()
+    gpus = [_gpu_info_to_heartbeat(gpu) for gpu in discover_local_gpus(inventory=inventory)]
     return {
-        "gpus": collect_gpu_status(simulation_mode=False),
-        "runtime": _probe_runtime(),
+        "gpus": gpus,
+        "runtime": _probe_runtime(inventory),
         "topology": _probe_topology(),
     }

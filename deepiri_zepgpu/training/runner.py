@@ -5,11 +5,11 @@ from __future__ import annotations
 import random
 import time
 import uuid
-from contextlib import suppress
 from datetime import UTC, datetime
 from functools import lru_cache
-from importlib import import_module
 from typing import Any
+
+from deepiri_gpu_utils import discover_gpus
 
 from deepiri_zepgpu.training.checkpoint import CheckpointMetadata, make_checkpoint_metadata
 from deepiri_zepgpu.training.config import Precision, TrainingRunConfig
@@ -53,50 +53,41 @@ def _imports() -> tuple[Any, Any, Any]:
 
 
 class NvmlSampler:
-    """Lazily initialized, failure-tolerant NVML sampler for one CUDA device."""
+    """Compatibility sampler backed by canonical normalized host telemetry."""
 
-    def __init__(self, device_index: int) -> None:
+    def __init__(self, device_index: int, *, poll_interval_seconds: float = 5.0) -> None:
         self.device_index = device_index
-        self._module: Any | None = None
-        self._handle: Any | None = None
-        self._initialization_attempted = False
-        self._initialized = False
+        self._poll_interval_seconds = max(float(poll_interval_seconds), 0.0)
+        self._last_sample_at: float | None = None
+        self._last_value: float | None = None
         self._shutdown = False
 
-    def _initialize(self) -> bool:
-        if self._shutdown or self._initialization_attempted:
-            return self._handle is not None
-        self._initialization_attempted = True
-        try:
-            self._module = import_module("pynvml")
-            self._module.nvmlInit()
-            self._initialized = True
-            self._handle = self._module.nvmlDeviceGetHandleByIndex(self.device_index)
-        except Exception:
-            self.shutdown()
-            return False
-        return True
-
     def sample(self) -> float | None:
-        if not self._initialize():
+        if self._shutdown:
             return None
-        module = self._module
-        if module is None:
-            return None
+        now = time.monotonic()
+        if (
+            self._last_sample_at is not None
+            and now - self._last_sample_at < self._poll_interval_seconds
+        ):
+            return self._last_value
+        # Cache failures and missing telemetry too. Without throttling, canonical
+        # discovery can start vendor processes once per training step.
+        self._last_sample_at = now
         try:
-            return float(module.nvmlDeviceGetUtilizationRates(self._handle).gpu)
+            inventory = discover_gpus()
         except Exception:
+            self._last_value = None
             return None
+        device = next(
+            (device for device in inventory.devices if device.index == self.device_index),
+            None,
+        )
+        self._last_value = device.utilization_percent if device is not None else None
+        return self._last_value
 
     def shutdown(self) -> None:
-        if self._shutdown:
-            return
         self._shutdown = True
-        if self._initialized and self._module is not None:
-            with suppress(Exception):
-                self._module.nvmlShutdown()
-        self._initialized = False
-        self._handle = None
 
 
 def _checkpoint(

@@ -9,13 +9,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 import psutil
-
-try:
-    import pynvml
-
-    PYNVML_AVAILABLE = True
-except ImportError:
-    PYNVML_AVAILABLE = False
+from deepiri_gpu_utils import discover_gpus
 
 
 @dataclass
@@ -78,14 +72,6 @@ class MetricsCollector:
         self._lock = threading.RLock()
         self._collecting = False
         self._collect_task: asyncio.Task | None = None
-        self._nvml_initialized = False
-
-        if PYNVML_AVAILABLE:
-            try:
-                pynvml.nvmlInit()
-                self._nvml_initialized = True
-            except Exception:
-                pass
 
     async def start(self) -> None:
         """Start metrics collection."""
@@ -101,9 +87,6 @@ class MetricsCollector:
             self._collect_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._collect_task
-        if self._nvml_initialized:
-            with contextlib.suppress(Exception):
-                pynvml.nvmlShutdown()
 
     async def _collect_loop(self) -> None:
         """Main collection loop."""
@@ -136,48 +119,32 @@ class MetricsCollector:
                 self._system_metrics.pop(0)
 
     async def _collect_gpu_metrics(self) -> None:
-        """Collect GPU metrics."""
-        if not self._nvml_initialized:
-            return
-
+        """Adapt canonical normalized host telemetry to the public metrics model."""
         try:
-            device_count = pynvml.nvmlDeviceGetCount()
-            for i in range(device_count):
-                handle = pynvml.nvmlDeviceGetHandleByIndex(i)
-                name = pynvml.nvmlDeviceGetName(handle) or f"GPU-{i}"
-
-                memory_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-                utilization = pynvml.nvmlDeviceGetUtilizationRates(handle)
-
-                try:
-                    temperature = pynvml.nvmlDeviceGetTemperature(
-                        handle, pynvml.NVML_TEMPERATURE_GPU
-                    )
-                except Exception:
-                    temperature = 0
-
-                try:
-                    power = pynvml.nvmlDeviceGetPowerUsage(handle) / 1000.0
-                except Exception:
-                    power = 0.0
-
+            # Vendor CLIs have bounded but multi-second timeouts. Keep them off the
+            # asyncio event loop so a degraded driver cannot stall unrelated work.
+            inventory = await asyncio.to_thread(discover_gpus)
+            for fallback_index, device in enumerate(inventory.devices):
+                device_id = device.index if device.index is not None else fallback_index
+                total = float(device.memory.total_mib or 0)
+                used = float(device.memory.calculated_used_mib or 0)
                 metrics = GPUMetrics(
-                    device_id=i,
-                    name=name,
-                    utilization_percent=utilization.gpu,
-                    memory_used_mb=memory_info.used / (1024**2),
-                    memory_total_mb=memory_info.total / (1024**2),
-                    memory_percent=(
-                        (memory_info.used / memory_info.total * 100) if memory_info.total > 0 else 0
-                    ),
-                    temperature_celsius=temperature,
-                    power_watts=power,
+                    device_id=device_id,
+                    name=device.name or f"GPU-{device_id}",
+                    utilization_percent=device.utilization_percent or 0.0,
+                    memory_used_mb=used,
+                    memory_total_mb=total,
+                    memory_percent=(used / total * 100) if total > 0 else 0.0,
+                    temperature_celsius=device.temperature_c or 0.0,
+                    power_watts=device.power_watts or 0.0,
                 )
 
                 with self._lock:
                     self._gpu_metrics.append(metrics)
                     if len(self._gpu_metrics) > self._history_size:
-                        self._gpu_metrics = [m for m in self._gpu_metrics if m.device_id != i]
+                        self._gpu_metrics = [
+                            m for m in self._gpu_metrics if m.device_id != device_id
+                        ]
                         self._gpu_metrics.append(metrics)
 
         except Exception:
