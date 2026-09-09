@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Activity, ExternalLink } from 'lucide-react'
 import { tasksApi } from '@/api/client'
 import { nodeTasksApi } from '@/api/nodeTasks'
+import SafeJsonViewer from '@/components/common/SafeJsonViewer'
 import { AssignmentStatusBadge, TaskStatusBadge } from '@/components/tasks/StatusBadges'
 import { isTerminalTaskStatus, shouldPollTask } from '@/utils/taskStatus'
 import type { NodeTaskResult } from '@/types'
@@ -30,7 +31,11 @@ export default function RoomActivityLog({
       ) : (
         <ul className="space-y-3">
           {taskIds.map((taskId) => (
-            <ActivityRow key={taskId} taskId={taskId} enablePolling={enablePolling} />
+            <ActivityRow
+              key={taskId}
+              taskId={taskId}
+              enablePolling={enablePolling}
+            />
           ))}
         </ul>
       )}
@@ -54,6 +59,7 @@ function ActivityRow({
 
   const task = taskQuery.data
   const assignmentId = task?.assignment?.assignment_id
+
   const canFetchResult =
     !!assignmentId &&
     !!task &&
@@ -89,6 +95,7 @@ function ActivityRow({
           <p className="text-slate-200 text-sm font-medium truncate">
             {task.name || task.id}
           </p>
+
           <p className="text-slate-500 text-xs mt-0.5">
             {task.dispatch_mode ?? 'local'}
             {task.assignment?.peer_id && (
@@ -96,8 +103,10 @@ function ActivityRow({
             )}
           </p>
         </div>
+
         <div className="flex items-center gap-2">
           <TaskStatusBadge status={task.status} />
+
           <Link
             to={`/tasks/${task.id}`}
             className="inline-flex items-center gap-1 text-xs text-cyan-400 hover:text-cyan-300"
@@ -116,21 +125,32 @@ function ActivityRow({
       )}
 
       {task.error && (
-        <p className="text-xs text-red-400 truncate" title={task.error}>
+        <p
+          className="text-xs text-red-400 truncate"
+          title={task.error}
+        >
           {task.error}
         </p>
       )}
 
       {canFetchResult && resultQuery.isLoading && (
-        <p className="text-xs text-slate-500">Loading remote result…</p>
+        <p className="text-xs text-slate-500">
+          Loading remote result…
+        </p>
       )}
 
-      {resultQuery.data && <RemoteResultSummary result={resultQuery.data} />}
+      {resultQuery.data && (
+        <RemoteResultSummary result={resultQuery.data} />
+      )}
     </li>
   )
 }
 
-function RemoteResultSummary({ result }: { result: NodeTaskResult }) {
+function RemoteResultSummary({
+  result,
+}: {
+  result: NodeTaskResult
+}) {
   const metadataKeys = Object.keys(result.result_metadata ?? {})
 
   return (
@@ -138,18 +158,35 @@ function RemoteResultSummary({ result }: { result: NodeTaskResult }) {
       <p className="text-slate-400">
         Remote result · assignment {result.assignment_status}
       </p>
+
       {result.result_ref && (
-        <p className="text-slate-300 font-mono truncate">ref: {result.result_ref}</p>
+        <p
+          className="text-slate-300 font-mono truncate"
+          title={result.result_ref}
+        >
+          ref: {result.result_ref}
+        </p>
       )}
+
       {result.result_size_bytes != null && (
-        <p className="text-slate-400">{result.result_size_bytes} bytes</p>
+        <p className="text-slate-400">
+          {result.result_size_bytes.toLocaleString()} bytes
+        </p>
       )}
+
       {metadataKeys.length > 0 && (
-        <pre className="text-slate-300 whitespace-pre-wrap break-all">
-          {JSON.stringify(result.result_metadata, null, 2)}
-        </pre>
+        <SafeJsonViewer
+          value={result.result_metadata}
+          maxInlineChars={5_000}
+          className="text-slate-300"
+        />
       )}
-      {result.error && <p className="text-red-400">{result.error}</p>}
+
+      {result.error && (
+        <p className="text-red-400 break-words">
+          {result.error}
+        </p>
+      )}
     </div>
   )
 }
