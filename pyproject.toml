@@ -226,6 +226,7 @@ asyncio_default_fixture_loop_scope = "function"
 markers = [
     "unit: unit tests with no external services",
     "integration: requires Postgres (docker/docker-compose.test.yml)",
+    "floci: requires a local Floci AWS emulator",
     "regression: full-system regression (API surface + cross-module smoke)",
     "revolution: adversarial + multi-party credit economy + golden vectors",
     "e2e: end-to-end tests requiring Docker Compose stack",

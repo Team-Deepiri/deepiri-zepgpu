@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import os
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -11,6 +12,29 @@ from botocore.config import Config
 from botocore.exceptions import ClientError
 
 from deepiri_zepgpu.config import settings
+
+_AWS_ENDPOINT_ENV_VARS = ("AWS_S3_ENDPOINT_URL", "AWS_ENDPOINT_URL_S3", "AWS_ENDPOINT_URL")
+
+
+def _aws_endpoint_override() -> str | None:
+    """Return an additive AWS endpoint override, if one was explicitly configured."""
+    for name in _AWS_ENDPOINT_ENV_VARS:
+        if endpoint_url := os.getenv(name):
+            return endpoint_url
+    return None
+
+
+def _client_config(endpoint_override: str | None) -> Config:
+    """Build the existing client config plus local-emulator safety settings."""
+    config_kwargs: dict[str, Any] = {
+        "signature_version": "s3v4",
+        "retries": {"max_attempts": 3, "mode": "standard"},
+    }
+    if endpoint_override:
+        config_kwargs["s3"] = {"addressing_style": "path"}
+        config_kwargs["connect_timeout"] = 2
+        config_kwargs["read_timeout"] = 5
+    return Config(**config_kwargs)
 
 
 class StorageClient:
@@ -22,27 +46,22 @@ class StorageClient:
 
     def connect(self) -> None:
         """Initialize S3 client."""
-        config = Config(
-            signature_version="s3v4",
-            retries={"max_attempts": 3, "mode": "standard"},
-        )
+        endpoint_override = _aws_endpoint_override()
+        endpoint_url = endpoint_override or settings.s3.endpoint_url
+        config = _client_config(endpoint_override)
 
-        self._client = boto3.client(
-            "s3",
-            endpoint_url=settings.s3.endpoint_url,
-            aws_access_key_id=settings.s3.access_key,
-            aws_secret_access_key=settings.s3.secret_key,
-            region_name=settings.s3.region,
-            config=config,
-        )
+        connection_kwargs: dict[str, Any] = {
+            "endpoint_url": endpoint_url,
+            "aws_access_key_id": settings.s3.access_key,
+            "aws_secret_access_key": settings.s3.secret_key,
+            "region_name": settings.s3.region,
+        }
+        self._client = boto3.client("s3", config=config, **connection_kwargs)
 
-        self._resource = boto3.resource(
-            "s3",
-            endpoint_url=settings.s3.endpoint_url,
-            aws_access_key_id=settings.s3.access_key,
-            aws_secret_access_key=settings.s3.secret_key,
-            region_name=settings.s3.region,
-        )
+        resource_kwargs = dict(connection_kwargs)
+        if endpoint_override:
+            resource_kwargs["config"] = config
+        self._resource = boto3.resource("s3", **resource_kwargs)
 
         self._ensure_bucket_exists()
 
