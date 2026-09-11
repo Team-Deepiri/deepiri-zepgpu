@@ -261,6 +261,8 @@ CELERY_RESULT_BACKEND=redis://localhost:6379/2
 
 Optional S3/MinIO settings (`S3_*` / endpoint URL) enable large result storage; the stack runs without MinIO and degrades gracefully when object storage is unavailable.
 
+For local AWS-compatible testing, see [Optional Floci S3 testing](docs/floci_s3_testing.md).
+
 Task callbacks are revalidated at submission and delivery. Set
 `TASK_CALLBACK_ALLOWED_HOSTS=callbacks.example.com,*.hooks.example.net` to restrict
 production destinations. `TASK_CALLBACK_ALLOW_LOCALHOST=true` permits `localhost` only

@@ -20,6 +20,7 @@ TEST_DATABASE_URL = os.getenv(
 
 def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line("markers", "integration: tests that need Postgres")
+    config.addinivalue_line("markers", "floci: requires a local Floci AWS emulator")
     config.addinivalue_line(
         "markers",
         "regression: full-system regression (API surface + cross-module smoke)",
